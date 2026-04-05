@@ -21,6 +21,9 @@
         "event": "add"
       }
     ],
+    "installation": {
+      "fields": []
+    },
     "settings": {
       "server_url": {
         "name": "server_url",
