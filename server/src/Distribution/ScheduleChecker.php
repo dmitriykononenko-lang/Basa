@@ -39,13 +39,22 @@ class ScheduleChecker
      */
     public function isAvailable(string $accountId, int $userId): bool
     {
+        return $this->isAvailableAt($accountId, $userId, new \DateTime('now'));
+    }
+
+    /**
+     * Same as isAvailable() but uses a specific point in time.
+     * Used directly in tests to avoid mocking the clock.
+     */
+    public function isAvailableAt(string $accountId, int $userId, \DateTime $at): bool
+    {
         $schedule = $this->load($accountId, $userId);
         if ($schedule === null) {
             return true; // No schedule configured → always available
         }
 
         $tz  = new \DateTimeZone($schedule['timezone'] ?? 'UTC');
-        $now = new \DateTime('now', $tz);
+        $now = (clone $at)->setTimezone($tz);
         $day = self::DAY_NAMES[(int) $now->format('w')];
 
         $daySchedule = $schedule['days'][$day] ?? null;
@@ -59,7 +68,6 @@ class ScheduleChecker
         $start = \DateTime::createFromFormat('H:i', $startStr, $tz);
         $end   = \DateTime::createFromFormat('H:i', $endStr,   $tz);
 
-        // Use same date as now
         $start->setDate((int) $now->format('Y'), (int) $now->format('m'), (int) $now->format('d'));
         $end->setDate((int) $now->format('Y'), (int) $now->format('m'), (int) $now->format('d'));
 
