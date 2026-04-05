@@ -5,6 +5,7 @@
     "short_description": "widget_short_description",
     "logo": "images/logo.png",
     "logo_medium": "images/logo_medium.png",
+    "cover": "images/cover.jpg",
     "version": "1.0.0",
     "lang": "ru",
     "init_once": false,

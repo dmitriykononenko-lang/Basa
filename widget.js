@@ -459,37 +459,305 @@ define(['jquery', 'underscore'], function($, _) {
 
             $container.html([
                 '<div class="dist-settings">',
-                '  <h3 class="dist-settings__title">Распределение сделок</h3>',
 
-                '  <div class="dist-section">',
-                '    <div class="dist-field">',
-                '      <label class="dist-label">URL сервера распределения <span class="dist-required">*</span></label>',
-                '      <input type="text" class="js-server-url dist-input" placeholder="https://your-server.com" value="' + _.escape(settings.server_url) + '" />',
-                '      <small class="dist-hint">Адрес бэкенд-сервиса, обрабатывающего распределение сделок.</small>',
+                // ── Tab navigation ──────────────────────────────────────────
+                '  <div class="dist-tabs">',
+                '    <button type="button" class="dist-tab dist-tab--active" data-tab="rules">Правила</button>',
+                '    <button type="button" class="dist-tab" data-tab="schedules">Расписания</button>',
+                '    <button type="button" class="dist-tab" data-tab="log">История</button>',
+                '  </div>',
+
+                // ── Tab: Rules ──────────────────────────────────────────────
+                '  <div class="dist-tab-panel" data-panel="rules">',
+
+                '    <div class="dist-section">',
+                '      <div class="dist-field">',
+                '        <label class="dist-label">URL сервера <span class="dist-required">*</span></label>',
+                '        <input type="text" class="js-server-url dist-input" placeholder="https://your-server.com" value="' + _.escape(settings.server_url || '') + '" />',
+                '        <small class="dist-hint">Адрес бэкенд-сервиса, обрабатывающего распределение сделок.</small>',
+                '      </div>',
+                '      <div class="dist-field">',
+                '        <label class="dist-label">Метод распределения</label>',
+                '        <select class="js-dist-method dist-select">',
+                '          <option value="round_robin"' + (settings.distribution_method === 'round_robin' ? ' selected' : '') + '>Round Robin (по очереди)</option>',
+                '          <option value="workload"'   + (settings.distribution_method === 'workload'    ? ' selected' : '') + '>По загруженности</option>',
+                '        </select>',
+                '      </div>',
                 '    </div>',
 
-                '    <div class="dist-field">',
-                '      <label class="dist-label">Метод распределения</label>',
-                '      <select class="js-dist-method dist-select">',
-                '        <option value="round_robin"' + (settings.distribution_method === 'round_robin' ? ' selected' : '') + '>Round Robin (по очереди)</option>',
-                '        <option value="workload"'   + (settings.distribution_method === 'workload'    ? ' selected' : '') + '>По загруженности</option>',
-                '      </select>',
+                '    <div class="dist-section">',
+                '      <h4 class="dist-section__title">Правила распределения</h4>',
+                '      <p class="dist-hint">Каждое правило задаёт, на каком этапе воронки и каким менеджерам назначать сделки.</p>',
+                '      <div class="js-rules-list dist-rules-list"></div>',
+                '      <button type="button" class="js-add-rule dist-btn dist-btn--primary">+ Добавить правило</button>',
+                '    </div>',
+
+                '  </div>',
+
+                // ── Tab: Schedules ──────────────────────────────────────────
+                '  <div class="dist-tab-panel" data-panel="schedules" style="display:none;">',
+                '    <div class="dist-section">',
+                '      <h4 class="dist-section__title">Рабочие расписания менеджеров</h4>',
+                '      <p class="dist-hint">Задайте рабочие часы для каждого менеджера. Сделки не будут назначаться в нерабочее время (если включена соответствующая опция в правиле).</p>',
+                '      <div class="js-schedules-list dist-schedules-list"></div>',
+                '      <div class="dist-schedule-add-row">',
+                '        <select class="js-schedule-user-select dist-select dist-select--inline">',
+                '          <option value="">— выберите менеджера —</option>',
+                '        </select>',
+                '        <button type="button" class="js-add-schedule dist-btn dist-btn--secondary">+ Добавить расписание</button>',
+                '      </div>',
                 '    </div>',
                 '  </div>',
 
-                '  <div class="dist-section">',
-                '    <h4 class="dist-section__title">Правила распределения</h4>',
-                '    <p class="dist-hint">Каждое правило задаёт, на каком этапе воронки и каким менеджерам назначать сделки.</p>',
-                '    <div class="js-rules-list dist-rules-list"></div>',
-                '    <button type="button" class="js-add-rule dist-btn dist-btn--primary">+ Добавить правило</button>',
+                // ── Tab: Log ────────────────────────────────────────────────
+                '  <div class="dist-tab-panel" data-panel="log" style="display:none;">',
+                '    <div class="dist-section">',
+                '      <div class="dist-log-toolbar">',
+                '        <h4 class="dist-section__title" style="margin:0;">История распределений</h4>',
+                '        <button type="button" class="js-refresh-log dist-btn dist-btn--secondary dist-btn--sm">&#x21bb; Обновить</button>',
+                '      </div>',
+                '      <div class="js-log-body dist-log-body">',
+                '        <p class="dist-hint">Нажмите «Обновить» для загрузки истории.</p>',
+                '      </div>',
+                '    </div>',
                 '  </div>',
+
                 '</div>'
             ].join(''));
+
+            // ── Tab switching ───────────────────────────────────────────────
+            $container.on('click', '.dist-tab', function() {
+                var tab = $(this).data('tab');
+                $container.find('.dist-tab').removeClass('dist-tab--active');
+                $(this).addClass('dist-tab--active');
+                $container.find('.dist-tab-panel').hide();
+                $container.find('[data-panel="' + tab + '"]').show();
+
+                if (tab === 'schedules') renderSchedulesTab($container);
+                if (tab === 'log')       renderLogTab($container);
+            });
 
             bindSettingsEvents($container, settings);
 
             return true;
         };
+
+        // ─── Schedules tab ────────────────────────────────────────────────────
+
+        var DAY_LABELS = { mon: 'Пн', tue: 'Вт', wed: 'Ср', thu: 'Чт', fri: 'Пт', sat: 'Сб', sun: 'Вс' };
+        var DAY_KEYS   = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+
+        function renderSchedulesTab($container) {
+            var $panel   = $container.find('[data-panel="schedules"]');
+            var $list    = $panel.find('.js-schedules-list');
+            var $select  = $panel.find('.js-schedule-user-select');
+
+            // Populate user selector
+            var users = (AMOCRM.data && AMOCRM.data.users) || [];
+            $select.empty().append('<option value="">— выберите менеджера —</option>');
+            _.each(users, function(u) {
+                $select.append('<option value="' + u.id + '">' + _.escape(u.name) + '</option>');
+            });
+
+            // Load existing schedules from backend
+            $list.html('<p class="dist-hint">Загрузка...</p>');
+            apiRequest('/api/schedules', null, 'GET').done(function(data) {
+                $list.empty();
+                if (!data || !Object.keys(data).length) {
+                    $list.html('<p class="dist-hint dist-empty">Расписания не настроены.</p>');
+                    return;
+                }
+                _.each(data, function(schedule, userId) {
+                    var user = _.find(users, function(u) { return String(u.id) === String(userId); });
+                    var name = user ? _.escape(user.name) : 'Менеджер #' + userId;
+                    $list.append(buildScheduleCard(userId, name, schedule));
+                });
+                bindScheduleCardEvents($panel, users);
+            }).fail(function() {
+                $list.html('<p class="dist-hint">Ошибка загрузки расписаний.</p>');
+            });
+
+            // Add schedule
+            $panel.off('click.sched', '.js-add-schedule').on('click.sched', '.js-add-schedule', function() {
+                var userId = $select.val();
+                if (!userId) return;
+                var user   = _.find(users, function(u) { return String(u.id) === String(userId); });
+                var name   = user ? _.escape(user.name) : 'Менеджер #' + userId;
+                var defaultSched = {
+                    timezone: 'Europe/Moscow',
+                    days: {
+                        mon: { start: '09:00', end: '18:00' }, tue: { start: '09:00', end: '18:00' },
+                        wed: { start: '09:00', end: '18:00' }, thu: { start: '09:00', end: '18:00' },
+                        fri: { start: '09:00', end: '18:00' }, sat: null, sun: null
+                    }
+                };
+                if ($panel.find('.js-schedule-card[data-user-id="' + userId + '"]').length) return;
+                $panel.find('.js-schedules-list').append(buildScheduleCard(userId, name, defaultSched));
+                bindScheduleCardEvents($panel, users);
+                $select.val('');
+            });
+        }
+
+        function buildScheduleCard(userId, name, schedule) {
+            var tz   = _.escape(schedule.timezone || 'Europe/Moscow');
+            var days = _.map(DAY_KEYS, function(day) {
+                var slot    = schedule.days ? schedule.days[day] : null;
+                var isOff   = slot === null || slot === undefined;
+                var start   = isOff ? '09:00' : (slot.start || '09:00');
+                var end_    = isOff ? '18:00' : (slot.end   || '18:00');
+                return [
+                    '<div class="dist-day-row">',
+                    '  <label class="dist-day-toggle">',
+                    '    <input type="checkbox" class="js-day-toggle" data-day="' + day + '" ' + (isOff ? '' : 'checked') + ' />',
+                    '    <span class="dist-day-label">' + DAY_LABELS[day] + '</span>',
+                    '  </label>',
+                    '  <div class="dist-day-slots ' + (isOff ? 'dist-day-slots--hidden' : '') + '" data-day="' + day + '">',
+                    '    <input type="time" class="js-day-start dist-input-time" value="' + start + '" />',
+                    '    <span class="dist-day-sep">—</span>',
+                    '    <input type="time" class="js-day-end dist-input-time" value="' + end_ + '" />',
+                    '  </div>',
+                    '</div>'
+                ].join('');
+            }).join('');
+
+            return [
+                '<div class="dist-schedule-card js-schedule-card" data-user-id="' + userId + '">',
+                '  <div class="dist-schedule-card__header">',
+                '    <span class="dist-schedule-card__name">' + name + '</span>',
+                '    <div class="dist-schedule-card__actions">',
+                '      <button type="button" class="js-save-schedule dist-btn dist-btn--primary dist-btn--sm" data-user-id="' + userId + '">Сохранить</button>',
+                '      <button type="button" class="js-delete-schedule dist-btn dist-btn--danger dist-btn--sm" data-user-id="' + userId + '">Удалить</button>',
+                '    </div>',
+                '  </div>',
+                '  <div class="dist-schedule-card__body">',
+                '    <div class="dist-field">',
+                '      <label class="dist-label">Часовой пояс</label>',
+                '      <input type="text" class="js-schedule-tz dist-input" value="' + tz + '" placeholder="Europe/Moscow" />',
+                '    </div>',
+                '    <div class="dist-days-grid">' + days + '</div>',
+                '  </div>',
+                '</div>'
+            ].join('');
+        }
+
+        function bindScheduleCardEvents($panel, users) {
+            // Day toggle
+            $panel.off('change.sched', '.js-day-toggle').on('change.sched', '.js-day-toggle', function() {
+                var day    = $(this).data('day');
+                var $slots = $panel.find('.dist-day-slots[data-day="' + day + '"]').closest('.dist-schedule-card').find('.dist-day-slots[data-day="' + day + '"]');
+                $slots.toggleClass('dist-day-slots--hidden', !$(this).is(':checked'));
+            });
+
+            // Save schedule
+            $panel.off('click.sched-save', '.js-save-schedule').on('click.sched-save', '.js-save-schedule', function() {
+                var userId = $(this).data('user-id');
+                var $card  = $panel.find('.js-schedule-card[data-user-id="' + userId + '"]');
+                var sched  = collectScheduleFromCard($card);
+
+                apiRequest('/api/schedules/' + userId, sched, 'PUT').done(function() {
+                    notify('Расписание сохранено', 'success');
+                }).fail(function() {
+                    notify('Ошибка сохранения расписания', 'error');
+                });
+            });
+
+            // Delete schedule
+            $panel.off('click.sched-del', '.js-delete-schedule').on('click.sched-del', '.js-delete-schedule', function() {
+                var userId = $(this).data('user-id');
+                var $card  = $panel.find('.js-schedule-card[data-user-id="' + userId + '"]');
+
+                apiRequest('/api/schedules/' + userId, null, 'DELETE').done(function() {
+                    $card.remove();
+                    notify('Расписание удалено', 'success');
+                }).fail(function() {
+                    notify('Ошибка удаления расписания', 'error');
+                });
+            });
+        }
+
+        function collectScheduleFromCard($card) {
+            var tz   = $.trim($card.find('.js-schedule-tz').val()) || 'Europe/Moscow';
+            var days = {};
+            _.each(DAY_KEYS, function(day) {
+                var $toggle = $card.find('.js-day-toggle[data-day="' + day + '"]');
+                if (!$toggle.is(':checked')) {
+                    days[day] = null;
+                } else {
+                    var $slots = $card.find('.dist-day-slots[data-day="' + day + '"]');
+                    days[day] = {
+                        start: $slots.find('.js-day-start').val() || '09:00',
+                        end:   $slots.find('.js-day-end').val()   || '18:00'
+                    };
+                }
+            });
+            return { timezone: tz, days: days };
+        }
+
+        // ─── Log tab ──────────────────────────────────────────────────────────
+
+        var LOG_REASONS = {
+            assigned:            'Назначена',
+            skipped_no_rule:     'Нет правила',
+            skipped_schedule:    'Вне расписания',
+            skipped_no_managers: 'Нет менеджеров',
+            history_match:       'История контакта'
+        };
+
+        function renderLogTab($container) {
+            var $panel = $container.find('[data-panel="log"]');
+
+            $panel.off('click.log', '.js-refresh-log').on('click.log', '.js-refresh-log', function() {
+                loadLog($panel);
+            });
+
+            loadLog($panel);
+        }
+
+        function loadLog($panel) {
+            var $body = $panel.find('.js-log-body');
+            $body.html('<p class="dist-hint">Загрузка...</p>');
+
+            apiRequest('/api/log?limit=100', null, 'GET').done(function(entries) {
+                if (!entries || !entries.length) {
+                    $body.html('<p class="dist-hint dist-empty">История пуста.</p>');
+                    return;
+                }
+
+                var users = (AMOCRM.data && AMOCRM.data.users) || [];
+
+                var rows = _.map(entries, function(e) {
+                    var user    = _.find(users, function(u) { return String(u.id) === String(e.manager_id); });
+                    var manager = e.manager_id ? (user ? _.escape(user.name) : '#' + e.manager_id) : '—';
+                    var reason  = LOG_REASONS[e.reason] || e.reason;
+                    var date    = e.ts ? new Date(e.ts * 1000).toLocaleString('ru-RU') : '—';
+                    var badge   = e.reason === 'assigned' || e.reason === 'history_match'
+                        ? 'dist-badge--success' : 'dist-badge--muted';
+
+                    return [
+                        '<tr>',
+                        '  <td class="dist-log-td">' + date + '</td>',
+                        '  <td class="dist-log-td"><a href="/leads/detail/' + e.lead_id + '" target="_blank">#' + e.lead_id + '</a></td>',
+                        '  <td class="dist-log-td">' + manager + '</td>',
+                        '  <td class="dist-log-td"><span class="dist-badge ' + badge + '">' + reason + '</span></td>',
+                        '</tr>'
+                    ].join('');
+                }).join('');
+
+                $body.html([
+                    '<table class="dist-log-table">',
+                    '  <thead><tr>',
+                    '    <th class="dist-log-th">Время</th>',
+                    '    <th class="dist-log-th">Сделка</th>',
+                    '    <th class="dist-log-th">Менеджер</th>',
+                    '    <th class="dist-log-th">Результат</th>',
+                    '  </tr></thead>',
+                    '  <tbody>' + rows + '</tbody>',
+                    '</table>'
+                ].join(''));
+            }).fail(function() {
+                $body.html('<p class="dist-hint">Ошибка загрузки истории.</p>');
+            });
+        }
 
         /** Called before settings are saved — collect values */
         self.onSave = function() {
