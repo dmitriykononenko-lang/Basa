@@ -61,7 +61,7 @@ php -S 0.0.0.0:8080 -t public
 В настройках интеграции AmoCRM укажите Redirect URI:
 
 ```
-https://your-server.com/oauth/callback
+https://dist.koagency.me/oauth/callback
 ```
 
 При установке виджета AmoCRM перенаправит пользователя на этот адрес, и токены сохранятся автоматически.

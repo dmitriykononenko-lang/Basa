@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-DOMAIN="koagency.me"
+DOMAIN="dist.koagency.me"
 EMAIL="admin@koagency.me"          # email для Let's Encrypt уведомлений
 REPO="https://github.com/dmitriykononenko-lang/Basa.git"
 BRANCH="claude/amocrm-deal-distribution-widget-ceg7R"
@@ -181,7 +181,7 @@ docker run --rm \
     --webroot -w /var/www/certbot \
     --email "$EMAIL" \
     --agree-tos --no-eff-email \
-    -d "$DOMAIN" -d "www.$DOMAIN" \
+    -d "$DOMAIN" \
     --non-interactive
 
 docker stop nginx-acme
