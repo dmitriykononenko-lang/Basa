@@ -6,6 +6,7 @@ namespace DealDist\App;
 
 use DealDist\Http\Middleware\AuthMiddleware;
 use DealDist\Http\Middleware\JsonMiddleware;
+use DealDist\Http\Controller\AnalysisController;
 use DealDist\Http\Controller\DistributeController;
 use DealDist\Http\Controller\OAuthController;
 use DealDist\Http\Controller\QueueController;
@@ -38,6 +39,9 @@ class AppFactory
         $app->add(new JsonMiddleware());
 
         // Routes
+        $app->post('/api/analysis/lead',                        AnalysisController::class  . ':analyzeLead');
+        $app->get('/api/analysis/pipeline/{pipelineId:[0-9]+}', AnalysisController::class  . ':analyzePipeline');
+
         $app->post('/api/distribute',                   DistributeController::class . ':distribute');
         $app->put('/api/settings',                      SettingsController::class   . ':save');
         $app->get('/api/settings',                      SettingsController::class   . ':get');

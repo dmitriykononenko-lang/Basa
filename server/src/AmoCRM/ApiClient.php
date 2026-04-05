@@ -185,6 +185,63 @@ class ApiClient
         return null;
     }
 
+    // ── Lead lists & notes ────────────────────────────────────────────────────
+
+    /**
+     * Fetches a page of leads, optionally filtered by pipeline/stage.
+     *
+     * @param  array<string,mixed> $filters  e.g. ['filter[pipeline_id]' => 123]
+     * @return array<int,array>
+     */
+    public function getLeads(string $accountId, array $filters = [], int $page = 1, int $limit = 50): array
+    {
+        $query = http_build_query(array_merge($filters, [
+            'page'  => $page,
+            'limit' => $limit,
+            'with'  => 'tags,contacts,companies',
+        ]));
+        $data = $this->request($accountId, 'GET', '/leads?' . $query);
+        return $data['_embedded']['leads'] ?? [];
+    }
+
+    /**
+     * Returns notes (calls, comments, system events) for a lead, newest last.
+     *
+     * @return array<int,array>
+     */
+    public function getLeadNotes(string $accountId, int $leadId): array
+    {
+        try {
+            $data = $this->request($accountId, 'GET', "/leads/$leadId/notes?limit=50&order[id]=asc");
+            return $data['_embedded']['notes'] ?? [];
+        } catch (\Throwable $e) {
+            $this->logger->warning('Failed to fetch lead notes', [
+                'lead_id'   => $leadId,
+                'exception' => $e->getMessage(),
+            ]);
+            return [];
+        }
+    }
+
+    /**
+     * Returns open tasks attached to a lead.
+     *
+     * @return array<int,array>
+     */
+    public function getLeadTasks(string $accountId, int $leadId): array
+    {
+        try {
+            $data = $this->request($accountId, 'GET', "/tasks?filter[entity_id]=$leadId&filter[entity_type]=leads&filter[is_completed]=false");
+            return $data['_embedded']['tasks'] ?? [];
+        } catch (\Throwable $e) {
+            $this->logger->warning('Failed to fetch lead tasks', [
+                'lead_id'   => $leadId,
+                'exception' => $e->getMessage(),
+            ]);
+            return [];
+        }
+    }
+
     // ── Users ──────────────────────────────────────────────────────────────────
 
     /**
