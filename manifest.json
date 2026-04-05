@@ -22,6 +22,7 @@
       }
     ],
     "installation": false,
+    "langs": ["ru", "en"],
     "settings": {
       "server_url": {
         "name": "server_url",
