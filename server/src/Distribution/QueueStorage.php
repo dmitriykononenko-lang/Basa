@@ -71,6 +71,42 @@ class QueueStorage
         );
     }
 
+    public function resetQueue(string $accountId, string $ruleHash): void
+    {
+        $file = $this->filePath($accountId, $ruleHash);
+        if (!file_exists($file)) {
+            return;
+        }
+
+        $state = json_decode(file_get_contents($file), true, 512, JSON_THROW_ON_ERROR);
+        $state['next_index'] = 0;
+        $state['updated_at'] = time();
+        file_put_contents($file, json_encode($state, JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT), LOCK_EX);
+    }
+
+    /**
+     * Return all queue states for an account.
+     *
+     * @return array<string, array>  [ruleHash => state]
+     */
+    public function listQueues(string $accountId): array
+    {
+        $dir = $this->basePath . '/' . $accountId;
+        if (!is_dir($dir)) {
+            return [];
+        }
+
+        $result = [];
+        foreach (glob($dir . '/*.json') as $file) {
+            $hash   = basename($file, '.json');
+            $data   = json_decode(file_get_contents($file), true);
+            if ($data !== null) {
+                $result[$hash] = $data;
+            }
+        }
+        return $result;
+    }
+
     private function filePath(string $accountId, string $ruleHash): string
     {
         return $this->basePath . '/' . $accountId . '/' . $ruleHash . '.json';

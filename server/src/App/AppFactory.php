@@ -7,8 +7,11 @@ namespace DealDist\App;
 use DealDist\Http\Middleware\AuthMiddleware;
 use DealDist\Http\Middleware\JsonMiddleware;
 use DealDist\Http\Controller\DistributeController;
-use DealDist\Http\Controller\SettingsController;
 use DealDist\Http\Controller\OAuthController;
+use DealDist\Http\Controller\QueueController;
+use DealDist\Http\Controller\ScheduleController;
+use DealDist\Http\Controller\SettingsController;
+use DealDist\Http\Controller\WebhookController;
 use DI\ContainerBuilder;
 use Monolog\Handler\StreamHandler;
 use Monolog\Level;
@@ -35,10 +38,25 @@ class AppFactory
         $app->add(new JsonMiddleware());
 
         // Routes
-        $app->post('/api/distribute', DistributeController::class . ':distribute');
-        $app->put('/api/settings',    SettingsController::class  . ':save');
-        $app->get('/api/settings',    SettingsController::class  . ':get');
-        $app->get('/oauth/callback',  OAuthController::class     . ':callback');
+        $app->post('/api/distribute',                   DistributeController::class . ':distribute');
+        $app->put('/api/settings',                      SettingsController::class   . ':save');
+        $app->get('/api/settings',                      SettingsController::class   . ':get');
+
+        // Schedules
+        $app->get('/api/schedules',                     ScheduleController::class   . ':listAll');
+        $app->get('/api/schedules/{userId:[0-9]+}',     ScheduleController::class   . ':get');
+        $app->put('/api/schedules/{userId:[0-9]+}',     ScheduleController::class   . ':save');
+        $app->delete('/api/schedules/{userId:[0-9]+}',  ScheduleController::class   . ':delete');
+
+        // Queue management
+        $app->get('/api/queue',                         QueueController::class      . ':listQueues');
+        $app->post('/api/queue/{ruleHash}/reset',       QueueController::class      . ':resetQueue');
+        $app->get('/api/log',                           QueueController::class      . ':getLog');
+
+        // AmoCRM webhook (alternative to Digital Pipeline)
+        $app->post('/webhook/leads',                    WebhookController::class    . ':handle');
+
+        $app->get('/oauth/callback',                    OAuthController::class      . ':callback');
 
         return $app;
     }

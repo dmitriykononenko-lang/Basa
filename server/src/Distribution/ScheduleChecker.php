@@ -79,6 +79,42 @@ class ScheduleChecker
         );
     }
 
+    public function getSchedule(string $accountId, int $userId): ?array
+    {
+        return $this->load($accountId, $userId);
+    }
+
+    public function deleteSchedule(string $accountId, int $userId): void
+    {
+        $file = $this->basePath . '/' . $accountId . '/' . $userId . '.json';
+        if (file_exists($file)) {
+            unlink($file);
+        }
+    }
+
+    /**
+     * Return all schedules for the account keyed by user_id.
+     *
+     * @return array<int, array>
+     */
+    public function listSchedules(string $accountId): array
+    {
+        $dir = $this->basePath . '/' . $accountId;
+        if (!is_dir($dir)) {
+            return [];
+        }
+
+        $result = [];
+        foreach (glob($dir . '/*.json') as $file) {
+            $userId = (int) basename($file, '.json');
+            $data   = json_decode(file_get_contents($file), true);
+            if ($data !== null) {
+                $result[$userId] = $data;
+            }
+        }
+        return $result;
+    }
+
     private function load(string $accountId, int $userId): ?array
     {
         $file = $this->basePath . '/' . $accountId . '/' . $userId . '.json';

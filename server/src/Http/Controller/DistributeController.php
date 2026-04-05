@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace DealDist\Http\Controller;
 
 use DealDist\AmoCRM\ApiClient;
+use DealDist\Distribution\DistributionLog;
 use DealDist\Distribution\DistributionService;
 use DealDist\Distribution\QueueStorage;
 use DealDist\Distribution\ScheduleChecker;
@@ -43,6 +44,7 @@ class DistributeController
                 $apiClient,
                 new QueueStorage(),
                 new ScheduleChecker(),
+                new DistributionLog(),
                 $this->logger,
             );
 

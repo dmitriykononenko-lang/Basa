@@ -133,11 +133,13 @@ class ApiClient
     /**
      * Returns the responsible_user_id from any deal related to the same
      * contact or company, if one exists.
+     *
+     * @param array|null $leadData  Already-loaded lead data (avoids an extra API call)
      */
-    public function getExistingResponsible(string $accountId, int $leadId): ?int
+    public function getExistingResponsible(string $accountId, int $leadId, ?array $leadData = null): ?int
     {
-        // Load lead with contacts & companies embedded
-        $lead = $this->getLead($accountId, $leadId, ['contacts', 'companies']);
+        // Reuse already-loaded lead data when available
+        $lead = $leadData ?? $this->getLead($accountId, $leadId, ['contacts', 'companies']);
 
         $contactIds = array_column($lead['_embedded']['contacts'] ?? [], 'id');
         $companyIds = array_column($lead['_embedded']['companies'] ?? [], 'id');

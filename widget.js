@@ -129,53 +129,137 @@ define(['jquery', 'underscore'], function($, _) {
         }
 
         function buildRuleRowHtml(rule) {
+            var f = rule.filters || {};
             return [
                 '<div class="dist-rule-row">',
                 '  <div class="dist-rule-row__header">',
-                '    <span class="dist-rule-row__title">',
-                '      <span class="rule-number"></span>',
-                '    </span>',
-                '    <button type="button" class="js-remove-rule dist-btn dist-btn--danger dist-btn--sm">',
-                '      &#x2715;',
-                '    </button>',
+                '    <span class="dist-rule-row__title"><span class="rule-number"></span></span>',
+                '    <button type="button" class="js-remove-rule dist-btn dist-btn--danger dist-btn--sm">&#x2715;</button>',
                 '  </div>',
                 '  <div class="dist-rule-row__body">',
-                '    <div class="dist-field">',
-                '      <label class="dist-label">Воронка</label>',
-                '      <select class="js-rule-pipeline dist-select" name="pipeline_id">',
-                '        <option value="">— выберите —</option>',
-                '      </select>',
+
+                // Pipeline + Stage
+                '    <div class="dist-row-2col">',
+                '      <div class="dist-field">',
+                '        <label class="dist-label">Воронка</label>',
+                '        <select class="js-rule-pipeline dist-select" name="pipeline_id">',
+                '          <option value="">— выберите —</option>',
+                '        </select>',
+                '      </div>',
+                '      <div class="dist-field">',
+                '        <label class="dist-label">Этап</label>',
+                '        <select class="js-rule-stage dist-select" name="stage_id">',
+                '          <option value="">Любой</option>',
+                '        </select>',
+                '      </div>',
                 '    </div>',
-                '    <div class="dist-field">',
-                '      <label class="dist-label">Этап</label>',
-                '      <select class="js-rule-stage dist-select" name="stage_id">',
-                '        <option value="">Любой</option>',
-                '      </select>',
-                '    </div>',
+
+                // Managers
                 '    <div class="dist-field">',
                 '      <label class="dist-label">Ответственные менеджеры</label>',
                 '      <div class="js-managers-list dist-managers-list"></div>',
-                '      <button type="button" class="js-add-manager dist-btn dist-btn--secondary dist-btn--sm">',
-                '        + Добавить менеджера',
+                '      <button type="button" class="js-add-manager dist-btn dist-btn--secondary dist-btn--sm">+ Добавить менеджера</button>',
+                '    </div>',
+
+                // Checkboxes
+                '    <div class="dist-row-2col">',
+                '      <div class="dist-field">',
+                '        <label class="dist-label">',
+                '          <input type="checkbox" class="js-check-history" ' + (rule.check_history ? 'checked' : '') + ' />',
+                '          Учитывать историю контакта/компании',
+                '        </label>',
+                '      </div>',
+                '      <div class="dist-field">',
+                '        <label class="dist-label">',
+                '          <input type="checkbox" class="js-check-schedule" ' + (rule.check_schedule ? 'checked' : '') + ' />',
+                '          Учитывать рабочее расписание',
+                '        </label>',
+                '      </div>',
+                '    </div>',
+
+                // Filters collapsible section
+                '    <div class="dist-filters-section">',
+                '      <button type="button" class="js-toggle-filters dist-toggle-btn">',
+                '        <span class="dist-toggle-icon">&#9656;</span> Фильтры сделок',
                 '      </button>',
+                '      <div class="js-filters-body dist-filters-body" style="display:none;">',
+                '        <div class="dist-row-2col">',
+                '          <div class="dist-field">',
+                '            <label class="dist-label">Бюджет от (₽)</label>',
+                '            <input type="number" class="js-filter-budget-min dist-input" min="0" placeholder="0" value="' + (f.budget_min || '') + '" />',
+                '          </div>',
+                '          <div class="dist-field">',
+                '            <label class="dist-label">Бюджет до (₽)</label>',
+                '            <input type="number" class="js-filter-budget-max dist-input" min="0" placeholder="без ограничений" value="' + (f.budget_max || '') + '" />',
+                '          </div>',
+                '        </div>',
+                '        <div class="dist-field">',
+                '          <label class="dist-label">Название содержит</label>',
+                '          <input type="text" class="js-filter-name dist-input" placeholder="например: доставка" value="' + _.escape(f.name_contains || '') + '" />',
+                '        </div>',
+                '        <div class="dist-field">',
+                '          <label class="dist-label">Теги (через запятую)</label>',
+                '          <input type="text" class="js-filter-tags dist-input" placeholder="vip, wholesale" value="' + _.escape((f.tags || []).join(', ')) + '" />',
+                '          <small class="dist-hint">Сделка должна содержать ВСЕ указанные теги.</small>',
+                '        </div>',
+                '        <div class="dist-field">',
+                '          <label class="dist-label">Дополнительные поля</label>',
+                '          <div class="js-cf-list dist-cf-list"></div>',
+                '          <button type="button" class="js-add-cf dist-btn dist-btn--secondary dist-btn--sm">+ Добавить условие</button>',
+                '        </div>',
+                '      </div>',
                 '    </div>',
-                '    <div class="dist-field">',
-                '      <label class="dist-label">',
-                '        <input type="checkbox" class="js-check-history" name="check_history" ',
-                              (rule.check_history ? 'checked' : '') + ' /> ',
-                '        Учитывать историю контакта/компании',
-                '      </label>',
-                '    </div>',
-                '    <div class="dist-field">',
-                '      <label class="dist-label">',
-                '        <input type="checkbox" class="js-check-schedule" name="check_schedule" ',
-                              (rule.check_schedule ? 'checked' : '') + ' /> ',
-                '        Учитывать рабочее расписание менеджера',
-                '      </label>',
-                '    </div>',
+
                 '  </div>',
                 '</div>'
             ].join('');
+        }
+
+        function bindFilterEvents($row, filters) {
+            // Toggle filters section
+            $row.on('click', '.js-toggle-filters', function() {
+                var $body = $row.find('.js-filters-body');
+                var $icon = $(this).find('.dist-toggle-icon');
+                $body.toggle();
+                $icon.html($body.is(':visible') ? '&#9662;' : '&#9656;');
+            });
+
+            // Show filters panel if any filter is already set
+            var f = filters || {};
+            if (f.budget_min || f.budget_max || f.name_contains || (f.tags && f.tags.length) || (f.custom_fields && f.custom_fields.length)) {
+                $row.find('.js-filters-body').show();
+                $row.find('.dist-toggle-icon').html('&#9662;');
+            }
+
+            // Add custom field condition
+            $row.on('click', '.js-add-cf', function() {
+                addCfRow($row, {});
+            });
+            $row.on('click', '.js-remove-cf', function() {
+                $(this).closest('.dist-cf-row').remove();
+            });
+
+            // Render existing custom field conditions
+            _.each(f.custom_fields || [], function(cf) {
+                addCfRow($row, cf);
+            });
+        }
+
+        function addCfRow($row, cf) {
+            var html = [
+                '<div class="dist-cf-row">',
+                '  <input type="number" class="js-cf-field-id dist-input dist-input--sm" placeholder="ID поля" value="' + (cf.field_id || '') + '" />',
+                '  <select class="js-cf-operator dist-select dist-select--sm">',
+                '    <option value="eq"'       + (cf.operator === 'eq'       ? ' selected' : '') + '>равно</option>',
+                '    <option value="contains"' + (cf.operator === 'contains' ? ' selected' : '') + '>содержит</option>',
+                '    <option value="gte"'      + (cf.operator === 'gte'      ? ' selected' : '') + '>≥</option>',
+                '    <option value="lte"'      + (cf.operator === 'lte'      ? ' selected' : '') + '>≤</option>',
+                '  </select>',
+                '  <input type="text" class="js-cf-value dist-input dist-input--sm" placeholder="значение" value="' + _.escape(cf.value || '') + '" />',
+                '  <button type="button" class="js-remove-cf dist-btn dist-btn--danger dist-btn--sm">&#x2715;</button>',
+                '</div>'
+            ].join('');
+            $row.find('.js-cf-list').append(html);
         }
 
         function recalcRuleIndexes($container) {
@@ -215,6 +299,9 @@ define(['jquery', 'underscore'], function($, _) {
             $row.on('click', '.js-remove-manager', function() {
                 $(this).closest('.dist-manager-row').remove();
             });
+
+            // filters
+            bindFilterEvents($row, rule.filters || {});
         }
 
         function loadStages(pipelineId, $row, selectedStageId) {
@@ -264,21 +351,50 @@ define(['jquery', 'underscore'], function($, _) {
             var rules = [];
 
             $container.find('.dist-rule-row').each(function() {
-                var $row  = $(this);
-                var rule  = {
-                    pipeline_id:    $row.find('.js-rule-pipeline').val()    || null,
-                    stage_id:       $row.find('.js-rule-stage').val()       || null,
-                    check_history:  $row.find('.js-check-history').is(':checked'),
-                    check_schedule: $row.find('.js-check-schedule').is(':checked'),
-                    managers:       []
-                };
+                var $row = $(this);
 
+                // Managers
+                var managers = [];
                 $row.find('.dist-manager-row').each(function() {
-                    var managerId = $(this).find('.js-manager-select').val();
-                    if (managerId) {
-                        rule.managers.push({ id: managerId });
+                    var id = $(this).find('.js-manager-select').val();
+                    if (id) managers.push({ id: id });
+                });
+
+                // Filters
+                var filters = {};
+                var budgetMin = $.trim($row.find('.js-filter-budget-min').val());
+                var budgetMax = $.trim($row.find('.js-filter-budget-max').val());
+                var nameContains = $.trim($row.find('.js-filter-name').val());
+                var tagsRaw = $.trim($row.find('.js-filter-tags').val());
+
+                if (budgetMin !== '')   filters.budget_min    = parseInt(budgetMin, 10);
+                if (budgetMax !== '')   filters.budget_max    = parseInt(budgetMax, 10);
+                if (nameContains)       filters.name_contains = nameContains;
+                if (tagsRaw) {
+                    filters.tags = _.compact(_.map(tagsRaw.split(','), function(t) {
+                        return $.trim(t);
+                    }));
+                }
+
+                var customFields = [];
+                $row.find('.dist-cf-row').each(function() {
+                    var fieldId  = $.trim($(this).find('.js-cf-field-id').val());
+                    var operator = $(this).find('.js-cf-operator').val();
+                    var value    = $.trim($(this).find('.js-cf-value').val());
+                    if (fieldId && value) {
+                        customFields.push({ field_id: parseInt(fieldId, 10), operator: operator, value: value });
                     }
                 });
+                if (customFields.length) filters.custom_fields = customFields;
+
+                var rule = {
+                    pipeline_id:    $row.find('.js-rule-pipeline').val() || null,
+                    stage_id:       $row.find('.js-rule-stage').val()    || null,
+                    check_history:  $row.find('.js-check-history').is(':checked'),
+                    check_schedule: $row.find('.js-check-schedule').is(':checked'),
+                    managers:       managers,
+                    filters:        filters
+                };
 
                 if (rule.pipeline_id && rule.managers.length) {
                     rules.push(rule);

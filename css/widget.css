@@ -206,6 +206,83 @@
     cursor: pointer;
 }
 
+/* ── Two-column row ────────────────────────────────────────── */
+.dist-row-2col {
+    display: flex;
+    gap: 16px;
+}
+
+.dist-row-2col .dist-field {
+    flex: 1;
+    min-width: 0;
+}
+
+/* ── Filters section ───────────────────────────────────────── */
+.dist-filters-section {
+    margin-top: 10px;
+    border-top: 1px dashed #dde3ec;
+    padding-top: 10px;
+}
+
+.dist-toggle-btn {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: 12px;
+    color: #4e6490;
+    cursor: pointer;
+    font-weight: 500;
+}
+
+.dist-toggle-btn:hover {
+    color: #2d4a7a;
+}
+
+.dist-toggle-icon {
+    display: inline-block;
+    margin-right: 4px;
+}
+
+.dist-filters-body {
+    margin-top: 10px;
+}
+
+/* ── Custom field conditions ───────────────────────────────── */
+.dist-cf-list {
+    margin-bottom: 6px;
+}
+
+.dist-cf-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+    flex-wrap: wrap;
+}
+
+.dist-input--sm {
+    height: 28px;
+    padding: 0 8px;
+    font-size: 12px;
+    width: auto;
+}
+
+.dist-select--sm {
+    height: 28px;
+    padding: 0 6px;
+    font-size: 12px;
+    width: auto;
+}
+
+.dist-cf-row .js-cf-field-id {
+    width: 90px;
+}
+
+.dist-cf-row .js-cf-value {
+    flex: 1;
+    min-width: 100px;
+}
+
 /* ── Empty state ───────────────────────────────────────────── */
 .dist-empty {
     text-align: center;
