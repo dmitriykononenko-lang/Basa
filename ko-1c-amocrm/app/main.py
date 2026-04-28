@@ -56,5 +56,7 @@ async def startup():
 async def shutdown():
     _scheduler.shutdown(wait=False)
     from app.services.amocrm_client import amo_client
+    from app.services.onec_client import onec_client
     await amo_client.close()
+    await onec_client.close()
     log.info("app_stopped")

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -6,42 +6,60 @@ from pydantic import BaseModel, Field
 
 # ─── Входящие данные от 1С ────────────────────────────────────────────────────
 
-class OnecOrderItem(BaseModel):
-    nomenclature: str
-    quantity: float
-    price: float
-    unit: str = ""
-
-
 class OnecOrder(BaseModel):
-    """Тело webhook / pull-ответа от 1С. Поля уточняются под реальную 1С."""
+    # Идентификация
+    order_number: str = Field(..., examples=["M00008597"], description="Номер заказа в 1С")
 
-    order_number: str = Field(..., description="Номер заказа в 1С")
-    status: str = Field(..., description="Статус заказа в 1С")
-    client_name: str = ""
-    client_phone: str = ""
-    client_email: str = ""
-    total_amount: float = 0.0
-    items: list[OnecOrderItem] = []
-    comment: str = ""
+    # Даты
     created_at: datetime | None = None
-    extra: dict[str, Any] = Field(default_factory=dict, description="Произвольные поля")
+    export_date: date | None = Field(None, description="Дата вывоза")
+    export_period: str = Field("", examples=["9-15"], description="Период вывоза, напр. «9-15»")
+
+    # Статус
+    status: str = ""
+    cancel_reason: str = Field("", description="Причина отмены")
+
+    # Клиент
+    last_name: str = ""
+    first_name: str = ""
+    middle_name: str = ""
+    phone: str = ""
+
+    # Груз
+    cargo_type: str = Field("", description="Тип груза (Товар)")
+    volume: float | None = Field(None, description="Объём, м³")
+    weight: float | None = Field(None, description="Вес, кг")
+
+    # Адрес и примечания
+    delivery_address: str = Field("", description="Адрес доставки / Данные заявки")
+    notes: str = ""
+
+    # Служебное — если 1С уже знает lead_id (при обновлении)
+    amocrm_lead_id: int | None = Field(None, description="ID сделки amoCRM, если известен")
+
+    @property
+    def full_name(self) -> str:
+        return " ".join(p for p in [self.last_name, self.first_name, self.middle_name] if p)
 
 
 # ─── Входящие данные от amoCRM ────────────────────────────────────────────────
 
-class AmoWebhookLead(BaseModel):
-    id: int
+class AmoStatusChange(BaseModel):
+    """Распарсенные данные из webhook amoCRM об изменении этапа сделки."""
+
+    lead_id: int
     status_id: int
     pipeline_id: int
-    responsible_user_id: int | None = None
-    name: str = ""
 
 
-class AmoWebhookPayload(BaseModel):
-    """amoCRM шлёт form-encoded, мы принимаем уже распарсенный dict."""
+# ─── Обратная синхронизация: запрос к 1С ─────────────────────────────────────
 
-    leads: dict[str, list[AmoWebhookLead]] = Field(default_factory=dict)
+class OnecStatusUpdate(BaseModel):
+    """Тело запроса к HTTP-сервису 1С для обновления статуса заказа."""
+
+    amocrm_lead_id: int
+    order_number: str
+    new_status: str
 
 
 # ─── Ответы API ───────────────────────────────────────────────────────────────

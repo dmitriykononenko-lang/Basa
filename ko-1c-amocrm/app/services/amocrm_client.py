@@ -1,3 +1,6 @@
+import time
+from typing import Any
+
 import httpx
 import structlog
 
@@ -5,7 +8,7 @@ from app.config import settings
 
 log = structlog.get_logger()
 
-_token_cache: dict = {}  # {"access_token": str, "expires_at": float}
+_token_cache: dict[str, Any] = {}
 
 
 class AmoCRMError(Exception):
@@ -15,13 +18,13 @@ class AmoCRMError(Exception):
 
 
 class AmoCRMClient:
-    def __init__(self):
+    def __init__(self) -> None:
         self.base_url = f"https://{settings.amo_domain}"
         self._client = httpx.AsyncClient(base_url=self.base_url, timeout=15)
 
-    async def _get_token(self) -> str:
-        import time
+    # ─── OAuth2 ───────────────────────────────────────────────────────────────
 
+    async def _get_token(self) -> str:
         if _token_cache.get("access_token") and _token_cache.get("expires_at", 0) > time.time() + 60:
             return _token_cache["access_token"]
 
@@ -35,18 +38,15 @@ class AmoCRMClient:
                 "redirect_uri": settings.amo_redirect_uri,
             },
         )
-        if resp.status_code != 200:
-            raise AmoCRMError(resp.status_code, resp.text)
-
+        self._raise_for_status(resp)
         data = resp.json()
-        import time as t
         _token_cache["access_token"] = data["access_token"]
-        _token_cache["expires_at"] = t.time() + data["expires_in"]
-        # В проде сохранять refresh_token в БД — он меняется каждый раз
+        _token_cache["expires_at"] = time.time() + data["expires_in"]
+        # В проде: сохранить новый refresh_token в БД — он обновляется каждый раз
         log.info("amo_token_refreshed")
         return _token_cache["access_token"]
 
-    async def _headers(self) -> dict:
+    async def _headers(self) -> dict[str, str]:
         token = await self._get_token()
         return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
@@ -54,9 +54,7 @@ class AmoCRMClient:
 
     async def create_lead(self, lead_data: dict) -> dict:
         resp = await self._client.post(
-            "/api/v4/leads",
-            json=[lead_data],
-            headers=await self._headers(),
+            "/api/v4/leads", json=[lead_data], headers=await self._headers()
         )
         self._raise_for_status(resp)
         created = resp.json()["_embedded"]["leads"][0]
@@ -64,11 +62,9 @@ class AmoCRMClient:
         return created
 
     async def update_lead(self, lead_id: int, lead_data: dict) -> dict:
-        lead_data["id"] = lead_id
+        lead_data = {**lead_data, "id": lead_id}
         resp = await self._client.patch(
-            "/api/v4/leads",
-            json=[lead_data],
-            headers=await self._headers(),
+            "/api/v4/leads", json=[lead_data], headers=await self._headers()
         )
         self._raise_for_status(resp)
         updated = resp.json()["_embedded"]["leads"][0]
@@ -77,40 +73,33 @@ class AmoCRMClient:
 
     async def get_lead(self, lead_id: int) -> dict:
         resp = await self._client.get(
-            f"/api/v4/leads/{lead_id}",
-            headers=await self._headers(),
+            f"/api/v4/leads/{lead_id}", headers=await self._headers()
         )
         self._raise_for_status(resp)
         return resp.json()
 
     # ─── Contacts ─────────────────────────────────────────────────────────────
 
-    async def find_or_create_contact(self, name: str, phone: str, email: str) -> int:
-        """Ищет контакт по телефону, создаёт если не найден. Возвращает contact_id."""
-        if phone:
-            contacts = await self._search_contacts(phone)
-            if contacts:
-                return contacts[0]["id"]
-
-        contact = {"name": name or "Без имени", "custom_fields_values": []}
-        if phone:
-            contact["custom_fields_values"].append(
-                {"field_code": "PHONE", "values": [{"value": phone, "enum_code": "WORK"}]}
-            )
-        if email:
-            contact["custom_fields_values"].append(
-                {"field_code": "EMAIL", "values": [{"value": email, "enum_code": "WORK"}]}
-            )
-
-        resp = await self._client.post(
+    async def find_contact_by_phone(self, phone: str) -> dict | None:
+        resp = await self._client.get(
             "/api/v4/contacts",
-            json=[contact],
+            params={"query": phone, "limit": 1},
             headers=await self._headers(),
+        )
+        if resp.status_code == 204:
+            return None
+        self._raise_for_status(resp)
+        contacts = resp.json().get("_embedded", {}).get("contacts", [])
+        return contacts[0] if contacts else None
+
+    async def create_contact(self, contact_data: dict) -> dict:
+        resp = await self._client.post(
+            "/api/v4/contacts", json=[contact_data], headers=await self._headers()
         )
         self._raise_for_status(resp)
         created = resp.json()["_embedded"]["contacts"][0]
         log.info("amo_contact_created", contact_id=created["id"])
-        return created["id"]
+        return created
 
     async def link_contact_to_lead(self, lead_id: int, contact_id: int) -> None:
         resp = await self._client.post(
@@ -120,24 +109,34 @@ class AmoCRMClient:
         )
         self._raise_for_status(resp)
 
-    async def _search_contacts(self, query: str) -> list[dict]:
-        resp = await self._client.get(
-            "/api/v4/contacts",
-            params={"query": query, "limit": 1},
-            headers=await self._headers(),
-        )
-        if resp.status_code == 204:
-            return []
-        self._raise_for_status(resp)
-        return resp.json().get("_embedded", {}).get("contacts", [])
+    # ─── Tasks ────────────────────────────────────────────────────────────────
 
-    # ─── Pipelines/Statuses ───────────────────────────────────────────────────
+    async def create_task(self, task_data: dict) -> dict:
+        resp = await self._client.post(
+            "/api/v4/tasks", json=[task_data], headers=await self._headers()
+        )
+        self._raise_for_status(resp)
+        created = resp.json()["_embedded"]["tasks"][0]
+        log.info("amo_task_created", task_id=created["id"], lead_id=task_data.get("entity_id"))
+        return created
+
+    # ─── Setup helpers ────────────────────────────────────────────────────────
 
     async def get_pipelines(self) -> list[dict]:
         """Вспомогательный метод для первичной настройки маппинга статусов."""
-        resp = await self._client.get("/api/v4/leads/pipelines", headers=await self._headers())
+        resp = await self._client.get(
+            "/api/v4/leads/pipelines", headers=await self._headers()
+        )
         self._raise_for_status(resp)
         return resp.json()["_embedded"]["pipelines"]
+
+    async def get_custom_fields(self, entity: str = "leads") -> list[dict]:
+        """Получить список кастомных полей для настройки AmoFields в status_map.py."""
+        resp = await self._client.get(
+            f"/api/v4/{entity}/custom_fields", headers=await self._headers()
+        )
+        self._raise_for_status(resp)
+        return resp.json()["_embedded"]["custom_fields"]
 
     # ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -146,7 +145,7 @@ class AmoCRMClient:
         if resp.status_code >= 400:
             raise AmoCRMError(resp.status_code, resp.text)
 
-    async def close(self):
+    async def close(self) -> None:
         await self._client.aclose()
 
 
