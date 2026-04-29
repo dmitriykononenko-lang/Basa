@@ -56,8 +56,13 @@ class OAuthController
 
             $tokens = json_decode((string) $apiResp->getBody(), true, 512, JSON_THROW_ON_ERROR);
 
-            // Derive account_id from token data (account_id field in AmoCRM v4 tokens)
-            $accountId = (string) ($tokens['account_id'] ?? md5($domain));
+            // AmoCRM does not include account_id in the token response —
+            // fetch it from /api/v4/account using the fresh access token.
+            $accountResp = $http->get("https://$domain/api/v4/account", [
+                'headers' => ['Authorization' => 'Bearer ' . $tokens['access_token']],
+            ]);
+            $accountData = json_decode((string) $accountResp->getBody(), true, 512, JSON_THROW_ON_ERROR);
+            $accountId   = (string) ($accountData['id'] ?? md5($domain));
 
             $apiClient = new ApiClient($this->logger);
             $apiClient->saveTokens($accountId, $domain, $tokens);

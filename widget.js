@@ -22,21 +22,6 @@ define(['jquery', 'underscore'], function($, _) {
             return $.extend(true, {}, DEFAULT_SETTINGS, self.params);
         }
 
-        function saveToLocalStorage(key, value) {
-            try {
-                localStorage.setItem('amo_dist_' + key, JSON.stringify(value));
-            } catch(e) {}
-        }
-
-        function loadFromLocalStorage(key) {
-            try {
-                var raw = localStorage.getItem('amo_dist_' + key);
-                return raw ? JSON.parse(raw) : null;
-            } catch(e) {
-                return null;
-            }
-        }
-
         function notify(text, type) {
             // type: 'success' | 'error' | 'info'
             type = type || 'info';
