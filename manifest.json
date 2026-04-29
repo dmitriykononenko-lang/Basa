@@ -23,6 +23,10 @@
     ],
     "installation": false,
     "langs": ["ru", "en"],
+    "i18n": {
+      "ru": "i18n/ru.json",
+      "en": "i18n/en.json"
+    },
     "settings": {
       "server_url": {
         "name": "server_url",
