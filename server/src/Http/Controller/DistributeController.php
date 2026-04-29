@@ -29,15 +29,6 @@ class DistributeController
             return $this->json($response, ['error' => 'account_id and lead_id are required'], 400);
         }
 
-        // Validate widget secret (optional, if WIDGET_SECRET env is set)
-        $secret = $_ENV['WIDGET_SECRET'] ?? '';
-        if ($secret !== '') {
-            $headerSecret = $request->getHeaderLine('X-Widget-Secret');
-            if (!hash_equals($secret, $headerSecret)) {
-                return $this->json($response, ['error' => 'Unauthorized'], 401);
-            }
-        }
-
         try {
             $apiClient   = new ApiClient($this->logger);
             $service     = new DistributionService(

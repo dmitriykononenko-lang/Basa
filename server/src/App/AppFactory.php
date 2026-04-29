@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace DealDist\App;
 
 use DealDist\Http\Middleware\AuthMiddleware;
+use DealDist\Http\Middleware\CorsMiddleware;
 use DealDist\Http\Middleware\JsonMiddleware;
 use DealDist\Http\Controller\DistributeController;
 use DealDist\Http\Controller\OAuthController;
@@ -36,6 +37,12 @@ class AppFactory
         $app = SlimAppFactory::create();
         $app->addErrorMiddleware(true, true, true);
         $app->add(new JsonMiddleware());
+        $app->add(new CorsMiddleware());
+
+        // OPTIONS preflight — must be declared before other routes
+        $app->options('/{routes:.+}', function ($request, $response) {
+            return $response;
+        });
 
         // Routes
         $app->post('/api/distribute',                   DistributeController::class . ':distribute');

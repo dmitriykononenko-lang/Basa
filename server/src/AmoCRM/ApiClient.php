@@ -197,10 +197,19 @@ class ApiClient
         $counts = array_fill_keys($userIds, 0);
 
         foreach ($userIds as $userId) {
-            $data = $this->request($accountId, 'GET',
-                '/leads?filter[responsible_user_id]=' . $userId . '&filter[is_deleted]=false&limit=1&page=1');
-            // AmoCRM returns total count in the pagination meta
-            $counts[$userId] = (int) ($data['_page_count'] ?? 0);
+            $total = 0;
+            $page  = 1;
+            do {
+                $data  = $this->request($accountId, 'GET',
+                    '/leads?filter[responsible_user_id]=' . $userId .
+                    '&filter[is_deleted]=false&limit=250&page=' . $page);
+                $items = $data['_embedded']['leads'] ?? [];
+                $total += count($items);
+                $page++;
+                $hasNext = isset($data['_links']['next']);
+            } while ($hasNext && count($items) === 250);
+
+            $counts[$userId] = $total;
         }
 
         return $counts;

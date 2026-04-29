@@ -31,6 +31,14 @@ class WebhookController
 
     public function handle(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
     {
+        $secret = $_ENV['WIDGET_SECRET'] ?? '';
+        if ($secret !== '') {
+            $headerSecret = $request->getHeaderLine('X-Widget-Secret');
+            if (!hash_equals($secret, $headerSecret)) {
+                return $this->json($response, ['error' => 'Unauthorized'], 401);
+            }
+        }
+
         $body = $request->getParsedBody() ?? [];
 
         // AmoCRM may nest data under leads[add] or leads[status]

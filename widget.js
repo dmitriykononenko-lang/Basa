@@ -3,7 +3,6 @@ define(['jquery', 'underscore'], function($, _) {
 
     var CustomWidget = function() {
         var self = this,
-            lang = self.i18n('userLang'),
             system = self.system();
 
         // ─── Constants ────────────────────────────────────────────────────────
@@ -60,38 +59,21 @@ define(['jquery', 'underscore'], function($, _) {
                 return $.Deferred().reject('no_server_url').promise();
             }
 
-            return $.ajax({
-                url:         serverUrl + path,
-                type:        method || 'POST',
-                contentType: 'application/json',
-                dataType:    'json',
-                data:        JSON.stringify(data || {}),
+            var isReadOnly = (method === 'GET' || method === 'DELETE');
+            var ajaxOpts = {
+                url:      serverUrl + path,
+                type:     method || 'POST',
+                dataType: 'json',
                 headers: {
-                    'X-Account-Id': system.account_id || '',
+                    'X-Account-Id':     system.account_id || '',
                     'X-Widget-Version': '1.0.0'
                 }
-            });
-        }
-
-        // ─── Settings page rendering ──────────────────────────────────────────
-        function renderSettings() {
-            var settings = getSettings();
-            var tpl      = self.getTemplate({ name: 'settings', base_path: 'templates/', load: true });
-
-            return tpl.then(function(template) {
-                var html = $(template).tmpl({
-                    settings: settings,
-                    i18n:     self.i18n('settings'),
-                    methods:  [
-                        { id: DISTRIBUTION_METHODS.ROUND_ROBIN, label: self.i18n('settings.method_round_robin') },
-                        { id: DISTRIBUTION_METHODS.WORKLOAD,    label: self.i18n('settings.method_workload')    }
-                    ]
-                });
-
-                var $container = $('.widget-settings__fields[data-widget="' + self.get_settings().widget_code + '"]');
-                $container.html(html);
-                bindSettingsEvents($container, settings);
-            });
+            };
+            if (!isReadOnly) {
+                ajaxOpts.contentType = 'application/json';
+                ajaxOpts.data        = JSON.stringify(data || {});
+            }
+            return $.ajax(ajaxOpts);
         }
 
         function bindSettingsEvents($container, settings) {
@@ -420,11 +402,11 @@ define(['jquery', 'underscore'], function($, _) {
                 rules:               settings.rules || [],
                 dp_settings:         dpSettings || {}
             }).done(function(response) {
-                if (response && response.assigned_to) {
-                    notify(
-                        'Сделка #' + leadId + ' назначена на: ' + response.assigned_to,
-                        'success'
-                    );
+                if (response && response.user_id) {
+                    var users   = (AMOCRM.data && AMOCRM.data.users) || [];
+                    var user    = _.find(users, function(u) { return String(u.id) === String(response.user_id); });
+                    var name    = user ? user.name : '#' + response.user_id;
+                    notify('Сделка #' + leadId + ' назначена на: ' + name, 'success');
                 }
             }).fail(function(xhr) {
                 console.error('[DealDist] Distribution failed', xhr);
@@ -435,6 +417,8 @@ define(['jquery', 'underscore'], function($, _) {
         // ═════════════════════════════════════════════════════════════════════
         //   AmoCRM Widget API methods
         // ═════════════════════════════════════════════════════════════════════
+
+        var $settingsContainer = null;
 
         /** Called when widget renders anywhere */
         self.render = function() {
@@ -459,6 +443,7 @@ define(['jquery', 'underscore'], function($, _) {
         /** Render settings page */
         self.settings = function($container) {
             if (!$container) return false;
+            $settingsContainer = $container;
 
             var settings = getSettings();
 
@@ -766,7 +751,10 @@ define(['jquery', 'underscore'], function($, _) {
 
         /** Called before settings are saved — collect values */
         self.onSave = function() {
-            var $container = $('.widget-settings__fields[data-widget="' + self.get_settings().widget_code + '"]');
+            var $container = $settingsContainer;
+            if (!$container || !$container.length) {
+                return true;
+            }
 
             self.params.server_url          = $.trim($container.find('.js-server-url').val());
             self.params.distribution_method = $container.find('.js-dist-method').val();
