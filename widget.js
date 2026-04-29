@@ -446,6 +446,11 @@ define(['jquery', 'underscore'], function($, _) {
             return true;
         };
 
+        /** Required by AmoCRM — bind UI events after render */
+        self.bind = function() {
+            return true;
+        };
+
         /** Bind UI events after render */
         self.bind_actions = function() {
             return true;
