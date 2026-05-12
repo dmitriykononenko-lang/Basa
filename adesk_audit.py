@@ -149,6 +149,7 @@ class AuditResult:
     no_category_ops:        List[dict] = field(default_factory=list)
     completed_project_ops:  List[dict] = field(default_factory=list)
     balance_discrepancies:  List[dict] = field(default_factory=list)
+    user_activity:          List[dict] = field(default_factory=list)
     total_transactions:     int = 0
 
 # ---------------------------------------------------------------------------
@@ -269,6 +270,34 @@ def analyze(client: AdeskClient, date_from: str, date_to: str) -> AuditResult:
                 })
         except (TypeError, ValueError):
             continue
+
+    # 7. User activity summary — кто и что делал
+    from collections import defaultdict
+    activity: dict = defaultdict(lambda: {"deleted": 0, "edited_closed": 0, "manual": 0, "no_category": 0})
+    for op in result.deleted_ops:
+        activity[op["user"]]["deleted"] += 1
+    for op in result.closed_period_edits:
+        activity[op["user"]]["edited_closed"] += 1
+    for op in result.manual_ops:
+        activity[op["user"]]["manual"] += 1
+    for op in result.no_category_ops:
+        activity[op["user"]]["no_category"] += 1
+
+    result.user_activity = sorted(
+        [
+            {
+                "user":         user,
+                "deleted":      stats["deleted"],
+                "edited_closed": stats["edited_closed"],
+                "manual":       stats["manual"],
+                "no_category":  stats["no_category"],
+                "total":        sum(stats.values()),
+            }
+            for user, stats in activity.items()
+        ],
+        key=lambda x: x["total"],
+        reverse=True,
+    )
 
     return result
 
@@ -824,7 +853,63 @@ def generate_pdf(
         story.append(Spacer(1, 8 * mm))
 
     # -----------------------------------------------------------------------
-    # Section 5: Recommendations
+    # Section 5: User activity
+    # -----------------------------------------------------------------------
+
+    if result.user_activity:
+        story.append(Paragraph("Активность пользователей", styles["heading"]))
+        story.append(HRFlowable(width=content_w, thickness=1, color=ACCENT, spaceAfter=8))
+        story.append(Spacer(1, 4))
+        story.append(Paragraph(
+            "Сводка нарушений в разбивке по сотрудникам. "
+            "Помогает определить, кто несёт ответственность за большинство ошибок.",
+            styles["desc"],
+        ))
+        story.append(Spacer(1, 6))
+
+        ua_header = ["Сотрудник", "Удалил", "Правил\nзакрытые", "Ввёл\nвручную", "Без\nкатегории", "Итого"]
+        ua_col_w  = [content_w * 0.34, content_w * 0.13, content_w * 0.13,
+                     content_w * 0.13, content_w * 0.13, content_w * 0.14]
+
+        ua_rows = [ua_header]
+        for row in result.user_activity:
+            ua_rows.append([
+                Paragraph(row["user"], styles["cell"]),
+                Paragraph(str(row["deleted"]),       styles["cell"]),
+                Paragraph(str(row["edited_closed"]), styles["cell"]),
+                Paragraph(str(row["manual"]),        styles["cell"]),
+                Paragraph(str(row["no_category"]),   styles["cell"]),
+                Paragraph(f"<b>{row['total']}</b>",  styles["cell"]),
+            ])
+
+        ua_style = TableStyle([
+            ("BACKGROUND",    (0, 0), (-1, 0),  ACCENT),
+            ("TEXTCOLOR",     (0, 0), (-1, 0),  colors.white),
+            ("FONTNAME",      (0, 0), (-1, 0),  FONT_BOLD),
+            ("FONTSIZE",      (0, 0), (-1, -1), 8),
+            ("ALIGN",         (1, 0), (-1, -1), "CENTER"),
+            ("ALIGN",         (0, 0), (0, -1),  "LEFT"),
+            ("GRID",          (0, 0), (-1, -1), 0.5, GRAY_MID),
+            ("ROWBACKGROUNDS",(0, 1), (-1, -1), [colors.white, GRAY_LIGHT]),
+            ("TOPPADDING",    (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ("LEFTPADDING",   (0, 0), (-1, -1), 6),
+            ("RIGHTPADDING",  (0, 0), (-1, -1), 6),
+        ])
+        # Highlight users with most violations
+        for i, row in enumerate(result.user_activity, start=1):
+            if row["total"] >= 5:
+                ua_style.add("BACKGROUND", (0, i), (-1, i), colors.HexColor("#FFF0F0"))
+            if row["deleted"] > 0:
+                ua_style.add("TEXTCOLOR", (1, i), (1, i), ACCENT)
+                ua_style.add("FONTNAME",  (1, i), (1, i), FONT_BOLD)
+
+        story.append(Table(ua_rows, colWidths=ua_col_w, style=ua_style, repeatRows=1))
+        story.append(Spacer(1, 16))
+        story.append(PageBreak())
+
+    # -----------------------------------------------------------------------
+    # Section 6: Recommendations
     # -----------------------------------------------------------------------
 
     story.append(Paragraph("Рекомендации", styles["heading"]))
