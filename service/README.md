@@ -4,10 +4,16 @@
 pull-синхронизация, приём вебхуков). Зеркало ответов на открытые вопросы из ТЗ — в
 [`DECISIONS.md`](./DECISIONS.md).
 
-> **Статус:** Фаза 1 (MVP) — модели, миграции, JWT-роли, CRUD по аналитикам/проектам/
-> выплатам, OAuth-обмен токенами с AmoCRM, ручной запуск pull-синхронизации сделок,
-> приём и логирование вебхуков с идемпотентностью. Воркер-обработка вебхуков и метрики
-> по задачам — Фаза 2/3.
+> **Статус:** Фазы 1–2 готовы.
+>
+> - **Фаза 1:** модели, миграции, JWT-роли, CRUD по аналитикам/проектам/выплатам,
+>   OAuth-обмен с AmoCRM, ручной pull-сделок, приём вебхуков с идемпотентностью.
+> - **Фаза 2:** воркер RQ для обработки `amo_webhook_log`, маппинг статусов в settings,
+>   автосоздание проектов/выплат по статусам сделок (`start_project`, `mark_done`,
+>   `mark_ready_for_payout`, `cancel`), журнал событий + ручная переобработка,
+>   IP-whitelist на вебхуках. Pull и вебхуки используют общий процессор —
+>   семантика одинакова, откаты статуса блокируются (Q6).
+> - **Фаза 3 (задачи и метрики)** и **Фаза 4 (UI, экспорты)** — впереди.
 
 ## Структура
 
@@ -88,19 +94,71 @@ curl -s http://localhost:8000/api/v1/auth/login \
 
 ### Маппинг статусов воронки
 
-Хранится в таблице `settings` под ключом `amo_status_map`:
+Хранится в таблице `settings` под ключом `amo_status_map`. Значение — действие,
+которое процессор применяет к проекту/выплате при попадании сделки в этот этап:
 
 ```json
 {
-  "12345": "in_progress",
-  "12346": "done",
-  "12347": "paid",
-  "12348": "cancelled"
+  "12345": "start_project",
+  "12346": "mark_done",
+  "12347": "mark_ready_for_payout",
+  "12348": "cancel"
 }
 ```
 
-Ключи — `amo_status_id` из воронки, значения — допустимые статусы проекта.
-В админке (Фаза 2) появится UI для редактирования.
+| Значение | Что делает |
+|---|---|
+| `start_project`         | Создаёт проект, если ещё нет; ставит `in_progress` |
+| `mark_done`             | Проект → `done`, создаёт `payment(accrued)` если не было |
+| `mark_ready_for_payout` | `payment(accrued)` → `ready` (готово к выплате аналитику) |
+| `cancel`                | Проект → `cancelled`, все его не-`paid` выплаты → `cancelled` |
+| `none`                  | Игнорировать |
+
+Все операции идемпотентны. Откат на «более ранний» статус (например, обратно из
+`paid` в `done`) **блокируется** — фиксируется в журнале (`rollback_blocked=true`),
+дальше администратор разбирает руками (см. `DECISIONS.md`, Q6).
+
+Поставить маппинг можно через API:
+
+```bash
+curl -X PUT http://localhost:8000/api/v1/settings/amo_status_map \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"12345":"start_project","12346":"mark_done","12347":"mark_ready_for_payout","12348":"cancel"}'
+```
+
+### IP-whitelist на вебхуках
+
+Хранится в `settings.amo_webhook_allowed_ips`. Поддерживает одиночные IP и CIDR.
+Если список пуст или ключ отсутствует — принимаем всех (для отладки). Включается
+постепенно:
+
+```bash
+curl -X PUT http://localhost:8000/api/v1/settings/amo_webhook_allowed_ips \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"ips":["185.39.196.0/24","185.39.197.0/24"]}'
+```
+
+Источник IP читается из `X-Forwarded-For` (первый в цепочке) — Amo должен идти
+через ваш reverse proxy с HTTPS.
+
+### Журнал вебхуков
+
+```bash
+# последние записи с фильтрами
+GET  /api/v1/webhook-log?processed=false&has_error=true&limit=50
+
+# отдельная запись с полным payload
+GET  /api/v1/webhook-log/{id}
+
+# переобработать одну (sync=true — в текущем запросе вместо очереди)
+POST /api/v1/webhook-log/{id}/reprocess
+POST /api/v1/webhook-log/{id}/reprocess?sync=true
+
+# заново поставить в очередь всех необработанных
+POST /api/v1/webhook-log/reprocess-unprocessed?limit=200
+```
 
 ## Тесты
 
@@ -114,13 +172,13 @@ pytest -q
 
 ## Что ещё не сделано (по фазам ТЗ)
 
-- **Фаза 2:** воркер RQ для обработки `amo_webhook_log`, автосоздание проектов/выплат
-  по статусам сделок, журнал в админке с переобработкой, проверка подписи/IP-листа
-  AmoCRM на вебхуках.
-- **Фаза 3:** модель `amo_tasks` уже есть; нужны вебхуки задач, расчёт метрик и
-  экраны эффективности.
+- **Фаза 3:** модель `amo_tasks` уже есть; нужны вебхуки задач, расчёт метрик
+  (закрыто за период, % просрочек, среднее время просрочки), экраны эффективности.
 - **Фаза 4:** SPA-фронтенд (личный кабинет аналитика, админка, кабинет бухгалтера),
-  XLSX-экспорт, алерты, бэкапы.
+  XLSX-экспорт, алерты при > 10 ошибок обработки за час, регламент бэкапов.
+- **NFR:** rate limit на `POST /api/v1/amo/webhooks` (ТЗ 9.1) — отложен;
+  при текущей предполагаемой нагрузке (~50 вебхуков/час пиково) не критично,
+  заложить можно через redis-based sliding window.
 
 ## Маппинг на ТЗ
 
@@ -133,8 +191,12 @@ pytest -q
 | 3.5 amo_webhook_log   | `app/models/amo_webhook_log.py` |
 | 3.6 settings          | `app/models/setting.py` |
 | 4.1 OAuth + crypto    | `app/services/amo_client.py`, `app/core/crypto.py` |
-| 4.2 webhooks          | `app/api/v1/endpoints/amo.py::amo_webhook` |
+| 4.2 webhooks          | `app/api/v1/endpoints/amo.py::amo_webhook` + IP-whitelist |
+| 4.2 идемпотентность + очередь | `amo_webhook_log.idempotency_key` + `app/services/queue.py` + воркер `app/worker.py` |
 | 4.3 pull-sync         | `app/services/sync.py`, `POST /api/v1/amo/sync/run` |
+| 4.4 маппинг статусов  | `app/services/webhook_processor.py::apply_action`, ключ `amo_status_map` |
+| Журнал + переобработка | `app/api/v1/endpoints/webhook_log.py` |
+| Настройки админки     | `app/api/v1/endpoints/settings.py` |
 | 7. REST API           | `app/api/v1/router.py` (всё под `/api/v1/`) |
 | 9.1 шифрование        | Fernet, `TOKEN_ENCRYPTION_KEY` |
 | 9.1 аудит выплат      | `payment_audit` + запись в `payments.py::update_payment` |

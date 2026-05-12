@@ -26,3 +26,13 @@ class UserRole(str, enum.Enum):
     admin = "admin"
     accountant = "accountant"
     analyst = "analyst"
+
+
+class StatusAction(str, enum.Enum):
+    """Действие, которое триггерится статусом сделки в AmoCRM (ТЗ §4.4)."""
+
+    none = "none"
+    start_project = "start_project"
+    mark_done = "mark_done"
+    mark_ready_for_payout = "mark_ready_for_payout"
+    cancel = "cancel"

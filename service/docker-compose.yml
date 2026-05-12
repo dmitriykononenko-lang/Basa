@@ -68,7 +68,7 @@ services:
       AMO_CLIENT_SECRET: ${AMO_CLIENT_SECRET:-}
       AMO_REDIRECT_URI: ${AMO_REDIRECT_URI:-}
       AMO_BASE_URL: ${AMO_BASE_URL:-}
-    command: rq worker --url redis://redis:6379/0 default
+    command: python -m app.worker
     volumes:
       - ./app:/app/app
 

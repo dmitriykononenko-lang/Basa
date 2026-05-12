@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import ipaddress
+import logging
 from datetime import datetime
 from typing import Optional
 from urllib.parse import urlencode
@@ -11,11 +13,15 @@ from sqlalchemy.orm import Session
 from app.api.deps import require_roles
 from app.core.config import settings
 from app.db.session import get_db
-from app.models import AmoWebhookLog, User, UserRole
+from app.models import AmoWebhookLog, Setting, User, UserRole
 from app.services.amo_client import AmoApiError, AmoClient
+from app.services.queue import enqueue_webhook_log
 from app.services.sync import sync_leads
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/amo", tags=["amo"])
+
+WEBHOOK_IPS_KEY = "amo_webhook_allowed_ips"
 
 
 @router.get("/oauth/start")
@@ -66,9 +72,11 @@ def run_sync(
 async def amo_webhook(request: Request, db: Session = Depends(get_db)) -> dict:
     """Приём вебхуков от AmoCRM.
 
-    В этой версии — только логирование в amo_webhook_log с ключом идемпотентности.
-    Реальную обработку (Phase 2) перенесём в воркер RQ.
+    Быстро отвечает 200 (ТЗ 9.2): записывает payload в `amo_webhook_log` с ключом
+    идемпотентности и ставит обработку в RQ. Реальная работа — в воркере.
     """
+    _check_source_ip(db, request)
+
     try:
         payload = await request.json()
     except Exception:  # noqa: BLE001
@@ -82,11 +90,65 @@ async def amo_webhook(request: Request, db: Session = Depends(get_db)) -> dict:
             db.query(AmoWebhookLog).filter(AmoWebhookLog.idempotency_key == idem).first()
         )
         if existing is not None:
-            return {"status": "duplicate"}
+            # повторная доставка — переотправляем в очередь только если ещё не обработали
+            if not existing.processed:
+                enqueue_webhook_log(existing.id)
+            return {"status": "duplicate", "log_id": str(existing.id)}
 
-    db.add(AmoWebhookLog(event_type=event_type, payload=payload, idempotency_key=idem))
+    log = AmoWebhookLog(event_type=event_type, payload=payload, idempotency_key=idem)
+    db.add(log)
     db.commit()
-    return {"status": "queued"}
+    db.refresh(log)
+
+    job_id = enqueue_webhook_log(log.id)
+    return {"status": "queued", "log_id": str(log.id), "job_id": job_id}
+
+
+def _check_source_ip(db: Session, request: Request) -> None:
+    """IP-whitelist по настройке `amo_webhook_allowed_ips` (CIDR или одиночные адреса).
+
+    Если список пустой/отсутствует — пропускаем всех. Это позволяет включать защиту
+    постепенно: сначала настройку, потом enforcement. Источник IP читаем из
+    X-Forwarded-For (первый в цепочке) — Amo идёт через ваш reverse proxy.
+    """
+    row = db.get(Setting, WEBHOOK_IPS_KEY)
+    if row is None:
+        return
+    allowed = row.value.get("ips", []) if isinstance(row.value, dict) else []
+    if not allowed:
+        return
+
+    client_ip = _resolve_client_ip(request)
+    if client_ip is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot resolve client IP")
+
+    try:
+        ip_obj = ipaddress.ip_address(client_ip)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid client IP")
+
+    for entry in allowed:
+        try:
+            if "/" in entry:
+                if ip_obj in ipaddress.ip_network(entry, strict=False):
+                    return
+            else:
+                if ip_obj == ipaddress.ip_address(entry):
+                    return
+        except ValueError:
+            continue
+
+    logger.warning("Rejected AmoCRM webhook from %s (not in whitelist)", client_ip)
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Source IP is not allowed")
+
+
+def _resolve_client_ip(request: Request) -> Optional[str]:
+    fwd = request.headers.get("x-forwarded-for")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    if request.client is None:
+        return None
+    return request.client.host
 
 
 def _detect_event_type(payload: dict) -> str:

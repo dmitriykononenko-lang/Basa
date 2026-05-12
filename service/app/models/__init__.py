@@ -1,4 +1,4 @@
-from app.models._enums import AnalystStatus, PaymentStatus, ProjectStatus, UserRole
+from app.models._enums import AnalystStatus, PaymentStatus, ProjectStatus, StatusAction, UserRole
 from app.models.amo_task import AmoTask
 from app.models.amo_webhook_log import AmoWebhookLog
 from app.models.analyst import Analyst
@@ -19,6 +19,7 @@ __all__ = [
     "Project",
     "ProjectStatus",
     "Setting",
+    "StatusAction",
     "User",
     "UserRole",
 ]
