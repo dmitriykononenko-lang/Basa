@@ -315,6 +315,7 @@ def process_webhook_log(db: Session, log_id: UUID) -> dict[str, Any]:
 
 
 def _process_payload(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
+    # Lead-события — действия по статусам
     facts = extract_lead_facts(payload)
     status_map = load_status_map(db)
 
@@ -344,4 +345,17 @@ def _process_payload(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
                 "rollback_blocked": outcome.rollback_blocked,
             }
         )
-    return {"outcomes": outcomes, "facts_count": len(facts)}
+
+    # Task-события — заполнение amo_tasks
+    from app.services.task_processor import apply_task_fact, extract_task_facts
+
+    task_outcomes: list[dict[str, Any]] = []
+    for tf in extract_task_facts(payload):
+        task_outcomes.append(apply_task_fact(db, tf))
+
+    return {
+        "outcomes": outcomes,
+        "facts_count": len(facts),
+        "tasks": task_outcomes,
+        "tasks_count": len(task_outcomes),
+    }

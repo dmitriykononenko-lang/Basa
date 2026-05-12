@@ -4,7 +4,7 @@
 pull-синхронизация, приём вебхуков). Зеркало ответов на открытые вопросы из ТЗ — в
 [`DECISIONS.md`](./DECISIONS.md).
 
-> **Статус:** Фазы 1–2 готовы.
+> **Статус:** Фазы 1–3 готовы.
 >
 > - **Фаза 1:** модели, миграции, JWT-роли, CRUD по аналитикам/проектам/выплатам,
 >   OAuth-обмен с AmoCRM, ручной pull-сделок, приём вебхуков с идемпотентностью.
@@ -13,7 +13,12 @@ pull-синхронизация, приём вебхуков). Зеркало о
 >   `mark_ready_for_payout`, `cancel`), журнал событий + ручная переобработка,
 >   IP-whitelist на вебхуках. Pull и вебхуки используют общий процессор —
 >   семантика одинакова, откаты статуса блокируются (Q6).
-> - **Фаза 3 (задачи и метрики)** и **Фаза 4 (UI, экспорты)** — впереди.
+> - **Фаза 3:** обработка вебхуков задач (`tasks[add|update|complete]`) с фиксацией
+>   первоначального дедлайна, pull-синхронизация задач, расчёт метрик
+>   эффективности (закрыто за период, % просрочек, средняя задержка, открытые
+>   просрочки, «без срока»), фильтр типов задач, эндпоинты метрик с scope для
+>   аналитика.
+> - **Фаза 4 (UI, экспорты)** — впереди.
 
 ## Структура
 
@@ -143,6 +148,51 @@ curl -X PUT http://localhost:8000/api/v1/settings/amo_webhook_allowed_ips \
 Источник IP читается из `X-Forwarded-For` (первый в цепочке) — Amo должен идти
 через ваш reverse proxy с HTTPS.
 
+### Метрики эффективности (Фаза 3)
+
+Считаются на лету по таблице `amo_tasks`, которая заполняется вебхуками задач
+(`tasks[add|update|complete]`) и pull-синхронизацией. Правила — из ТЗ §5.2:
+
+- **Первоначальный дедлайн фиксируется один раз.** Если аналитик перенёс срок в
+  AmoCRM, `deadline_initial` не меняется — `is_overdue` всегда считается
+  относительно него.
+- Задачи без дедлайна **не входят** в расчёт % просрочек, но отображаются
+  отдельной строкой «без срока».
+- Учитываемые типы задач настраиваются ключом `settings.tracked_task_types`
+  (`{"types": [1, 2]}` — массив `task_type_id`). По умолчанию — все типы.
+
+```bash
+# по конкретному аналитику
+GET  /api/v1/metrics/analyst/{id}?from=2026-04-12T00:00:00Z&to=2026-05-12T00:00:00Z
+
+# сводный дашборд по всем активным аналитикам (для роли analyst — только своя строка)
+GET  /api/v1/metrics/dashboard?from=...&to=...
+
+# ручной запуск pull-задач (страховка от потерянных вебхуков, ТЗ §2.3)
+POST /api/v1/amo/sync/tasks                # за последние 24 часа
+POST /api/v1/amo/sync/tasks?since=2026-04-12T00:00:00Z
+```
+
+Ответ метрик:
+
+```json
+{
+  "analyst_id": "...",
+  "analyst_name": "Иван Петров",
+  "period_from": "2026-04-12T00:00:00+00:00",
+  "period_to":   "2026-05-12T00:00:00+00:00",
+  "closed_total": 47,
+  "closed_overdue": 6,
+  "overdue_pct": 12.77,
+  "avg_overdue_seconds": 21600.0,
+  "open_overdue": 2,
+  "open_no_deadline": 5
+}
+```
+
+Дашборд сортирует аналитиков по возрастанию `overdue_pct` (при равенстве — по
+убыванию `closed_total`).
+
 ### Журнал вебхуков
 
 ```bash
@@ -199,10 +249,12 @@ in-memory, c шунтом RQ-очереди на синхронный вызов
 
 ## Что ещё не сделано (по фазам ТЗ)
 
-- **Фаза 3:** модель `amo_tasks` уже есть; нужны вебхуки задач, расчёт метрик
-  (закрыто за период, % просрочек, среднее время просрочки), экраны эффективности.
 - **Фаза 4:** SPA-фронтенд (личный кабинет аналитика, админка, кабинет бухгалтера),
-  XLSX-экспорт, алерты при > 10 ошибок обработки за час, регламент бэкапов.
+  XLSX-экспорт реестра выплат, алерты при > 10 ошибок обработки за час, регламент
+  бэкапов.
+- **Расписания pull-синков (cron внутри воркера):** сейчас `/sync/run` и
+  `/sync/tasks` запускаются вручную или через внешний cron. ТЗ §2.3 предполагает
+  hourly за 24ч + daily за 30 дней — можно подключить RQ-Scheduler или systemd-таймер.
 - **NFR:** rate limit на `POST /api/v1/amo/webhooks` (ТЗ 9.1) — отложен;
   при текущей предполагаемой нагрузке (~50 вебхуков/час пиково) не критично,
   заложить можно через redis-based sliding window.
@@ -214,7 +266,7 @@ in-memory, c шунтом RQ-очереди на синхронный вызов
 | 3.1 analysts          | `app/models/analyst.py`, миграция `202605120001` |
 | 3.2 projects          | `app/models/project.py` |
 | 3.3 payments          | `app/models/payment.py`, аудит в `payment_audit` |
-| 3.4 amo_tasks         | `app/models/amo_task.py` (Фаза 3) |
+| 3.4 amo_tasks         | `app/models/amo_task.py`, заполнение — `app/services/task_processor.py` |
 | 3.5 amo_webhook_log   | `app/models/amo_webhook_log.py` |
 | 3.6 settings          | `app/models/setting.py` |
 | 4.1 OAuth + crypto    | `app/services/amo_client.py`, `app/core/crypto.py` |
@@ -222,6 +274,9 @@ in-memory, c шунтом RQ-очереди на синхронный вызов
 | 4.2 идемпотентность + очередь | `amo_webhook_log.idempotency_key` + `app/services/queue.py` + воркер `app/worker.py` |
 | 4.3 pull-sync         | `app/services/sync.py`, `POST /api/v1/amo/sync/run` |
 | 4.4 маппинг статусов  | `app/services/webhook_processor.py::apply_action`, ключ `amo_status_map` |
+| 5. метрики эффективности | `app/services/metrics.py`, эндпоинты `/api/v1/metrics/*` |
+| 5.2 первоначальный дедлайн | `app/services/task_processor.py::apply_task_fact` |
+| 5.2 tracked_task_types | ключ `settings.tracked_task_types` |
 | Журнал + переобработка | `app/api/v1/endpoints/webhook_log.py` |
 | Настройки админки     | `app/api/v1/endpoints/settings.py` |
 | 7. REST API           | `app/api/v1/router.py` (всё под `/api/v1/`) |

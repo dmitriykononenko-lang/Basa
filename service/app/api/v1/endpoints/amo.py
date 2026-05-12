@@ -16,7 +16,7 @@ from app.db.session import get_db
 from app.models import AmoWebhookLog, Setting, User, UserRole
 from app.services.amo_client import AmoApiError, AmoClient
 from app.services.queue import enqueue_webhook_log
-from app.services.sync import sync_leads
+from app.services.sync import sync_leads, sync_tasks
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/amo", tags=["amo"])
@@ -62,8 +62,25 @@ def run_sync(
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
     return {
         "leads_seen": result.leads_seen,
-        "projects_created": result.projects_created,
-        "projects_updated": result.projects_updated,
+        "actions_applied": result.actions_applied,
+        "skipped": result.skipped,
+        "rollbacks_blocked": result.rollbacks_blocked,
+    }
+
+
+@router.post("/sync/tasks")
+def run_sync_tasks(
+    since: Optional[datetime] = None,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(UserRole.admin)),
+) -> dict:
+    try:
+        result = sync_tasks(db, since=since)
+    except AmoApiError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+    return {
+        "tasks_seen": result.tasks_seen,
+        "tasks_upserted": result.tasks_upserted,
         "skipped": result.skipped,
     }
 

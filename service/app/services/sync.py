@@ -1,7 +1,7 @@
 """Pull-синхронизация AmoCRM → локальная БД (страховка от потерянных вебхуков).
 
-Использует общий процессор `webhook_processor.apply_action`, чтобы поведение pull-а и
-обработки вебхуков было идентичным.
+Использует общий процессор `webhook_processor.apply_action` и `task_processor.apply_task_fact`,
+чтобы поведение pull-а и обработки вебхуков было идентичным.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.models import StatusAction
 from app.services.amo_client import AmoClient
+from app.services.task_processor import TaskFact, apply_task_fact, _coerce_int, _coerce_ts
 from app.services.webhook_processor import apply_action, load_status_map
 
 
@@ -24,6 +25,13 @@ class SyncResult:
     actions_applied: int = 0
     skipped: int = 0
     rollbacks_blocked: int = 0
+
+
+@dataclass
+class TaskSyncResult:
+    tasks_seen: int = 0
+    tasks_upserted: int = 0
+    skipped: int = 0
 
 
 def sync_leads(db: Session, since: Optional[datetime] = None) -> SyncResult:
@@ -96,4 +104,70 @@ def _apply_lead(
         result.rollbacks_blocked += 1
     if outcome.notes and "skipped" not in (outcome.notes or []):
         result.actions_applied += 1
+    return True
+
+
+# --- Tasks ------------------------------------------------------------------
+
+
+def sync_tasks(db: Session, since: Optional[datetime] = None) -> TaskSyncResult:
+    """Подтянуть задачи за период и заполнить `amo_tasks` через apply_task_fact.
+
+    По ТЗ §2.3:
+    - почасовая страховка — `since` за последние 24 часа;
+    - суточная сверка — `since` за последние 30 дней (вызывать отдельно).
+    Сам выбор окна делает caller.
+    """
+    result = TaskSyncResult()
+    client = AmoClient(db)
+
+    if since is None:
+        since = datetime.now(timezone.utc) - timedelta(hours=24)
+    updated_since_ts = int(since.timestamp())
+
+    page = 1
+    while True:
+        data = client.get_tasks(updated_since_ts=updated_since_ts, page=page)
+        if not data:
+            break
+        tasks = (data.get("_embedded") or {}).get("tasks") or []
+        if not tasks:
+            break
+
+        for task in tasks:
+            result.tasks_seen += 1
+            if _apply_task(db, task, result):
+                result.tasks_upserted += 1
+            else:
+                result.skipped += 1
+
+        next_link = ((data.get("_links") or {}).get("next") or {}).get("href")
+        if not next_link:
+            break
+        page += 1
+
+    db.commit()
+    return result
+
+
+def _apply_task(db: Session, raw: dict[str, Any], result: TaskSyncResult) -> bool:
+    task_id = _coerce_int(raw.get("id"))
+    if task_id is None:
+        return False
+
+    is_completed_val = raw.get("is_completed")
+    is_completed: Optional[bool] = bool(is_completed_val) if is_completed_val is not None else None
+
+    fact = TaskFact(
+        action="update",  # pull трактуем как update — apply сам разберётся по is_completed
+        amo_task_id=task_id,
+        amo_entity_id=_coerce_int(raw.get("entity_id") or raw.get("element_id")),
+        responsible_amo_user_id=_coerce_int(raw.get("responsible_user_id")),
+        task_type=_coerce_int(raw.get("task_type_id") or raw.get("task_type")),
+        text=raw.get("text"),
+        deadline=_coerce_ts(raw.get("complete_till") or raw.get("complete_till_at")),
+        is_completed=is_completed,
+        completed_at=_coerce_ts(raw.get("updated_at")) if is_completed else None,
+    )
+    apply_task_fact(db, fact)
     return True
