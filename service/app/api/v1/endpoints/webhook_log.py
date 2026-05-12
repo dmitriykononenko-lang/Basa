@@ -94,7 +94,7 @@ def reprocess(
 
     if sync:
         result = process_webhook_log(db, log.id)
-        return {"status": "processed", **result}
+        return {**result, "status": "processed"}
 
     job_id = enqueue_webhook_log(log.id)
     return {"status": "queued", "log_id": str(log.id), "job_id": job_id}

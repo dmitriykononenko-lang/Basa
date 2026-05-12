@@ -75,6 +75,16 @@ def _existing_accrued_payment(db: Session, project_id: UUID) -> Optional[Payment
     ).scalars().first()
 
 
+def _any_active_payment(db: Session, project_id: UUID) -> Optional[Payment]:
+    """Любая выплата, не считая `cancelled` — для защиты от повторного начисления."""
+    return db.execute(
+        select(Payment).where(
+            Payment.project_id == project_id,
+            Payment.status != PaymentStatus.cancelled,
+        )
+    ).scalars().first()
+
+
 # --- Outcomes ---------------------------------------------------------------
 
 
@@ -176,7 +186,7 @@ def apply_action(
             project.completed_at = project.completed_at or datetime.now(timezone.utc)
             outcome.notes.append("project_marked_done")
 
-        if _existing_accrued_payment(db, project.id) is None and project.payment_amount > 0:
+        if _any_active_payment(db, project.id) is None and project.payment_amount > 0:
             payment = Payment(
                 project_id=project.id,
                 analyst_id=project.analyst_id,

@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_roles
 from app.db.session import get_db
-from app.models import Analyst, Payment, PaymentAudit, PaymentStatus, User, UserRole
+from app.models import Analyst, Payment, PaymentAudit, PaymentStatus, Project, ProjectStatus, User, UserRole
 from app.schemas import PaymentMarkPaid, PaymentOut, PaymentUpdate
 
 router = APIRouter(prefix="/payments", tags=["payments"])
@@ -112,6 +112,19 @@ def mark_paid(
             reason="mark-paid",
         )
     )
+
+    # Если все выплаты по проекту теперь paid (или cancelled) — двигаем проект в paid.
+    # Это закрывает терминальное состояние и блокирует «случайные» откаты от Amo.
+    project = db.get(Project, payment.project_id)
+    if project is not None and project.status != ProjectStatus.cancelled:
+        remaining = db.execute(
+            select(Payment).where(
+                Payment.project_id == project.id,
+                Payment.status.not_in([PaymentStatus.paid, PaymentStatus.cancelled]),
+            )
+        ).scalars().first()
+        if remaining is None:
+            project.status = ProjectStatus.paid
     db.commit()
     db.refresh(payment)
     return payment
