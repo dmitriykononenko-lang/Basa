@@ -1,0 +1,76 @@
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: basa
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-basa_dev_password}
+      POSTGRES_DB: basa
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U basa"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://basa:${DB_PASSWORD:-basa_dev_password}@db:5432/basa
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: ${JWT_SECRET:-change-me-please}
+      TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY}
+      AMO_CLIENT_ID: ${AMO_CLIENT_ID:-}
+      AMO_CLIENT_SECRET: ${AMO_CLIENT_SECRET:-}
+      AMO_REDIRECT_URI: ${AMO_REDIRECT_URI:-}
+      AMO_BASE_URL: ${AMO_BASE_URL:-}
+      INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL:-admin@example.com}
+      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-admin}
+    ports:
+      - "8000:8000"
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    volumes:
+      - ./app:/app/app
+      - ./migrations:/app/migrations
+
+  worker:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://basa:${DB_PASSWORD:-basa_dev_password}@db:5432/basa
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: ${JWT_SECRET:-change-me-please}
+      TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY}
+      AMO_CLIENT_ID: ${AMO_CLIENT_ID:-}
+      AMO_CLIENT_SECRET: ${AMO_CLIENT_SECRET:-}
+      AMO_REDIRECT_URI: ${AMO_REDIRECT_URI:-}
+      AMO_BASE_URL: ${AMO_BASE_URL:-}
+    command: rq worker --url redis://redis:6379/0 default
+    volumes:
+      - ./app:/app/app
+
+volumes:
+  db-data:
