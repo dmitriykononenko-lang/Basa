@@ -252,6 +252,34 @@ in-memory, c шунтом RQ-очереди на синхронный вызов
 - IP-whitelist → 403 для не-listed адресов;
 - роль `analyst` → видит только свои проекты.
 
+### Симулятор AmoCRM
+
+Если реальный AmoCRM подключить негде — есть симулятор, который шлёт нашему
+`/api/v1/amo/webhooks` реалистичные payload'ы AmoCRM v4 и проверяет, что
+состояние сервиса меняется правильно.
+
+```bash
+# с дефолтным admin@example.com / change-me
+python3 scripts/simulate-amocrm.py
+
+# против произвольного инстанса
+BASE=https://basa.example.com \
+ADMIN_EMAIL=... ADMIN_PASSWORD=... \
+python3 scripts/simulate-amocrm.py --scenario all
+```
+
+Сценарии:
+
+| Имя        | Что делает |
+|------------|---|
+| `happy`    | сделка → start → done → ready → paid; идемпотентность mark_done |
+| `rollback` | доводим до paid, потом «откат» в mark_done — должен блокироваться |
+| `tasks`    | задача с переносом дедлайна, закрытие после initial → попадает в overdue |
+| `duplicate`| тот же payload дважды — второй раз помечается как duplicate |
+| `all`      | все четыре подряд |
+
+Зависимостей нет — только стандартная библиотека.
+
 ### Прогон Фазы 2 против поднятой инфраструктуры
 
 После `docker compose up -d --build` можно прогнать живой сценарий вебхуков:

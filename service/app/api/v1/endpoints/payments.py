@@ -117,6 +117,9 @@ def mark_paid(
 
     # Если все выплаты по проекту теперь paid (или cancelled) — двигаем проект в paid.
     # Это закрывает терминальное состояние и блокирует «случайные» откаты от Amo.
+    # db.flush(): autoflush=False, поэтому статус payment ещё в памяти. Сбрасываем
+    # его в транзакцию до SELECT'а, иначе запрос увидит старое значение.
+    db.flush()
     project = db.get(Project, payment.project_id)
     if project is not None and project.status != ProjectStatus.cancelled:
         remaining = db.execute(
