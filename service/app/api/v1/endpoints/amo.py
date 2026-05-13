@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import ipaddress
 import logging
-from datetime import datetime
+import secrets
+from datetime import datetime, timezone
 from typing import Optional
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_roles
@@ -15,6 +15,7 @@ from app.core.config import settings
 from app.db.session import get_db
 from app.models import AmoWebhookLog, Setting, User, UserRole
 from app.services.amo_client import AmoApiError, AmoClient
+from app.services.amo_token_store import load_tokens
 from app.services.queue import enqueue_webhook_log
 from app.services.sync import sync_leads, sync_tasks
 
@@ -22,32 +23,116 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/amo", tags=["amo"])
 
 WEBHOOK_IPS_KEY = "amo_webhook_allowed_ips"
+OAUTH_STATE_KEY = "amo_oauth_state"
 
 
 @router.get("/oauth/start")
-def oauth_start(_: User = Depends(require_roles(UserRole.admin))) -> RedirectResponse:
+def oauth_start(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(UserRole.admin)),
+) -> dict:
+    """Возвращает URL согласия AmoCRM и сохраняет одноразовый `state` для CSRF.
+
+    SPA получает JSON и сам делает `location.href = url` — иначе fetch с Bearer-токеном
+    не может пройти 302 на сторонний домен.
+    """
     if not settings.amo_oauth_configured:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="AmoCRM OAuth is not configured")
-    params = {
-        "client_id": settings.amo_client_id,
-        "state": "basa",
-        "mode": "post_message",
-    }
-    return RedirectResponse(url=f"{settings.amo_base_url}/oauth?{urlencode(params)}")
+
+    state = secrets.token_urlsafe(24)
+    row = db.get(Setting, OAUTH_STATE_KEY)
+    payload = {"state": state, "issued_at": datetime.now(timezone.utc).isoformat()}
+    if row is None:
+        db.add(Setting(key=OAUTH_STATE_KEY, value=payload))
+    else:
+        row.value = payload
+    db.commit()
+
+    params = {"client_id": settings.amo_client_id, "state": state}
+    return {"url": f"{settings.amo_base_url}/oauth?{urlencode(params)}", "state": state}
 
 
 @router.get("/oauth/callback")
 def oauth_callback(
     code: str = Query(...),
+    state: Optional[str] = Query(default=None),
+    referer: Optional[str] = Query(default=None),
     db: Session = Depends(get_db),
 ) -> dict:
-    """Callback от AmoCRM. Не защищён JWT, поскольку Amo не передаёт наш токен."""
+    """Callback от AmoCRM.
+
+    Не защищён JWT, потому что Amo не пробрасывает наш токен. CSRF-защита —
+    одноразовый `state`, который мы сохранили в settings перед редиректом.
+    """
+    saved = db.get(Setting, OAUTH_STATE_KEY)
+    expected = (saved.value or {}).get("state") if saved else None
+    if expected is None or state != expected:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired OAuth state")
+    # одноразовый — гасим
+    saved.value = {}
+    db.commit()
+
     try:
         client = AmoClient(db)
         tokens = client.exchange_code(code)
     except AmoApiError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    return {"status": "ok", "expires_at": tokens.expires_at.isoformat()}
+    return {"status": "ok", "expires_at": tokens.expires_at.isoformat(), "referer": referer}
+
+
+@router.get("/oauth/status")
+def oauth_status(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(UserRole.admin)),
+) -> dict:
+    """Текущее состояние интеграции: настроены ли env, есть ли токены, когда истекают."""
+    tokens = load_tokens(db)
+    return {
+        "configured": settings.amo_oauth_configured,
+        "client_id": settings.amo_client_id,
+        "redirect_uri": settings.amo_redirect_uri,
+        "base_url": settings.amo_base_url,
+        "connected": tokens is not None,
+        "access_token_expires_at": tokens.expires_at.isoformat() if tokens else None,
+        "access_token_expired": tokens.is_expired(slack_seconds=0) if tokens else None,
+    }
+
+
+@router.post("/oauth/disconnect")
+def oauth_disconnect(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(UserRole.admin)),
+) -> dict:
+    """Сбросить сохранённые OAuth-токены."""
+    from app.services.amo_token_store import TOKEN_SETTINGS_KEY
+
+    row = db.get(Setting, TOKEN_SETTINGS_KEY)
+    if row is not None:
+        db.delete(row)
+        db.commit()
+    return {"status": "disconnected"}
+
+
+@router.post("/oauth/ping")
+def oauth_ping(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(UserRole.admin)),
+) -> dict:
+    """Тестовый вызов AmoCRM API (GET /api/v4/users) для проверки токенов.
+
+    Если access_token истёк — клиент сам обновит его через refresh_token.
+    """
+    try:
+        client = AmoClient(db)
+        users = client.get_users()
+    except AmoApiError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    embedded = (users or {}).get("_embedded") or {}
+    user_count = len(embedded.get("users") or [])
+    return {"status": "ok", "users_visible": user_count}
 
 
 @router.post("/sync/run")

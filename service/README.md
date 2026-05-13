@@ -84,19 +84,39 @@ curl -s http://localhost:8000/api/v1/auth/login \
 
 ## Интеграция с AmoCRM
 
-1. В `.env` заполнить `AMO_CLIENT_ID`, `AMO_CLIENT_SECRET`, `AMO_REDIRECT_URI`, `AMO_BASE_URL`.
-2. Под админом дёрнуть `GET /api/v1/amo/oauth/start` — браузер уйдёт в AmoCRM на согласие.
-3. Amo вернётся в `GET /api/v1/amo/oauth/callback?code=...`, токены сохранятся
-   зашифрованными в `settings.amo_oauth_tokens`.
-4. Ручной запуск синхронизации сделок:
+Подробный пошаговый гайд — [`AMOCRM_SETUP.md`](./AMOCRM_SETUP.md). Кратко:
+
+1. **На стороне AmoCRM:** в *Настройки → Интеграции* создать приватную
+   интеграцию, прописать redirect URI `https://<ваш-домен>/api/v1/amo/oauth/callback`
+   и подписку на вебхуки `https://<ваш-домен>/api/v1/amo/webhooks` (сделки и задачи).
+2. **На стороне Basa:** в `.env` заполнить `AMO_CLIENT_ID`, `AMO_CLIENT_SECRET`,
+   `AMO_REDIRECT_URI`, `AMO_BASE_URL` (поддомен вашего аккаунта вида
+   `https://acc.amocrm.ru`) и перезапустить контейнер.
+3. **OAuth-консент:** SPA → вкладка **AmoCRM** → «Подключить». После согласия
+   AmoCRM перенаправит на наш callback, токены сохранятся зашифрованно
+   (Fernet/AES-256-эквивалент), CSRF проверится одноразовым `state`.
+4. **Проверка:** SPA → AmoCRM → «Проверить связь». Сервис дёрнет
+   `GET /api/v4/users` и покажет число видимых пользователей. Снаружи —
+   `./scripts/amo-check.sh`.
+5. **Маппинги:** `amo_user_id` у аналитика (`PATCH /api/v1/analysts/{id}`) и
+   `amo_status_map` в settings (через SPA → Настройки) — без них вебхуки не
+   создадут проекты.
+6. **Pull-сверка (страховка от потерянных вебхуков, ТЗ §2.3):**
    ```bash
-   curl -X POST http://localhost:8000/api/v1/amo/sync/run \
-     -H "Authorization: Bearer $TOKEN"
+   curl -X POST .../api/v1/amo/sync/run    -H "Authorization: Bearer $TOKEN"
+   curl -X POST .../api/v1/amo/sync/tasks  -H "Authorization: Bearer $TOKEN"
    ```
-   По умолчанию подтягиваются изменения за последние 24 часа.
-5. Вебхуки настраиваются в AmoCRM на `POST /api/v1/amo/webhooks`. В этой версии
-   вебхуки только пишутся в `amo_webhook_log` с ключом идемпотентности. Реальная
-   обработка через очередь RQ — следующая фаза.
+   Эти эндпоинты безопасно дёргать по cron каждый час.
+
+OAuth-эндпоинты:
+
+| Путь | Что делает |
+|---|---|
+| `GET  /api/v1/amo/oauth/start`      | Сохраняет одноразовый `state` в settings, возвращает `{url}` — SPA редиректит на AmoCRM |
+| `GET  /api/v1/amo/oauth/callback`   | Принимает `code` + `state` от AmoCRM, сверяет CSRF, меняет код на токены |
+| `GET  /api/v1/amo/oauth/status`     | Текущее состояние: env настроен, есть ли токены, когда истекают |
+| `POST /api/v1/amo/oauth/ping`       | `GET /api/v4/users` — проверка живости интеграции |
+| `POST /api/v1/amo/oauth/disconnect` | Стирает сохранённые токены (для перезаключения интеграции) |
 
 ### Маппинг статусов воронки
 

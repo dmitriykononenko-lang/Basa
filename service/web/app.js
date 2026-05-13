@@ -30,6 +30,7 @@ const TABS = [
     { id: 'payments', label: 'Выплаты', roles: ['admin', 'accountant', 'analyst'] },
     { id: 'metrics', label: 'Эффективность', roles: ['admin', 'accountant', 'analyst'] },
     { id: 'analysts', label: 'Аналитики', roles: ['admin'] },
+    { id: 'amocrm', label: 'AmoCRM', roles: ['admin'] },
     { id: 'webhook-log', label: 'Журнал AmoCRM', roles: ['admin'] },
     { id: 'settings', label: 'Настройки', roles: ['admin'] },
 ];
@@ -188,6 +189,7 @@ function route() {
         payments: renderPayments,
         metrics: renderMetrics,
         analysts: renderAnalysts,
+        amocrm: renderAmocrm,
         'webhook-log': renderWebhookLog,
         settings: renderSettings,
     }[id];
@@ -706,6 +708,94 @@ async function requeueUnprocessed() {
         const r = await api('/webhook-log/reprocess-unprocessed?limit=500', { method: 'POST' });
         toast(`Переотправлено: ${r.requeued}`, 'success');
         renderWebhookLog();
+    } catch (e) { toast(e.message, 'error'); }
+}
+
+/* ----------------------- AmoCRM (admin) ----------------------- */
+
+async function renderAmocrm() {
+    const header = el('div', { class: 'page-header' }, el('h2', {}, 'Интеграция с AmoCRM'));
+    const grid = el('div', { class: 'metric-grid' });
+    const actions = el('div', { class: 'card', style: 'padding: 16px; margin-bottom: 16px; display: flex; gap: 8px; flex-wrap: wrap;' });
+    const syncBox = el('div', { class: 'card', style: 'padding: 16px;' },
+        el('h3', { style: 'margin: 0 0 8px;' }, 'Ручная синхронизация'),
+        el('p', { class: 'muted', style: 'margin: 0 0 12px;' }, 'Подтягивает изменения за последние 24 часа. Безопасно запускать в любой момент — повтор не создаёт дублей.'),
+        el('div', { style: 'display: flex; gap: 8px; flex-wrap: wrap;' },
+            el('button', { class: 'btn', on: { click: () => runSync('/amo/sync/run', 'Сделки') } }, 'Подтянуть сделки'),
+            el('button', { class: 'btn', on: { click: () => runSync('/amo/sync/tasks', 'Задачи') } }, 'Подтянуть задачи'),
+        ),
+        el('div', { id: 'sync-result', class: 'json-box', style: 'margin-top: 12px; display: none;' }),
+    );
+    setMain(header, grid, actions, syncBox);
+
+    try {
+        const status = await api('/amo/oauth/status');
+        grid.innerHTML = '';
+        grid.appendChild(metricCard('Env настроен', status.configured ? 'Да' : 'Нет', status.configured ? 'success' : 'danger'));
+        grid.appendChild(metricCard('Подключено', status.connected ? 'Да' : 'Нет', status.connected ? 'success' : 'warning'));
+        grid.appendChild(metricCard('Token expires', status.access_token_expires_at ? fmtDate(status.access_token_expires_at) : '—',
+            status.access_token_expired ? 'danger' : ''));
+        grid.appendChild(metricCard('Account base url', status.base_url || '—', ''));
+
+        actions.innerHTML = '';
+        if (!status.configured) {
+            actions.appendChild(el('p', { class: 'muted' }, 'Сначала задайте AMO_CLIENT_ID, AMO_CLIENT_SECRET, AMO_REDIRECT_URI и AMO_BASE_URL в .env и перезапустите контейнер. См. AMOCRM_SETUP.md.'));
+        } else {
+            const btn = el('button', {
+                class: 'btn btn-primary',
+                on: { click: async () => {
+                    try {
+                        const r = await api('/amo/oauth/start');
+                        location.href = r.url;
+                    } catch (e) { toast(e.message, 'error'); }
+                }},
+            }, status.connected ? 'Переподключить' : 'Подключить AmoCRM');
+            actions.appendChild(btn);
+
+            actions.appendChild(el('button', {
+                class: 'btn',
+                on: { click: () => pingAmo() },
+            }, 'Проверить связь'));
+
+            if (status.connected) {
+                actions.appendChild(el('button', {
+                    class: 'btn btn-danger',
+                    on: { click: () => disconnectAmo() },
+                }, 'Отключить'));
+            }
+        }
+    } catch (e) {
+        toast(e.message, 'error');
+    }
+}
+
+async function runSync(path, label) {
+    const out = document.getElementById('sync-result');
+    out.style.display = 'block';
+    out.textContent = 'Запускаем…';
+    try {
+        const r = await api(path, { method: 'POST' });
+        out.textContent = JSON.stringify(r, null, 2);
+        toast(`${label}: готово`, 'success');
+    } catch (e) {
+        out.textContent = e.message;
+        toast(e.message, 'error');
+    }
+}
+
+async function pingAmo() {
+    try {
+        const r = await api('/amo/oauth/ping', { method: 'POST' });
+        toast(`Связь есть. Видим пользователей: ${r.users_visible}`, 'success');
+    } catch (e) { toast(e.message, 'error'); }
+}
+
+async function disconnectAmo() {
+    if (!confirm('Отключить AmoCRM? Сохранённые токены будут стёрты.')) return;
+    try {
+        await api('/amo/oauth/disconnect', { method: 'POST' });
+        toast('AmoCRM отключён', 'success');
+        renderAmocrm();
     } catch (e) { toast(e.message, 'error'); }
 }
 
