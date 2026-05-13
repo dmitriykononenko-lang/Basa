@@ -16,6 +16,7 @@ RUN pip install --upgrade pip && pip install .
 COPY app ./app
 COPY migrations ./migrations
 COPY alembic.ini ./
+COPY web ./web
 
 EXPOSE 8000
 

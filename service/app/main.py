@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 
 from app.api.v1.router import api_router
@@ -59,3 +61,8 @@ def health() -> dict[str, str]:
 
 
 app.include_router(api_router)
+
+# SPA — отдаётся последним, чтобы не перекрывать /api/v1/* и /docs.
+_web_dir = Path(__file__).resolve().parent.parent / "web"
+if _web_dir.is_dir():
+    app.mount("/", StaticFiles(directory=str(_web_dir), html=True), name="web")

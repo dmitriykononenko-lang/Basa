@@ -310,6 +310,13 @@ def process_webhook_log(db: Session, log_id: UUID) -> dict[str, Any]:
         if log is not None:
             log.error = str(exc)[:4000]
             db.commit()
+        # Записываем событие в окно алертов (ТЗ §9.2)
+        try:
+            from app.services.alerts import record_error  # лениво, чтобы избежать циклов
+
+            record_error(f"log_id={log_id} {type(exc).__name__}: {exc}")
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to record alert event")
         logger.exception("Failed to process webhook log %s", log_id)
         raise
 

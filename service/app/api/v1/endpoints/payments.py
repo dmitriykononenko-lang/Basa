@@ -5,6 +5,7 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -12,6 +13,7 @@ from app.api.deps import get_current_user, require_roles
 from app.db.session import get_db
 from app.models import Analyst, Payment, PaymentAudit, PaymentStatus, Project, ProjectStatus, User, UserRole
 from app.schemas import PaymentMarkPaid, PaymentOut, PaymentUpdate
+from app.services.exports import payments_to_xlsx
 
 router = APIRouter(prefix="/payments", tags=["payments"])
 
@@ -128,3 +130,33 @@ def mark_paid(
     db.commit()
     db.refresh(payment)
     return payment
+
+
+@router.get("/export.xlsx", response_class=Response)
+def export_xlsx(
+    status_: Optional[PaymentStatus] = Query(default=None, alias="status"),
+    from_: Optional[datetime] = Query(default=None, alias="from"),
+    to: Optional[datetime] = None,
+    analyst_id: Optional[UUID] = None,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(UserRole.admin, UserRole.accountant)),
+) -> Response:
+    """Реестр выплат в XLSX для банка/1С. Доступно admin и accountant."""
+    stmt = select(Payment).order_by(Payment.accrued_at.desc().nullslast(), Payment.created_at.desc())
+    if status_ is not None:
+        stmt = stmt.where(Payment.status == status_)
+    if analyst_id is not None:
+        stmt = stmt.where(Payment.analyst_id == analyst_id)
+    if from_ is not None:
+        stmt = stmt.where(Payment.accrued_at >= from_)
+    if to is not None:
+        stmt = stmt.where(Payment.accrued_at <= to)
+    payments = list(db.execute(stmt).scalars())
+
+    blob = payments_to_xlsx(db, payments)
+    filename = f"payments-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.xlsx"
+    return Response(
+        content=blob,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

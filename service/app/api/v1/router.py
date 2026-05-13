@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.v1.endpoints import (
+    alerts,
     amo,
     analysts,
     auth,
@@ -20,3 +21,4 @@ api_router.include_router(amo.router)
 api_router.include_router(settings_endpoint.router)
 api_router.include_router(webhook_log.router)
 api_router.include_router(metrics.router)
+api_router.include_router(alerts.router)
