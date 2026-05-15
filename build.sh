@@ -62,12 +62,14 @@ PYEOF
 validate() {
     local required=(
         manifest.json
-        widget.js
+        script.js
         css/widget.css
         i18n/ru.json
         i18n/en.json
         images/logo.png
         images/logo_medium.png
+        images/logo_small.png
+        images/logo_dp.png
     )
     local missing=0
     for f in "${required[@]}"; do
@@ -110,7 +112,7 @@ build() {
 
     zip -r "$out_path" \
         manifest.json \
-        widget.js \
+        script.js \
         css/ \
         i18n/ \
         images/ \

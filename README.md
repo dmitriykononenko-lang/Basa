@@ -22,13 +22,13 @@
 ```
 /
 ├── manifest.json          # Манифест виджета AmoCRM
-├── widget.js              # Основной JS-код виджета (AMD-модуль)
+├── script.js              # Основной JS-код виджета (AMD-модуль, имя обязательное)
 ├── css/
 │   └── widget.css         # Стили настроечного UI
 ├── i18n/
 │   ├── ru.json            # Переводы (русский)
 │   └── en.json            # Переводы (английский)
-├── images/                # Логотип виджета (добавьте logo.png 64×64)
+├── images/                # logo.png, logo_medium.png, logo_small.png, logo_dp.png, cover.jpg
 └── server/                # PHP-бэкенд сервис
     ├── composer.json
     ├── .env.example
@@ -71,8 +71,10 @@ https://dist.koagency.me/oauth/callback
 Создайте ZIP-архив содержащий файлы виджета (без папки `server/`):
 
 ```bash
-zip -r deal-distribution-widget.zip manifest.json widget.js css/ i18n/ images/
+./build.sh   # собирает dist/deal-distribution-widget-v<version>.zip
 ```
+
+Архив содержит `manifest.json` в корне (без папки-обёртки) — это требование amoCRM.
 
 Загрузите архив в раздел **Настройки → Интеграции → Виджеты** в AmoCRM.
 
