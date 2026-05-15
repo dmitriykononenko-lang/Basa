@@ -1,0 +1,46 @@
+{
+  "widget": {
+    "name": "Example Widget",
+    "short_description": "Sample amoCRM widget showcasing card, settings, DP, and lead-source surfaces.",
+    "description": "A working widget template demonstrating every key amoCRM surface: card panel for leads/contacts/companies, install form, advanced settings page, Digital Pipeline action, and lead source registration."
+  },
+  "settings": {
+    "api_key":       "API key",
+    "api_secret":    "API secret",
+    "default_user":  "Default responsible user",
+    "save":          "Save",
+    "help_text":     "Get your key from the provider's dashboard before installing."
+  },
+  "advanced": {
+    "sync_interval": "Sync interval",
+    "every_minute":  "Every minute",
+    "every_5_min":   "Every 5 minutes",
+    "every_hour":    "Every hour"
+  },
+  "card": {
+    "title":      "Example widget",
+    "loading":    "Loading…",
+    "not_configured": "Widget is not configured. Open settings and enter the API key.",
+    "no_data":    "No data for this card",
+    "save":       "Save",
+    "refresh":    "Refresh"
+  },
+  "dp": {
+    "template_id":  "Message template",
+    "tpl_welcome":  "Welcome",
+    "tpl_followup": "Follow-up"
+  },
+  "source": {
+    "name": "Example Widget"
+  },
+  "errors": {
+    "required":    "Required field",
+    "invalid_key": "Key must be at least 8 characters",
+    "network":     "Network error"
+  },
+  "notify": {
+    "saved":        "Saved",
+    "save_failed":  "Failed to save",
+    "init_failed":  "Failed to load data"
+  }
+}

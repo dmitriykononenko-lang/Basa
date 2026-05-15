@@ -1,0 +1,35 @@
+<div class="mw-card mw-card--example">
+  {% if state.loading %}
+    <p class="mw-card__placeholder">{{ langs.card.loading }}</p>
+
+  {% elseif not state.configured %}
+    <p class="mw-card__placeholder">{{ langs.card.not_configured }}</p>
+
+  {% elseif state.error %}
+    <p class="mw-card__placeholder mw-card__placeholder--error">{{ langs.errors.network }}</p>
+
+  {% elseif state.data is empty %}
+    <p class="mw-card__placeholder">{{ langs.card.no_data }}</p>
+
+  {% else %}
+    <div class="mw-card__row">
+      <span class="mw-card__label">ID:</span>
+      <span class="mw-card__value">{{ entity.id }}</span>
+    </div>
+    <div class="mw-card__row">
+      <span class="mw-card__label">Name:</span>
+      <span class="mw-card__value">{{ entity.name|escape }}</span>
+    </div>
+    {% if state.data.score is defined %}
+      <div class="mw-card__row">
+        <span class="mw-card__label">Score:</span>
+        <span class="mw-card__value">{{ state.data.score }}</span>
+      </div>
+    {% endif %}
+  {% endif %}
+
+  <div class="mw-card__actions">
+    <button type="button" class="button-input button-input-blue js-mw-save">{{ langs.card.save }}</button>
+    <button type="button" class="button-input button-input-white js-mw-refresh">{{ langs.card.refresh }}</button>
+  </div>
+</div>

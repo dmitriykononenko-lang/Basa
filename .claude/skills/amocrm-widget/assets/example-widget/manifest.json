@@ -1,0 +1,77 @@
+{
+  "widget": {
+    "name": "widget.name",
+    "short_description": "widget.short_description",
+    "description": "widget.description",
+    "version": "1.0.0",
+    "interface_version": 2,
+    "init_once": false,
+    "locale": ["ru", "en"],
+    "installation": "y",
+    "support": {
+      "link": "https://example.com/support",
+      "email": "support@example.com"
+    },
+    "code": "example_widget",
+    "secret_key": "REPLACE_WITH_SECRET_FROM_DEV_CABINET"
+  },
+
+  "oauth": "Y",
+
+  "locations": [
+    "lcard-1",
+    "ccard-1",
+    "comcard-1",
+    "settings",
+    "advanced_settings",
+    "digital_pipeline",
+    "lead_sources"
+  ],
+
+  "settings": {
+    "api_key": {
+      "name": "settings.api_key",
+      "type": "text",
+      "required": true
+    },
+    "api_secret": {
+      "name": "settings.api_secret",
+      "type": "pass",
+      "required": true
+    },
+    "default_user": {
+      "name": "settings.default_user",
+      "type": "users_lp"
+    }
+  },
+
+  "advanced": {
+    "sync_interval": {
+      "name": "advanced.sync_interval",
+      "type": "list",
+      "values": {
+        "60":   "advanced.every_minute",
+        "300":  "advanced.every_5_min",
+        "3600": "advanced.every_hour"
+      },
+      "default": "300"
+    }
+  },
+
+  "dp": {
+    "settings": {
+      "template_id": {
+        "name": "dp.template_id",
+        "type": "list",
+        "values": {
+          "welcome":  "dp.tpl_welcome",
+          "followup": "dp.tpl_followup"
+        }
+      }
+    }
+  },
+
+  "free": "Y",
+  "countries": ["*"],
+  "category": "automation"
+}

@@ -1,0 +1,18 @@
+<div class="mw-advanced">
+  <h2 class="mw-advanced__title">{{ langs.widget.name }} — {{ langs.advanced.sync_interval }}</h2>
+
+  <section class="mw-advanced__section">
+    <label class="mw-advanced__label">{{ langs.advanced.sync_interval }}</label>
+    <select class="select-control mw-advanced__select" name="sync_interval">
+      <option value="60"   {% if saved.sync_interval == '60'   %}selected{% endif %}>{{ langs.advanced.every_minute }}</option>
+      <option value="300"  {% if saved.sync_interval == '300'  %}selected{% endif %}>{{ langs.advanced.every_5_min }}</option>
+      <option value="3600" {% if saved.sync_interval == '3600' %}selected{% endif %}>{{ langs.advanced.every_hour }}</option>
+    </select>
+  </section>
+
+  <div class="mw-advanced__actions">
+    <button type="button" class="button-input button-input-blue js-mw-adv-save">
+      {{ langs.settings.save }}
+    </button>
+  </div>
+</div>

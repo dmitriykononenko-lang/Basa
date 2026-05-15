@@ -1,0 +1,32 @@
+{# Digital Pipeline step config modal body.
+   Note: values here are saved per-pipeline-step (not as global widget settings).
+   They are POSTed to your DP backend webhook each time the step fires. #}
+
+<div class="dp-action__config">
+  <div class="dp-action__field">
+    <label class="dp-action__label">{{ langs.dp.template_id }}</label>
+    <select name="params[template_id]" class="select-control dp-action__select">
+      <option value="welcome"  {% if saved.template_id == 'welcome'  %}selected{% endif %}>{{ langs.dp.tpl_welcome }}</option>
+      <option value="followup" {% if saved.template_id == 'followup' %}selected{% endif %}>{{ langs.dp.tpl_followup }}</option>
+      <option value="winback"  {% if saved.template_id == 'winback'  %}selected{% endif %}>{{ langs.dp.tpl_winback }}</option>
+    </select>
+  </div>
+
+  <div class="dp-action__field">
+    <label class="dp-action__label">{{ langs.dp.send_to }}</label>
+    <input type="text"
+           class="text-input dp-action__input"
+           name="params[send_to]"
+           value="{{ saved.send_to|default('') }}"
+           placeholder="user id or 'responsible'">
+  </div>
+
+  <div class="dp-action__field">
+    <label class="dp-action__label">Delay (sec, optional)</label>
+    <input type="number"
+           class="text-input dp-action__input"
+           name="params[delay]"
+           value="{{ saved.delay|default(0) }}"
+           min="0">
+  </div>
+</div>

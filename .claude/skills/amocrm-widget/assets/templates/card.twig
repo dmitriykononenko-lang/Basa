@@ -1,0 +1,30 @@
+{# Right-panel card body. Rendered from script.js callbacks.render() / init().
+   Context variables: settings, entity, user (whatever you passed to render_template).
+   `langs` is always available — it's the current locale's i18n dict. #}
+
+<div class="mw-card mw-card--{{ entity.type|default('unknown') }}">
+  {% if entity %}
+    <div class="mw-card__row">
+      <span class="mw-card__label">{{ langs.card.title }}:</span>
+      <span class="mw-card__value">{{ entity.name|escape }}</span>
+    </div>
+
+    {% if state and state.score is defined %}
+      <div class="mw-card__row">
+        <span class="mw-card__label">Score:</span>
+        <span class="mw-card__value">{{ state.score }}</span>
+      </div>
+    {% endif %}
+
+    <div class="mw-card__actions">
+      <button type="button" class="button-input button-input-blue js-mw-save">
+        {{ langs.card.save }}
+      </button>
+      <button type="button" class="button-input button-input-white js-mw-refresh">
+        {{ langs.card.refresh }}
+      </button>
+    </div>
+  {% else %}
+    <p class="mw-card__placeholder">{{ langs.card.no_data }}</p>
+  {% endif %}
+</div>

@@ -1,0 +1,29 @@
+{# Full-page advanced settings UI. Mount point varies by amoCRM version —
+   typically '.list-pipelines__hidden' or a similar advanced-settings container. #}
+
+<div class="mw-advanced">
+  <h2 class="mw-advanced__title">{{ langs.widget.name }}</h2>
+
+  <section class="mw-advanced__section">
+    <h3>{{ langs.advanced.sync_interval }}</h3>
+    <select class="select-control mw-advanced__select" name="sync_interval">
+      <option value="60"   {% if saved.sync_interval == '60'   %}selected{% endif %}>{{ langs.advanced.every_minute }}</option>
+      <option value="300"  {% if saved.sync_interval == '300'  %}selected{% endif %}>{{ langs.advanced.every_5_min }}</option>
+      <option value="3600" {% if saved.sync_interval == '3600' %}selected{% endif %}>{{ langs.advanced.every_hour }}</option>
+    </select>
+  </section>
+
+  <section class="mw-advanced__section">
+    <h3>{{ langs.advanced.debug }}</h3>
+    <label class="checkbox">
+      <input type="checkbox" name="debug" value="y" {% if saved.debug == 'y' %}checked{% endif %}>
+      <span>{{ langs.advanced.on }}</span>
+    </label>
+  </section>
+
+  <div class="mw-advanced__actions">
+    <button type="button" class="button-input button-input-blue js-mw-adv-save">
+      {{ langs.settings.save }}
+    </button>
+  </div>
+</div>

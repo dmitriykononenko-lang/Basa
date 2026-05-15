@@ -1,0 +1,123 @@
+{
+  "_comment": "Strip all _comment fields before shipping. They're for the developer, not the loader.",
+  "widget": {
+    "name": "widget.name",
+    "short_description": "widget.short_description",
+    "description": "widget.description",
+    "version": "1.0.0",
+    "interface_version": 2,
+    "init_once": false,
+    "locale": ["ru", "en"],
+    "installation": "y",
+    "support": {
+      "link": "https://example.com/support",
+      "email": "support@example.com"
+    },
+    "code": "REPLACE_WITH_INTEGRATION_CODE",
+    "secret_key": "REPLACE_WITH_SECRET_FROM_DEV_CABINET"
+  },
+
+  "_oauth_comment": "Set to 'Y' if the widget uses amoCRM OAuth 2.0. Then configure redirect URI in dev cabinet.",
+  "oauth": "N",
+
+  "_locations_comment": "Pick the surfaces. Suffix -1 paints the right panel; -0 loads JS without painting.",
+  "locations": [
+    "lcard-1",
+    "ccard-1",
+    "comcard-0",
+    "settings",
+    "advanced_settings",
+    "digital_pipeline"
+  ],
+
+  "_settings_comment": "Fields in the activation form. Types: text, pass, list, users, users_lp, custom.",
+  "settings": {
+    "api_key": {
+      "name": "settings.api_key",
+      "type": "text",
+      "required": true
+    },
+    "api_secret": {
+      "name": "settings.api_secret",
+      "type": "pass",
+      "required": true
+    },
+    "default_user": {
+      "name": "settings.default_user",
+      "type": "users_lp",
+      "required": false
+    },
+    "mode": {
+      "name": "settings.mode",
+      "type": "list",
+      "values": {
+        "sync": "settings.mode_sync",
+        "async": "settings.mode_async"
+      },
+      "default": "sync"
+    }
+  },
+
+  "_advanced_comment": "Fields shown on the 'Advanced settings' page. Only used if 'advanced_settings' is in locations.",
+  "advanced": {
+    "sync_interval": {
+      "name": "advanced.sync_interval",
+      "type": "list",
+      "values": {
+        "60":   "advanced.every_minute",
+        "300":  "advanced.every_5_min",
+        "3600": "advanced.every_hour"
+      },
+      "default": "300"
+    },
+    "debug": {
+      "name": "advanced.debug",
+      "type": "list",
+      "values": {
+        "n": "advanced.off",
+        "y": "advanced.on"
+      },
+      "default": "n"
+    }
+  },
+
+  "_dp_comment": "Default fields shown in the Digital Pipeline step config. Add more in dpSettings callback. Requires images/logo_dp.png at 174x109 px.",
+  "dp": {
+    "settings": {
+      "template_id": {
+        "name": "dp.template_id",
+        "type": "list",
+        "values": {
+          "welcome":  "dp.tpl_welcome",
+          "followup": "dp.tpl_followup",
+          "winback":  "dp.tpl_winback"
+        }
+      },
+      "send_to": {
+        "name": "dp.send_to",
+        "type": "users_lp"
+      }
+    }
+  },
+
+  "_salesbot_comment": "Optional: custom Salesbot designer actions. Remove this block if not used.",
+  "salesbot_designer": {
+    "send_message": {
+      "handler_code": "my_widget_send_message",
+      "params": {
+        "text":  { "type": "text", "name": "sb.text" },
+        "delay": { "type": "text", "name": "sb.delay" }
+      }
+    }
+  },
+
+  "_chat_settings_comment": "Only set for chat-channel widgets that integrate with Kommo's amojo backend.",
+  "chat_settings": {
+    "amojo": false
+  },
+
+  "_marketplace_comment": "Only required for public (marketplace) widgets. Remove for private widgets.",
+  "free": "Y",
+  "countries": ["RU", "BY", "KZ", "UA", "US"],
+  "category": "automation"
+}

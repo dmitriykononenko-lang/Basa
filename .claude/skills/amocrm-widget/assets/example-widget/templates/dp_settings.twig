@@ -1,0 +1,9 @@
+<div class="dp-action__config">
+  <div class="dp-action__field">
+    <label class="dp-action__label">{{ langs.dp.template_id }}</label>
+    <select name="params[template_id]" class="select-control dp-action__select">
+      <option value="welcome"  {% if saved.template_id == 'welcome'  %}selected{% endif %}>{{ langs.dp.tpl_welcome }}</option>
+      <option value="followup" {% if saved.template_id == 'followup' %}selected{% endif %}>{{ langs.dp.tpl_followup }}</option>
+    </select>
+  </div>
+</div>

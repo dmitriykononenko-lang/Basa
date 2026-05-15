@@ -1,0 +1,22 @@
+{# Custom controls appended to the activation modal body.
+   The built-in fields declared in manifest.settings are auto-rendered above this block.
+   Use this template only for type:custom fields or extra help text. #}
+
+<div class="widget_settings_block widget_settings_block--my-widget">
+  <div class="widget_settings_block__caption">
+    <p>{{ langs.settings.help_text }}</p>
+  </div>
+
+  <p class="js-mw-error" style="color: #f64e60; display: block; min-height: 1em;"></p>
+
+  {# Example: a custom multi-row picker that isn't covered by built-in field types. #}
+  <div class="mw-settings__custom">
+    <label class="mw-settings__label" for="mw-webhook">Webhook URL</label>
+    <input type="url"
+           id="mw-webhook"
+           class="text-input mw-settings__input"
+           name="webhook_url"
+           value="{{ saved.webhook_url|default('') }}"
+           placeholder="https://example.com/hooks/amo">
+  </div>
+</div>

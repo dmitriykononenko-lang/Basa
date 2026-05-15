@@ -1,0 +1,237 @@
+/**
+ * amoCRM / Kommo widget entry point.
+ *
+ * Structure:
+ *   - define([...]) wraps the widget for amoCRM's RequireJS loader.
+ *   - The exported function is the constructor; `this.callbacks` declares lifecycle handlers.
+ *   - Use `self` (not `this`) inside async code to avoid losing context.
+ *
+ * Replace MY_WIDGET with your widget's code name (matches manifest.widget.code).
+ */
+
+define(['jquery', 'lib/components/base/modal', 'underscore'], function ($, Modal, _) {
+
+  var CustomWidget = function () {
+    var self = this;
+
+    // ------------------------------------------------------------------
+    // Helpers (you can move these to a separate module if it grows)
+    // ------------------------------------------------------------------
+
+    self.api = {
+      base: 'https://your-backend.example.com',
+
+      call: function (path, payload) {
+        var dfd = $.Deferred();
+        $.ajax({
+          url: self.api.base + path,
+          method: 'POST',
+          contentType: 'application/json',
+          data: JSON.stringify(_.extend({
+            account_id: AMOCRM.constant('account').id,
+            subdomain:  AMOCRM.constant('account').subdomain,
+            user_id:    AMOCRM.constant('user').id,
+            widget_code: self.params.widget_code
+          }, payload || {}))
+        }).done(dfd.resolve).fail(dfd.reject);
+        return dfd.promise();
+      }
+    };
+
+    self.notify = function (key, color) {
+      AMOCRM.notifications.add_alert({
+        text: (self.i18n('notify') && self.i18n('notify')[key]) || key,
+        color: color || 'white'
+      });
+    };
+
+    // ------------------------------------------------------------------
+    // Lifecycle callbacks
+    // ------------------------------------------------------------------
+
+    this.callbacks = {
+
+      /**
+       * render — must return true (or a $.Deferred().promise()) for init/bind_actions to fire.
+       *
+       * Called every time the widget surface activates (card open, settings click, DP designer).
+       * Detect *which* surface from `self.system().area` or `AMOCRM.router.cur_page`.
+       */
+      render: function () {
+        var area = self.system().area;
+        var settings = self.get_settings();
+
+        // Skip rendering on cards if the widget isn't configured yet.
+        if (!settings && /^(lead|contact|company|customer)-card$/.test(area)) {
+          return true;
+        }
+
+        // Right-panel card: render the card body.
+        if (/^(lead|contact|company|customer)-card$/.test(area)) {
+          self.render_template(
+            {
+              caption: {
+                class_name: 'js-mw-' + self.params.widget_code + '__caption',
+                html: self.i18n('card').title
+              },
+              body:   '',
+              render: self.params.tmpl('templates/card')
+            },
+            {
+              settings: settings,
+              entity:   AMOCRM.data.current_card,
+              user:     AMOCRM.constant('user')
+            }
+          );
+        }
+
+        return true;
+      },
+
+      /**
+       * init — fetch data, set up state. Runs after render. Return true or a deferred.
+       */
+      init: function () {
+        // For lead_sources widgets:
+        if (_.contains(self.params.locations || [], 'lead_sources')) {
+          self.add_source && self.add_source(self.params.widget_code, {
+            name: self.i18n('source').name,
+            code: self.params.widget_code,
+            icon: self.params.path + '/images/logo_small.png',
+            settings: self.get_settings()
+          });
+        }
+
+        // Prefetch data for card widgets:
+        var card = AMOCRM.data.current_card;
+        if (card && card.id) {
+          self.api.call('/widget/card-init', { entity_type: card.type, entity_id: card.id })
+            .done(function (resp) {
+              self.entity_state = resp;
+              // Re-render the card body with hydrated data:
+              $('.js-mw-' + self.params.widget_code + '__caption').siblings('.widget-content')
+                .html(self.render({ render: self.params.tmpl('templates/card_body') }, {
+                  state: resp, settings: self.get_settings()
+                }));
+            })
+            .fail(function () { self.notify('init_failed', 'red'); });
+        }
+
+        return true;
+      },
+
+      /**
+       * bind_actions — attach DOM event handlers. Namespace to avoid stacking on SPA nav.
+       */
+      bind_actions: function () {
+        var ns = '.' + self.params.widget_code;
+
+        $(self.render_object || document).off('click' + ns).on('click' + ns, '.js-mw-refresh', function () {
+          self.callbacks.init();
+        });
+
+        $(self.render_object || document).off('click' + ns + '-save').on('click' + ns + '-save', '.js-mw-save', function () {
+          self.api.call('/widget/save', { state: self.entity_state })
+            .done(function () { self.notify('saved'); })
+            .fail(function () { self.notify('save_failed', 'red'); });
+        });
+
+        return true;
+      },
+
+      /**
+       * settings — render custom controls in the activation modal.
+       *
+       * Built-in field types (text/pass/list/users/users_lp) are auto-rendered from manifest.settings.
+       * Implement this only if you have type:custom fields or need custom validation.
+       */
+      settings: function ($modal_body) {
+        var customMount = $modal_body.find('.widget_settings_block__descr');
+        customMount.append(self.render({ render: self.params.tmpl('templates/settings') }, {
+          saved: self.get_settings() || {}
+        }));
+
+        $modal_body.off('click.mw-save').on('click.mw-save', '.widget_settings_block__btn_save', function (e) {
+          var apiKey = $modal_body.find('input[name="api_key"]').val();
+          if (!apiKey) {
+            e.preventDefault();
+            $modal_body.find('.js-mw-error').text(self.i18n('errors').required);
+            return false;
+          }
+          // Let the default save proceed.
+        });
+
+        return true;
+      },
+
+      /**
+       * advancedSettings — render the full advanced-settings page.
+       */
+      advancedSettings: function () {
+        $('.list-pipelines__hidden')
+          .append(self.render({ render: self.params.tmpl('templates/advanced_settings') }, {
+            saved: self.get_settings() || {}
+          }));
+        return true;
+      },
+
+      /**
+       * dpSettings — render the Digital Pipeline step config modal.
+       *
+       * The fields' values are saved per-pipeline-step (not as widget settings) and POSTed
+       * to your backend DP webhook each time the step fires.
+       */
+      dpSettings: function () {
+        var $modal = $('.modal-body');
+        var stepConfig = $modal.data('config') || {};
+        $modal.find('.dp_action__params').html(self.render({
+          render: self.params.tmpl('templates/dp_settings')
+        }, {
+          saved: stepConfig,
+          langs: self.langs
+        }));
+        return true;
+      },
+
+      /**
+       * destroy — clean up. Called on navigation away. Synchronous only.
+       */
+      destroy: function () {
+        var ns = '.' + self.params.widget_code;
+        $(self.render_object || document).off(ns + ' ' + ns + '-save click.mw-save');
+        if (self._poll_timer) { clearInterval(self._poll_timer); self._poll_timer = null; }
+      },
+
+      // ------------------------------------------------------------------
+      // List-view bulk actions (only fire if location includes llist-1 etc.)
+      // ------------------------------------------------------------------
+
+      leads: {
+        selected: function () {
+          var ids = AMOCRM.data.current_card_filter;
+          self.api.call('/widget/bulk-leads', { lead_ids: ids })
+            .done(function () { self.notify('bulk_ok'); })
+            .fail(function () { self.notify('bulk_failed', 'red'); });
+        }
+      },
+
+      contacts: {
+        selected: function () {
+          var ids = AMOCRM.data.current_card_filter;
+          self.api.call('/widget/bulk-contacts', { contact_ids: ids });
+        }
+      },
+
+      companies: {
+        selected: function () {
+          var ids = AMOCRM.data.current_card_filter;
+          self.api.call('/widget/bulk-companies', { company_ids: ids });
+        }
+      }
+    };
+
+    return this;
+  };
+
+  return CustomWidget;
+});

@@ -1,0 +1,21 @@
+{# SSO / channel widget UI.
+   For OAuth flows: show a "Connect" button that opens the auth window.
+   For chat/lead_source widgets: usually no UI is needed — the widget registers itself
+   via self.add_source() in init and the chat UI is provided by amoCRM itself. #}
+
+<div class="mw-sso">
+  {% if saved.connected %}
+    <div class="mw-sso__status mw-sso__status--ok">
+      <strong>{{ langs.widget.name }}</strong> — connected as {{ saved.account_email|escape }}
+    </div>
+    <button type="button" class="button-input button-input-white js-mw-disconnect">
+      Disconnect
+    </button>
+  {% else %}
+    <p class="mw-sso__help">{{ langs.settings.help_text }}</p>
+    <button type="button" class="button-input button-input-blue js-mw-connect"
+            data-auth-url="https://www.amocrm.ru/oauth?client_id={{ client_uuid }}&state={{ csrf }}&mode=post_message">
+      Connect
+    </button>
+  {% endif %}
+</div>

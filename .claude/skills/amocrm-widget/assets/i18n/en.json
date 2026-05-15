@@ -1,0 +1,60 @@
+{
+  "widget": {
+    "name": "My widget",
+    "short_description": "Short description — up to 80 characters.",
+    "description": "Full widget description for the marketplace. Clearly list what the widget does, which cards it appears on, and which integrations it requires."
+  },
+  "settings": {
+    "api_key": "API key",
+    "api_secret": "API secret",
+    "default_user": "Default responsible user",
+    "mode": "Mode",
+    "mode_sync": "Synchronous",
+    "mode_async": "Asynchronous",
+    "save": "Save",
+    "cancel": "Cancel",
+    "help_text": "Get your key from the service's dashboard."
+  },
+  "advanced": {
+    "sync_interval": "Sync interval",
+    "every_minute": "Every minute",
+    "every_5_min": "Every 5 minutes",
+    "every_hour": "Every hour",
+    "debug": "Debug mode",
+    "on": "On",
+    "off": "Off"
+  },
+  "card": {
+    "title": "Info",
+    "no_data": "No data",
+    "refresh": "Refresh",
+    "save": "Save",
+    "loading": "Loading…"
+  },
+  "dp": {
+    "template_id": "Message template",
+    "tpl_welcome": "Welcome",
+    "tpl_followup": "Follow-up",
+    "tpl_winback": "Win-back",
+    "send_to": "Send to"
+  },
+  "sb": {
+    "text": "Message text",
+    "delay": "Delay, sec"
+  },
+  "source": {
+    "name": "My channel"
+  },
+  "errors": {
+    "required": "Required field",
+    "network": "Network error, please retry",
+    "auth": "Authentication error"
+  },
+  "notify": {
+    "saved": "Saved",
+    "save_failed": "Failed to save",
+    "init_failed": "Failed to load data",
+    "bulk_ok": "Action completed",
+    "bulk_failed": "Action failed"
+  }
+}
