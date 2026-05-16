@@ -836,6 +836,12 @@ async function renderAmocrm() {
     const header = el('div', { class: 'page-header' }, el('h2', {}, 'Интеграция с AmoCRM'));
     const grid = el('div', { class: 'metric-grid' });
     const actions = el('div', { class: 'card', style: 'padding: 16px; margin-bottom: 16px; display: flex; gap: 8px; flex-wrap: wrap;' });
+    const mappingBox = el('div', { class: 'card', style: 'padding: 16px; margin-bottom: 16px;' },
+        el('h3', { style: 'margin: 0 0 8px;' }, 'Сопоставление пользователей AmoCRM ↔ Аналитики'),
+        el('p', { class: 'muted', style: 'margin: 0 0 12px;' },
+            'Подтягиваем список пользователей AmoCRM и показываем, кто из ваших аналитиков уже привязан. Без привязки автосоздание проектов по вебхукам не работает — сделка приходит с responsible_user_id, мы не знаем, кому это назначать.'),
+        el('div', { id: 'amo-mapping' }, el('p', { class: 'muted' }, 'Подключите AmoCRM, чтобы увидеть список.')),
+    );
     const syncBox = el('div', { class: 'card', style: 'padding: 16px;' },
         el('h3', { style: 'margin: 0 0 8px;' }, 'Ручная синхронизация'),
         el('p', { class: 'muted', style: 'margin: 0 0 12px;' }, 'Подтягивает изменения за последние 24 часа. Безопасно запускать в любой момент — повтор не создаёт дублей.'),
@@ -845,7 +851,7 @@ async function renderAmocrm() {
         ),
         el('div', { id: 'sync-result', class: 'json-box', style: 'margin-top: 12px; display: none;' }),
     );
-    setMain(header, grid, actions, syncBox);
+    setMain(header, grid, actions, mappingBox, syncBox);
 
     try {
         const status = await api('/amo/oauth/status');
@@ -881,11 +887,117 @@ async function renderAmocrm() {
                     class: 'btn btn-danger',
                     on: { click: () => disconnectAmo() },
                 }, 'Отключить'));
+                // Сразу подгружаем маппинг для удобства
+                loadAmoMapping();
             }
         }
     } catch (e) {
         toast(e.message, 'error');
     }
+}
+
+async function loadAmoMapping() {
+    const box = document.getElementById('amo-mapping');
+    if (!box) return;
+    box.innerHTML = '';
+    box.appendChild(el('p', { class: 'muted' }, 'Загружаем список пользователей AmoCRM…'));
+
+    let amoUsers, analysts;
+    try {
+        amoUsers = (await api('/amo/users')).users;
+        analysts = await api('/analysts');
+    } catch (e) {
+        box.innerHTML = '';
+        box.appendChild(el('p', { class: 'muted' }, 'Не удалось получить список: ' + e.message));
+        return;
+    }
+
+    if (amoUsers.length === 0) {
+        box.innerHTML = '';
+        box.appendChild(el('p', { class: 'empty-state' }, 'AmoCRM не вернул ни одного пользователя.'));
+        return;
+    }
+
+    const analystById = Object.fromEntries(analysts.map(a => [a.id, a]));
+    const analystByEmail = Object.fromEntries(analysts.filter(a => a.email).map(a => [a.email.toLowerCase(), a]));
+
+    const tbody = el('tbody');
+    amoUsers.forEach(u => {
+        const linkedAnalyst = u.analyst_id ? analystById[u.analyst_id] : null;
+        const emailSuggest = !linkedAnalyst && u.email ? analystByEmail[u.email.toLowerCase()] : null;
+
+        const select = el('select', { 'data-amo-id': String(u.amo_user_id) });
+        select.appendChild(el('option', { value: '' }, '— не привязан —'));
+        analysts.forEach(a => {
+            const opt = el('option', { value: a.id }, `${a.full_name} (${a.email})`);
+            // приоритет: уже привязан > совпадает по email
+            if (linkedAnalyst && linkedAnalyst.id === a.id) opt.setAttribute('selected', '');
+            else if (!linkedAnalyst && emailSuggest && emailSuggest.id === a.id) opt.setAttribute('selected', '');
+            select.appendChild(opt);
+        });
+
+        const suggestHint = emailSuggest && !linkedAnalyst
+            ? el('div', { class: 'muted', style: 'font-size: 11px; margin-top: 2px;' },
+                `подсказка: совпадает по email — ${emailSuggest.full_name}`)
+            : null;
+
+        const saveBtn = el('button', { class: 'btn btn-icon', on: { click: () => bindAmoUser(u.amo_user_id, select.value) } }, 'Привязать');
+        if (linkedAnalyst) saveBtn.textContent = 'Переназначить';
+
+        tbody.appendChild(el('tr', {},
+            el('td', {}, String(u.amo_user_id)),
+            el('td', {}, u.name || '—'),
+            el('td', {}, u.email || '—'),
+            el('td', {},
+                linkedAnalyst
+                    ? el('span', { class: 'status-badge status-paid' }, linkedAnalyst.full_name)
+                    : el('span', { class: 'muted' }, '—'),
+                suggestHint,
+            ),
+            el('td', {}, select),
+            el('td', { class: 'row-actions' }, saveBtn),
+        ));
+    });
+
+    box.innerHTML = '';
+    box.appendChild(el('table', {},
+        el('thead', {}, el('tr', {},
+            el('th', {}, 'AmoCRM id'),
+            el('th', {}, 'Имя в AmoCRM'),
+            el('th', {}, 'Email'),
+            el('th', {}, 'Привязка сейчас'),
+            el('th', {}, 'Аналитик'),
+            el('th', {}, ''),
+        )),
+        tbody
+    ));
+}
+
+async function bindAmoUser(amoUserId, analystId) {
+    // Если выбран «не привязан» (пустой) — нужно снять привязку у того аналитика,
+    // у которого сейчас этот amo_user_id.
+    try {
+        if (!analystId) {
+            const current = (await api('/analysts')).find(a => a.amo_user_id === amoUserId);
+            if (!current) {
+                toast('Никто и так не привязан', 'success');
+                return;
+            }
+            await api(`/analysts/${current.id}`, { method: 'PATCH', body: { amo_user_id: null } });
+            toast('Привязка снята', 'success');
+        } else {
+            // 1) Снимаем amo_user_id у любого другого аналитика, у которого он стоит (избегаем UNIQUE-конфликта).
+            const others = (await api('/analysts')).filter(a => a.amo_user_id === amoUserId && a.id !== analystId);
+            for (const o of others) {
+                await api(`/analysts/${o.id}`, { method: 'PATCH', body: { amo_user_id: null } });
+            }
+            // 2) Ставим выбранному аналитику.
+            await api(`/analysts/${analystId}`, { method: 'PATCH', body: { amo_user_id: amoUserId } });
+            toast('Сопоставление сохранено', 'success');
+        }
+        clearAnalystsCache();
+        loadAmoMapping();
+    } catch (e) { toast(e.message, 'error'); }
 }
 
 async function runSync(path, label) {

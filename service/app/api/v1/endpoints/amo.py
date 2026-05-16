@@ -141,6 +141,55 @@ def oauth_ping(
     return {"status": "ok", "users_visible": user_count}
 
 
+@router.get("/users")
+def list_amo_users(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(UserRole.admin)),
+) -> dict:
+    """Список пользователей из AmoCRM + информация о привязке к нашим аналитикам.
+
+    Возвращает по каждому AmoCRM-юзеру: amo_user_id, name, email и, если уже
+    привязан к аналитику, — его uuid / ФИО. Удобно для маппинга в UI.
+    """
+    from sqlalchemy import select as _sel
+
+    from app.models import Analyst
+
+    try:
+        client = AmoClient(db)
+        body = client.get_users()
+    except AmoApiError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    amo_users = ((body or {}).get("_embedded") or {}).get("users") or []
+    # одним запросом — все маппинги
+    mapped = {
+        a.amo_user_id: a
+        for a in db.execute(_sel(Analyst).where(Analyst.amo_user_id.is_not(None))).scalars()
+        if a.amo_user_id is not None
+    }
+
+    items: list[dict] = []
+    for u in amo_users:
+        amo_id = u.get("id")
+        try:
+            amo_id_int = int(amo_id) if amo_id is not None else None
+        except (TypeError, ValueError):
+            amo_id_int = None
+        analyst = mapped.get(amo_id_int)
+        items.append({
+            "amo_user_id": amo_id_int,
+            "name": u.get("name"),
+            "email": u.get("email"),
+            "rights_lang": u.get("lang"),
+            "analyst_id": str(analyst.id) if analyst else None,
+            "analyst_name": analyst.full_name if analyst else None,
+        })
+    return {"users": items, "total": len(items)}
+
+
 @router.post("/sync/run")
 def run_sync(
     since: Optional[datetime] = None,
