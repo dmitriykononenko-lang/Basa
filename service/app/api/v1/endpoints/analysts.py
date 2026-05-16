@@ -49,7 +49,26 @@ def update_analyst(
     analyst = db.get(Analyst, analyst_id)
     if analyst is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Analyst not found")
-    for field, value in payload.model_dump(exclude_unset=True).items():
+
+    data = payload.model_dump(exclude_unset=True)
+
+    # Валидация user_id: должен указывать на существующего пользователя
+    # и не быть уже привязан к другому аналитику.
+    if "user_id" in data and data["user_id"] is not None:
+        new_user_id = data["user_id"]
+        if db.get(User, new_user_id) is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                detail=f"User {new_user_id} not found")
+        other = db.execute(
+            select(Analyst).where(Analyst.user_id == new_user_id, Analyst.id != analyst.id)
+        ).scalar_one_or_none()
+        if other is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"User уже привязан к аналитику {other.full_name}",
+            )
+
+    for field, value in data.items():
         setattr(analyst, field, value)
     db.commit()
     db.refresh(analyst)

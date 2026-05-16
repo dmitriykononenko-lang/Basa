@@ -216,11 +216,11 @@ function el(tag, attrs = {}, ...children) {
     Object.entries(attrs).forEach(([k, v]) => {
         if (k === 'class') e.className = v;
         else if (k === 'on') Object.entries(v).forEach(([ev, fn]) => e.addEventListener(ev, fn));
-        else if (k === 'html') e.innerHTML = v;
         else if (v === true) e.setAttribute(k, '');
         else if (v === false || v == null) {} // skip
         else e.setAttribute(k, v);
     });
+    // children всегда уходят через textNode — никакой строки не интерпретируется как HTML
     children.flat().forEach(c => {
         if (c == null || c === false) return;
         e.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);

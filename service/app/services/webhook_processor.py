@@ -60,12 +60,6 @@ def _find_project_by_amo_deal(db: Session, amo_deal_id: int) -> Optional[Project
     return db.execute(select(Project).where(Project.amo_deal_id == amo_deal_id)).scalar_one_or_none()
 
 
-def _latest_payment_for_project(db: Session, project_id: UUID) -> Optional[Payment]:
-    return db.execute(
-        select(Payment).where(Payment.project_id == project_id).order_by(Payment.created_at.desc())
-    ).scalars().first()
-
-
 def _existing_accrued_payment(db: Session, project_id: UUID) -> Optional[Payment]:
     return db.execute(
         select(Payment).where(

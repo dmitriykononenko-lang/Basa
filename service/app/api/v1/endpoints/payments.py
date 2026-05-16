@@ -27,6 +27,26 @@ def _filter_for_analyst(stmt, user: User, db: Session):
     return stmt.where(Payment.analyst_id == analyst.id)
 
 
+def _settle_project_status_if_all_paid(db: Session, project_id: UUID) -> None:
+    """Если все выплаты по проекту в paid/cancelled, двигаем проект в paid.
+
+    autoflush=False → перед SELECT'ом обязательно flush, иначе запрос видит
+    устаревшие данные из БД.
+    """
+    db.flush()
+    project = db.get(Project, project_id)
+    if project is None or project.status == ProjectStatus.cancelled:
+        return
+    remaining = db.execute(
+        select(Payment).where(
+            Payment.project_id == project.id,
+            Payment.status.not_in([PaymentStatus.paid, PaymentStatus.cancelled]),
+        )
+    ).scalars().first()
+    if remaining is None:
+        project.status = ProjectStatus.paid
+
+
 @router.get("", response_model=list[PaymentOut])
 def list_payments(
     status_: Optional[PaymentStatus] = Query(default=None, alias="status"),
@@ -63,6 +83,7 @@ def update_payment(
     data = payload.model_dump(exclude_unset=True)
     reason = data.pop("reason", None)
 
+    status_changed_to_paid = False
     for field, value in data.items():
         old = getattr(payment, field)
         if old != value:
@@ -77,6 +98,13 @@ def update_payment(
                 )
             )
             setattr(payment, field, value)
+            if field == "status" and value == PaymentStatus.paid:
+                status_changed_to_paid = True
+                if payment.paid_at is None:
+                    payment.paid_at = datetime.now(timezone.utc)
+
+    if status_changed_to_paid:
+        _settle_project_status_if_all_paid(db, payment.project_id)
     db.commit()
     db.refresh(payment)
     return payment
@@ -115,21 +143,7 @@ def mark_paid(
         )
     )
 
-    # Если все выплаты по проекту теперь paid (или cancelled) — двигаем проект в paid.
-    # Это закрывает терминальное состояние и блокирует «случайные» откаты от Amo.
-    # db.flush(): autoflush=False, поэтому статус payment ещё в памяти. Сбрасываем
-    # его в транзакцию до SELECT'а, иначе запрос увидит старое значение.
-    db.flush()
-    project = db.get(Project, payment.project_id)
-    if project is not None and project.status != ProjectStatus.cancelled:
-        remaining = db.execute(
-            select(Payment).where(
-                Payment.project_id == project.id,
-                Payment.status.not_in([PaymentStatus.paid, PaymentStatus.cancelled]),
-            )
-        ).scalars().first()
-        if remaining is None:
-            project.status = ProjectStatus.paid
+    _settle_project_status_if_all_paid(db, payment.project_id)
     db.commit()
     db.refresh(payment)
     return payment
