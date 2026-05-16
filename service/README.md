@@ -364,11 +364,31 @@ BACKUP_DIR=/var/backups/basa ./scripts/backup-db.sh
 БД, создаёт заново, накатывает дамп. Заранее останавливает `app` и `worker`,
 запускает обратно после успеха.
 
+## Авто-расписание pull-синков
+
+Закрывает ТЗ §2.3. После `docker compose up` поднимается отдельный сервис
+`scheduler` (`python -m app.scheduler_worker`), который при старте регистрирует
+в Redis 4 cron-задачи:
+
+| ID                              | Cron       | Что делает |
+|---------------------------------|------------|---|
+| `basa.sched.hourly.leads`       | `5 * * * *` | sync_leads за последние 24ч |
+| `basa.sched.hourly.tasks`       | `10 * * * *`| sync_tasks за последние 24ч |
+| `basa.sched.daily.leads.30d`    | `30 3 * * *`| sync_leads за последние 30 дней |
+| `basa.sched.daily.tasks.30d`    | `35 3 * * *`| sync_tasks за последние 30 дней |
+
+Регистрация идемпотентна — повтор не дублирует. Если AmoCRM ещё не подключён,
+задачи молча скипаются с пометкой `skipped` в логе, не алертят.
+
+```bash
+GET  /api/v1/amo/sync/schedule           # сводка для админки
+POST /api/v1/amo/sync/schedule/register  # перерегистрировать (после wipe Redis)
+```
+
+Внешний cron из `AMOCRM_SETUP.md` шаг 9 больше не нужен.
+
 ## Что ещё не сделано (опционально / NFR)
 
-- **Расписания pull-синков (cron внутри воркера):** сейчас `/sync/run` и
-  `/sync/tasks` запускаются вручную или через внешний cron. ТЗ §2.3 предполагает
-  hourly за 24ч + daily за 30 дней — можно подключить RQ-Scheduler или systemd-таймер.
 - **Rate limit** на `POST /api/v1/amo/webhooks` (ТЗ §9.1) — отложен; при предполагаемой
   нагрузке (~50 вебхуков/час пиково) не критично, заложить можно через redis sliding window.
 - **Email/Slack-доставка алертов** — сейчас только REST-эндпоинт; интеграция с

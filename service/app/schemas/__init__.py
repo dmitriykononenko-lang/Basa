@@ -3,7 +3,7 @@ from app.schemas.auth import LoginRequest, RefreshRequest, TokenPair
 from app.schemas.common import Message
 from app.schemas.payment import PaymentMarkPaid, PaymentOut, PaymentUpdate
 from app.schemas.project import ProjectCreate, ProjectOut, ProjectUpdate
-from app.schemas.user import UserCreate, UserOut
+from app.schemas.user import PasswordChange, UserCreate, UserOut, UserUpdate
 
 __all__ = [
     "AnalystCreate",
@@ -19,6 +19,8 @@ __all__ = [
     "ProjectUpdate",
     "RefreshRequest",
     "TokenPair",
+    "PasswordChange",
     "UserCreate",
     "UserOut",
+    "UserUpdate",
 ]

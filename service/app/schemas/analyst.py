@@ -29,6 +29,7 @@ class AnalystUpdate(BaseModel):
     default_rate: Optional[Decimal] = None
     payment_details: Optional[dict[str, Any]] = None
     status: Optional[AnalystStatus] = None
+    user_id: Optional[UUID] = None
 
 
 class AnalystOut(AnalystBase):

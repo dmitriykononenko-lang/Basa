@@ -73,5 +73,23 @@ services:
     volumes:
       - ./app:/app/app
 
+  scheduler:
+    build: .
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://basa:${DB_PASSWORD:-basa_dev_password}@db:5432/basa
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: ${JWT_SECRET:-change-me-please}
+      TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY}
+      AMO_CLIENT_ID: ${AMO_CLIENT_ID:-}
+      AMO_CLIENT_SECRET: ${AMO_CLIENT_SECRET:-}
+      AMO_REDIRECT_URI: ${AMO_REDIRECT_URI:-}
+      AMO_BASE_URL: ${AMO_BASE_URL:-}
+    command: python -m app.scheduler_worker
+    volumes:
+      - ./app:/app/app
+
 volumes:
   db-data:

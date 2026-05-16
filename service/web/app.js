@@ -30,6 +30,7 @@ const TABS = [
     { id: 'payments', label: 'Выплаты', roles: ['admin', 'accountant', 'analyst'] },
     { id: 'metrics', label: 'Эффективность', roles: ['admin', 'accountant', 'analyst'] },
     { id: 'analysts', label: 'Аналитики', roles: ['admin'] },
+    { id: 'users', label: 'Пользователи', roles: ['admin'] },
     { id: 'amocrm', label: 'AmoCRM', roles: ['admin'] },
     { id: 'webhook-log', label: 'Журнал AmoCRM', roles: ['admin'] },
     { id: 'settings', label: 'Настройки', roles: ['admin'] },
@@ -162,6 +163,16 @@ function showApp(user) {
     const roleBadge = document.getElementById('user-role');
     roleBadge.textContent = user.role;
     roleBadge.className = `badge role-${user.role}`;
+    // Кнопка «Сменить пароль» — добавляем в user-info один раз
+    const userInfo = document.querySelector('.user-info');
+    if (!userInfo.querySelector('[data-action=change-password]')) {
+        const btn = el('button', {
+            'data-action': 'change-password',
+            class: 'btn-link',
+            on: { click: changeOwnPassword },
+        }, 'Сменить пароль');
+        userInfo.insertBefore(btn, document.getElementById('logout-btn'));
+    }
     renderTabs(user);
     if (!location.hash) location.hash = '#/projects';
     route();
@@ -189,6 +200,7 @@ function route() {
         payments: renderPayments,
         metrics: renderMetrics,
         analysts: renderAnalysts,
+        users: renderUsers,
         amocrm: renderAmocrm,
         'webhook-log': renderWebhookLog,
         settings: renderSettings,
@@ -708,6 +720,113 @@ async function requeueUnprocessed() {
         const r = await api('/webhook-log/reprocess-unprocessed?limit=500', { method: 'POST' });
         toast(`Переотправлено: ${r.requeued}`, 'success');
         renderWebhookLog();
+    } catch (e) { toast(e.message, 'error'); }
+}
+
+/* ----------------------- Users (admin) ----------------------- */
+
+const ROLE_LABELS = { admin: 'Админ', accountant: 'Бухгалтер', analyst: 'Аналитик' };
+
+async function renderUsers() {
+    const header = el('div', { class: 'page-header' },
+        el('h2', {}, 'Пользователи'),
+        el('div', { class: 'page-actions' },
+            el('button', { class: 'btn btn-primary', on: { click: () => openUserModal() } }, '+ Новый пользователь'),
+        )
+    );
+    const card = el('div', { class: 'card' }, el('p', { class: 'empty-state' }, 'Загружаем…'));
+    setMain(header, card);
+    try {
+        const users = await api('/users');
+        if (users.length === 0) {
+            card.innerHTML = '';
+            card.appendChild(el('p', { class: 'empty-state' }, 'Пока пусто'));
+            return;
+        }
+        const tbody = el('tbody');
+        users.forEach(u => {
+            tbody.appendChild(el('tr', {},
+                el('td', {}, u.email),
+                el('td', {}, u.full_name || '—'),
+                el('td', {}, ROLE_LABELS[u.role] || u.role),
+                el('td', {}, u.is_active ? '✓' : '—'),
+                el('td', { class: 'row-actions' },
+                    el('button', { class: 'btn btn-icon', on: { click: () => openUserModal(u) } }, 'Изменить'),
+                    el('button', { class: 'btn btn-icon', on: { click: () => resetPassword(u) } }, 'Сбросить пароль'),
+                )
+            ));
+        });
+        card.innerHTML = '';
+        card.appendChild(el('table', {},
+            el('thead', {}, el('tr', {},
+                el('th', {}, 'Email'),
+                el('th', {}, 'ФИО'),
+                el('th', {}, 'Роль'),
+                el('th', {}, 'Активен'),
+                el('th', {}, ''),
+            )),
+            tbody
+        ));
+    } catch (e) { toast(e.message, 'error'); }
+}
+
+function openUserModal(user = null) {
+    const form = el('form', { on: { submit: async (e) => {
+        e.preventDefault();
+        const data = Object.fromEntries(new FormData(form).entries());
+        try {
+            if (user) {
+                const patch = { full_name: data.full_name, role: data.role, is_active: data.is_active === 'true' };
+                await api(`/users/${user.id}`, { method: 'PATCH', body: patch });
+            } else {
+                await api('/users', { method: 'POST', body: data });
+            }
+            toast('Сохранено', 'success');
+            document.querySelector('.modal').remove();
+            renderUsers();
+        } catch (err) { toast(err.message, 'error'); }
+    }}},
+        field('Email', el('input', { name: 'email', type: 'email', required: true, value: user?.email || '', disabled: !!user })),
+        user ? null : field('Пароль (минимум 8 символов)', el('input', { name: 'password', type: 'password', minlength: '8', required: true })),
+        field('ФИО', el('input', { name: 'full_name', value: user?.full_name || '' })),
+        field('Роль', selectFrom('role', [
+            { value: 'admin', label: 'Админ' },
+            { value: 'accountant', label: 'Бухгалтер' },
+            { value: 'analyst', label: 'Аналитик' },
+        ], user?.role || 'analyst')),
+        user ? field('Активен', selectFrom('is_active', [
+            { value: 'true', label: 'Активен' },
+            { value: 'false', label: 'Деактивирован' },
+        ], String(user.is_active))) : null,
+        el('div', { class: 'form-actions' },
+            el('button', { type: 'button', class: 'btn', on: { click: () => document.querySelector('.modal').remove() } }, 'Отмена'),
+            el('button', { type: 'submit', class: 'btn btn-primary' }, 'Сохранить'),
+        )
+    );
+    openModal(user ? `Пользователь ${user.email}` : 'Новый пользователь', form);
+}
+
+async function resetPassword(user) {
+    const pwd = prompt(`Новый пароль для ${user.email} (минимум 8 символов):`);
+    if (!pwd) return;
+    if (pwd.length < 8) return toast('Минимум 8 символов', 'error');
+    try {
+        await api(`/users/${user.id}/password`, { method: 'POST', body: { new_password: pwd } });
+        toast('Пароль обновлён', 'success');
+    } catch (e) { toast(e.message, 'error'); }
+}
+
+async function changeOwnPassword() {
+    const cur = prompt('Текущий пароль:');
+    if (cur == null) return;
+    const next = prompt('Новый пароль (минимум 8 символов):');
+    if (!next || next.length < 8) return toast('Минимум 8 символов', 'error');
+    try {
+        await api('/users/me/password', {
+            method: 'POST',
+            body: { current_password: cur, new_password: next },
+        });
+        toast('Пароль обновлён', 'success');
     } catch (e) { toast(e.message, 'error'); }
 }
 

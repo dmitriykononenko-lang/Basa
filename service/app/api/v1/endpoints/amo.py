@@ -19,6 +19,12 @@ from app.services.amo_token_store import load_tokens
 from app.services.queue import enqueue_webhook_log
 from app.services.sync import sync_leads, sync_tasks
 
+try:  # rq-scheduler опционален — без него /sync/schedule отвечает пустотой
+    from app.services.scheduler import list_scheduled_jobs, register_schedule
+except Exception:  # noqa: BLE001
+    list_scheduled_jobs = None  # type: ignore[assignment]
+    register_schedule = None  # type: ignore[assignment]
+
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/amo", tags=["amo"])
 
@@ -151,6 +157,37 @@ def run_sync(
         "skipped": result.skipped,
         "rollbacks_blocked": result.rollbacks_blocked,
     }
+
+
+@router.get("/sync/schedule")
+def get_schedule(
+    _: User = Depends(require_roles(UserRole.admin)),
+) -> dict:
+    """Сводка авто-расписания pull-синков (нужен запущенный scheduler_worker)."""
+    if list_scheduled_jobs is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                            detail="rq-scheduler не установлен")
+    try:
+        jobs = list_scheduled_jobs()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                            detail=f"Redis недоступен: {exc}") from exc
+    return {"jobs": jobs}
+
+
+@router.post("/sync/schedule/register")
+def register_sync_schedule(
+    _: User = Depends(require_roles(UserRole.admin)),
+) -> dict:
+    """Принудительно зарегистрировать расписание (на случай свежего Redis)."""
+    if register_schedule is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                            detail="rq-scheduler не установлен")
+    try:
+        return {"registered": register_schedule()}
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                            detail=str(exc)) from exc
 
 
 @router.post("/sync/tasks")
