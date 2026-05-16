@@ -190,6 +190,184 @@ def list_amo_users(
     return {"users": items, "total": len(items)}
 
 
+@router.post("/users/bulk-link-by-email")
+def bulk_link_by_email(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(UserRole.admin)),
+) -> dict:
+    """Автомассовая привязка: для каждого AmoCRM-юзера ищет аналитика с тем же
+    email и проставляет ему `amo_user_id`. Пропускает уже привязанных и
+    конфликты (несколько аналитиков с одинаковым email).
+    """
+    from sqlalchemy import select as _sel
+
+    from app.models import Analyst
+
+    try:
+        client = AmoClient(db)
+        body = client.get_users()
+    except AmoApiError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    amo_users = ((body or {}).get("_embedded") or {}).get("users") or []
+    analysts = list(db.execute(_sel(Analyst)).scalars())
+    by_email: dict[str, list[Analyst]] = {}
+    for a in analysts:
+        if a.email:
+            by_email.setdefault(a.email.lower(), []).append(a)
+
+    linked: list[dict] = []
+    skipped_already_bound: list[dict] = []
+    conflicts: list[dict] = []
+    no_match: list[dict] = []
+
+    for u in amo_users:
+        amo_id = u.get("id")
+        email = (u.get("email") or "").strip().lower()
+        try:
+            amo_id_int = int(amo_id) if amo_id is not None else None
+        except (TypeError, ValueError):
+            amo_id_int = None
+        if amo_id_int is None:
+            continue
+
+        # пропускаем уже привязанных
+        if any(a.amo_user_id == amo_id_int for a in analysts):
+            skipped_already_bound.append({"amo_user_id": amo_id_int, "amo_email": u.get("email")})
+            continue
+
+        if not email:
+            no_match.append({"amo_user_id": amo_id_int, "amo_email": None, "reason": "no_email"})
+            continue
+
+        candidates = by_email.get(email, [])
+        if not candidates:
+            no_match.append({"amo_user_id": amo_id_int, "amo_email": u.get("email"), "reason": "no_analyst_with_this_email"})
+            continue
+        if len(candidates) > 1:
+            conflicts.append({
+                "amo_user_id": amo_id_int,
+                "amo_email": u.get("email"),
+                "candidates": [{"analyst_id": str(c.id), "name": c.full_name} for c in candidates],
+            })
+            continue
+
+        analyst = candidates[0]
+        if analyst.amo_user_id is not None and analyst.amo_user_id != amo_id_int:
+            # аналитик уже привязан к другому Amo-юзеру — не перетягиваем молча
+            conflicts.append({
+                "amo_user_id": amo_id_int,
+                "amo_email": u.get("email"),
+                "analyst_id": str(analyst.id),
+                "current_amo_user_id": analyst.amo_user_id,
+                "reason": "analyst_already_bound_to_another_amo_user",
+            })
+            continue
+
+        analyst.amo_user_id = amo_id_int
+        linked.append({
+            "amo_user_id": amo_id_int,
+            "amo_email": u.get("email"),
+            "analyst_id": str(analyst.id),
+            "analyst_name": analyst.full_name,
+        })
+
+    db.commit()
+    return {
+        "linked": linked,
+        "skipped_already_bound": skipped_already_bound,
+        "conflicts": conflicts,
+        "no_match": no_match,
+        "summary": {
+            "linked": len(linked),
+            "already_bound": len(skipped_already_bound),
+            "conflicts": len(conflicts),
+            "no_match": len(no_match),
+        },
+    }
+
+
+@router.get("/users/unmapped")
+def list_unmapped_users(
+    days: int = Query(default=30, ge=1, le=365),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(UserRole.admin)),
+) -> dict:
+    """AmoCRM-юзеры, чьи `responsible_user_id` встречались в недавних вебхуках,
+    но не привязаны ни к одному аналитику. Это «дыра» в маппинге, из-за
+    которой проекты не создаются автоматически.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy import select as _sel
+
+    from app.models import AmoWebhookLog, Analyst
+
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    logs = db.execute(
+        _sel(AmoWebhookLog).where(AmoWebhookLog.received_at >= since).order_by(AmoWebhookLog.received_at.desc())
+    ).scalars()
+
+    seen: dict[int, int] = {}  # amo_user_id → count occurrences
+    for log in logs:
+        payload = log.payload or {}
+        for top in ("leads", "tasks"):
+            section = payload.get(top, {})
+            if not isinstance(section, dict):
+                continue
+            for items in section.values():
+                if not isinstance(items, list):
+                    continue
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    raw = item.get("responsible_user_id")
+                    if raw is None:
+                        continue
+                    try:
+                        uid = int(raw)
+                    except (TypeError, ValueError):
+                        continue
+                    seen[uid] = seen.get(uid, 0) + 1
+
+    if not seen:
+        return {"unmapped": [], "since": since.isoformat()}
+
+    mapped_ids = {
+        a.amo_user_id
+        for a in db.execute(_sel(Analyst).where(Analyst.amo_user_id.is_not(None))).scalars()
+        if a.amo_user_id is not None
+    }
+    unmapped_ids = [uid for uid in seen if uid not in mapped_ids]
+    unmapped_ids.sort(key=lambda x: -seen[x])
+
+    # пробуем обогатить именами/email из AmoCRM (не критично, если не вышло)
+    by_id: dict[int, dict] = {}
+    try:
+        body = AmoClient(db).get_users()
+        for u in ((body or {}).get("_embedded") or {}).get("users") or []:
+            try:
+                amo_id = int(u.get("id"))
+            except (TypeError, ValueError):
+                continue
+            by_id[amo_id] = {"name": u.get("name"), "email": u.get("email")}
+    except (AmoApiError, RuntimeError):
+        pass
+
+    result = [
+        {
+            "amo_user_id": uid,
+            "occurrences": seen[uid],
+            "name": by_id.get(uid, {}).get("name"),
+            "email": by_id.get(uid, {}).get("email"),
+        }
+        for uid in unmapped_ids
+    ]
+    return {"unmapped": result, "since": since.isoformat()}
+
+
 @router.post("/sync/run")
 def run_sync(
     since: Optional[datetime] = None,

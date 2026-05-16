@@ -32,6 +32,7 @@ const TABS = [
     { id: 'analysts', label: 'Аналитики', roles: ['admin'] },
     { id: 'users', label: 'Пользователи', roles: ['admin'] },
     { id: 'amocrm', label: 'AmoCRM', roles: ['admin'] },
+    { id: 'amo-mapping', label: 'Сопоставление', roles: ['admin'] },
     { id: 'webhook-log', label: 'Журнал AmoCRM', roles: ['admin'] },
     { id: 'settings', label: 'Настройки', roles: ['admin'] },
 ];
@@ -202,6 +203,7 @@ function route() {
         analysts: renderAnalysts,
         users: renderUsers,
         amocrm: renderAmocrm,
+        'amo-mapping': renderAmoMapping,
         'webhook-log': renderWebhookLog,
         settings: renderSettings,
     }[id];
@@ -580,12 +582,28 @@ async function renderAnalysts() {
             card.appendChild(el('p', { class: 'empty-state' }, 'Аналитиков пока нет'));
             return;
         }
+        // Параллельно тянем имена AmoCRM-юзеров (если интеграция подключена). Не критично если не вышло.
+        const amoNames = await api('/amo/users').then(r => {
+            const m = {};
+            (r.users || []).forEach(u => { if (u.amo_user_id != null) m[u.amo_user_id] = u; });
+            return m;
+        }).catch(() => ({}));
+
         const tbody = el('tbody');
         analysts.forEach(a => {
+            const amoCell = a.amo_user_id == null
+                ? el('span', { class: 'muted' }, '—')
+                : (() => {
+                    const known = amoNames[a.amo_user_id];
+                    if (known && known.name) {
+                        return el('span', {}, `${known.name} `, el('span', { class: 'muted', style: 'font-size: 11px;' }, `#${a.amo_user_id}`));
+                    }
+                    return el('span', {}, `#${a.amo_user_id}`);
+                })();
             tbody.appendChild(el('tr', {},
                 el('td', {}, a.full_name),
                 el('td', {}, a.email),
-                el('td', {}, a.amo_user_id ? String(a.amo_user_id) : '—'),
+                el('td', {}, amoCell),
                 el('td', { class: 'text-right' }, fmtMoney(a.default_rate)),
                 el('td', {}, statusBadge(a.status)),
                 el('td', { class: 'row-actions' },
@@ -598,7 +616,7 @@ async function renderAnalysts() {
             el('thead', {}, el('tr', {},
                 el('th', {}, 'ФИО'),
                 el('th', {}, 'Email'),
-                el('th', {}, 'AmoCRM user id'),
+                el('th', {}, 'AmoCRM'),
                 el('th', { class: 'text-right' }, 'Ставка'),
                 el('th', {}, 'Статус'),
                 el('th', {}, ''),
@@ -652,15 +670,27 @@ async function renderWebhookLog() {
     setMain(header, card);
 
     try {
-        const [logs, alerts] = await Promise.all([
+        const [logs, alerts, unmapped] = await Promise.all([
             api('/webhook-log?limit=100'),
             api('/alerts/status').catch(() => null),
+            api('/amo/users/unmapped?days=30').catch(() => ({ unmapped: [] })),
         ]);
-        const alertBlock = alerts
+        const unmappedCount = (unmapped.unmapped || []).length;
+        const alertBlock = (alerts || unmappedCount > 0)
             ? el('div', { class: 'metric-grid' },
-                metricCard('Ошибок за последний час', String(alerts.errors_last_hour),
-                    alerts.triggered ? 'danger' : (alerts.errors_last_hour > 0 ? 'warning' : 'success')),
-                metricCard('Порог алерта', String(alerts.threshold), ''),
+                alerts ? metricCard('Ошибок за последний час', String(alerts.errors_last_hour),
+                    alerts.triggered ? 'danger' : (alerts.errors_last_hour > 0 ? 'warning' : 'success')) : null,
+                alerts ? metricCard('Порог алерта', String(alerts.threshold), '') : null,
+                unmappedCount > 0
+                    ? (() => {
+                        const card = metricCard('Несопоставленных AmoCRM-юзеров', String(unmappedCount),
+                            unmappedCount > 0 ? 'warning' : 'success');
+                        card.style.cursor = 'pointer';
+                        card.title = 'Открыть «Сопоставление» — есть Amo-юзеры в вебхуках без привязки к аналитикам';
+                        card.addEventListener('click', () => { location.hash = '#/amo-mapping'; });
+                        return card;
+                    })()
+                    : null,
             )
             : null;
 
@@ -836,11 +866,11 @@ async function renderAmocrm() {
     const header = el('div', { class: 'page-header' }, el('h2', {}, 'Интеграция с AmoCRM'));
     const grid = el('div', { class: 'metric-grid' });
     const actions = el('div', { class: 'card', style: 'padding: 16px; margin-bottom: 16px; display: flex; gap: 8px; flex-wrap: wrap;' });
-    const mappingBox = el('div', { class: 'card', style: 'padding: 16px; margin-bottom: 16px;' },
-        el('h3', { style: 'margin: 0 0 8px;' }, 'Сопоставление пользователей AmoCRM ↔ Аналитики'),
-        el('p', { class: 'muted', style: 'margin: 0 0 12px;' },
-            'Подтягиваем список пользователей AmoCRM и показываем, кто из ваших аналитиков уже привязан. Без привязки автосоздание проектов по вебхукам не работает — сделка приходит с responsible_user_id, мы не знаем, кому это назначать.'),
-        el('div', { id: 'amo-mapping' }, el('p', { class: 'muted' }, 'Подключите AmoCRM, чтобы увидеть список.')),
+    const hintBox = el('div', { class: 'card', style: 'padding: 16px; margin-bottom: 16px;' },
+        el('p', { class: 'muted', style: 'margin: 0;' },
+            'После подключения настройте сопоставление AmoCRM-юзеров с аналитиками во вкладке ',
+            el('a', { href: '#/amo-mapping' }, '«Сопоставление»'),
+            '. Без него вебхуки приходят, но не создают проекты.'),
     );
     const syncBox = el('div', { class: 'card', style: 'padding: 16px;' },
         el('h3', { style: 'margin: 0 0 8px;' }, 'Ручная синхронизация'),
@@ -851,7 +881,7 @@ async function renderAmocrm() {
         ),
         el('div', { id: 'sync-result', class: 'json-box', style: 'margin-top: 12px; display: none;' }),
     );
-    setMain(header, grid, actions, mappingBox, syncBox);
+    setMain(header, grid, actions, hintBox, syncBox);
 
     try {
         const status = await api('/amo/oauth/status');
@@ -887,8 +917,6 @@ async function renderAmocrm() {
                     class: 'btn btn-danger',
                     on: { click: () => disconnectAmo() },
                 }, 'Отключить'));
-                // Сразу подгружаем маппинг для удобства
-                loadAmoMapping();
             }
         }
     } catch (e) {
@@ -896,28 +924,94 @@ async function renderAmocrm() {
     }
 }
 
-async function loadAmoMapping() {
-    const box = document.getElementById('amo-mapping');
-    if (!box) return;
-    box.innerHTML = '';
-    box.appendChild(el('p', { class: 'muted' }, 'Загружаем список пользователей AmoCRM…'));
+async function renderAmoMapping() {
+    const header = el('div', { class: 'page-header' },
+        el('h2', {}, 'Сопоставление пользователей AmoCRM ↔ Аналитики'),
+        el('div', { class: 'page-actions' },
+            el('button', { class: 'btn', on: { click: () => renderAmoMapping() } }, 'Обновить'),
+            el('button', {
+                class: 'btn btn-primary',
+                on: { click: () => bulkLinkByEmail() },
+            }, 'Привязать всех по email'),
+        )
+    );
+    const intro = el('div', { class: 'card', style: 'padding: 16px; margin-bottom: 16px;' },
+        el('p', { class: 'muted', style: 'margin: 0;' },
+            'Без сопоставления вебхуки AmoCRM приходят, но не создают проекты — ',
+            'сервис не знает, к какому аналитику относится сделка. ',
+            'Кнопка «Привязать всех по email» проставляет ',
+            el('code', {}, 'amo_user_id'),
+            ' тем аналитикам, у кого email совпадает с email AmoCRM-юзера.'),
+    );
+    const unmappedBox = el('div', { class: 'card', style: 'padding: 16px; margin-bottom: 16px;' },
+        el('h3', { style: 'margin: 0 0 8px; color: var(--warning);' }, '⚠ Замечены в вебхуках, но не привязаны'),
+        el('p', { class: 'muted', style: 'margin: 0 0 12px;' }, 'Загружаем…'),
+    );
+    const listBox = el('div', { class: 'card', style: 'padding: 16px;' },
+        el('h3', { style: 'margin: 0 0 8px;' }, 'Все пользователи AmoCRM'),
+        el('p', { class: 'muted', style: 'margin: 0 0 12px;' }, 'Загружаем…'),
+    );
+    setMain(header, intro, unmappedBox, listBox);
 
-    let amoUsers, analysts;
+    let amoUsers, analysts, unmapped;
     try {
-        amoUsers = (await api('/amo/users')).users;
-        analysts = await api('/analysts');
+        const [a, u, n] = await Promise.all([
+            api('/amo/users'),
+            api('/analysts'),
+            api('/amo/users/unmapped?days=30').catch(() => ({ unmapped: [] })),
+        ]);
+        amoUsers = a.users;
+        analysts = u;
+        unmapped = n.unmapped || [];
     } catch (e) {
-        box.innerHTML = '';
-        box.appendChild(el('p', { class: 'muted' }, 'Не удалось получить список: ' + e.message));
+        unmappedBox.lastChild.remove();
+        unmappedBox.appendChild(el('p', { class: 'muted' }, 'Не удалось получить данные: ' + e.message));
+        listBox.lastChild.remove();
+        listBox.appendChild(el('p', { class: 'muted' }, e.message));
         return;
     }
 
+    // --- Несопоставленные из вебхуков ---
+    unmappedBox.lastChild.remove();
+    if (unmapped.length === 0) {
+        unmappedBox.appendChild(el('p', { class: 'muted' }, 'Все Amo-юзеры из недавних вебхуков сопоставлены. Хорошо.'));
+    } else {
+        const tb = el('tbody');
+        unmapped.forEach(u => {
+            const select = makeAnalystSelect(analysts, null, null);
+            tb.appendChild(el('tr', {},
+                el('td', {}, String(u.amo_user_id)),
+                el('td', {}, u.name || el('span', { class: 'muted' }, 'имя неизвестно')),
+                el('td', {}, u.email || '—'),
+                el('td', { class: 'text-right' }, `× ${u.occurrences}`),
+                el('td', {}, select),
+                el('td', { class: 'row-actions' },
+                    el('button', {
+                        class: 'btn btn-icon btn-primary',
+                        on: { click: () => bindAmoUser(u.amo_user_id, select.value) },
+                    }, 'Привязать'),
+                )
+            ));
+        });
+        unmappedBox.appendChild(el('table', {},
+            el('thead', {}, el('tr', {},
+                el('th', {}, 'AmoCRM id'),
+                el('th', {}, 'Имя'),
+                el('th', {}, 'Email'),
+                el('th', { class: 'text-right' }, 'В вебхуках'),
+                el('th', {}, 'Аналитик'),
+                el('th', {}, ''),
+            )),
+            tb
+        ));
+    }
+
+    // --- Полный список ---
+    listBox.lastChild.remove();
     if (amoUsers.length === 0) {
-        box.innerHTML = '';
-        box.appendChild(el('p', { class: 'empty-state' }, 'AmoCRM не вернул ни одного пользователя.'));
+        listBox.appendChild(el('p', { class: 'empty-state' }, 'AmoCRM не вернул ни одного пользователя.'));
         return;
     }
-
     const analystById = Object.fromEntries(analysts.map(a => [a.id, a]));
     const analystByEmail = Object.fromEntries(analysts.filter(a => a.email).map(a => [a.email.toLowerCase(), a]));
 
@@ -925,24 +1019,13 @@ async function loadAmoMapping() {
     amoUsers.forEach(u => {
         const linkedAnalyst = u.analyst_id ? analystById[u.analyst_id] : null;
         const emailSuggest = !linkedAnalyst && u.email ? analystByEmail[u.email.toLowerCase()] : null;
-
-        const select = el('select', { 'data-amo-id': String(u.amo_user_id) });
-        select.appendChild(el('option', { value: '' }, '— не привязан —'));
-        analysts.forEach(a => {
-            const opt = el('option', { value: a.id }, `${a.full_name} (${a.email})`);
-            // приоритет: уже привязан > совпадает по email
-            if (linkedAnalyst && linkedAnalyst.id === a.id) opt.setAttribute('selected', '');
-            else if (!linkedAnalyst && emailSuggest && emailSuggest.id === a.id) opt.setAttribute('selected', '');
-            select.appendChild(opt);
-        });
+        const preselect = linkedAnalyst ? linkedAnalyst.id : (emailSuggest ? emailSuggest.id : null);
+        const select = makeAnalystSelect(analysts, preselect, linkedAnalyst);
 
         const suggestHint = emailSuggest && !linkedAnalyst
             ? el('div', { class: 'muted', style: 'font-size: 11px; margin-top: 2px;' },
                 `подсказка: совпадает по email — ${emailSuggest.full_name}`)
             : null;
-
-        const saveBtn = el('button', { class: 'btn btn-icon', on: { click: () => bindAmoUser(u.amo_user_id, select.value) } }, 'Привязать');
-        if (linkedAnalyst) saveBtn.textContent = 'Переназначить';
 
         tbody.appendChild(el('tr', {},
             el('td', {}, String(u.amo_user_id)),
@@ -955,12 +1038,15 @@ async function loadAmoMapping() {
                 suggestHint,
             ),
             el('td', {}, select),
-            el('td', { class: 'row-actions' }, saveBtn),
+            el('td', { class: 'row-actions' },
+                el('button', {
+                    class: 'btn btn-icon',
+                    on: { click: () => bindAmoUser(u.amo_user_id, select.value) },
+                }, linkedAnalyst ? 'Переназначить' : 'Привязать'),
+            )
         ));
     });
-
-    box.innerHTML = '';
-    box.appendChild(el('table', {},
+    listBox.appendChild(el('table', {},
         el('thead', {}, el('tr', {},
             el('th', {}, 'AmoCRM id'),
             el('th', {}, 'Имя в AmoCRM'),
@@ -971,6 +1057,28 @@ async function loadAmoMapping() {
         )),
         tbody
     ));
+}
+
+function makeAnalystSelect(analysts, preselectId, linkedAnalyst) {
+    const sel = el('select', {});
+    sel.appendChild(el('option', { value: '' }, '— не привязан —'));
+    analysts.forEach(a => {
+        const opt = el('option', { value: a.id }, `${a.full_name} (${a.email})`);
+        if (preselectId === a.id) opt.setAttribute('selected', '');
+        sel.appendChild(opt);
+    });
+    return sel;
+}
+
+async function bulkLinkByEmail() {
+    if (!confirm('Привязать всех AmoCRM-юзеров к аналитикам с совпадающим email?')) return;
+    try {
+        const r = await api('/amo/users/bulk-link-by-email', { method: 'POST' });
+        const s = r.summary;
+        toast(`Привязано: ${s.linked}, уже было: ${s.already_bound}, конфликтов: ${s.conflicts}, без совпадения: ${s.no_match}`, 'success');
+        clearAnalystsCache();
+        renderAmoMapping();
+    } catch (e) { toast(e.message, 'error'); }
 }
 
 async function bindAmoUser(amoUserId, analystId) {
