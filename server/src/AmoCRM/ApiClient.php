@@ -4,157 +4,80 @@ declare(strict_types=1);
 
 namespace DealDist\AmoCRM;
 
-use GuzzleHttp\Client;
-use GuzzleHttp\Exception\GuzzleException;
+use DealDist\AmoCRM\Resources\Account;
+use DealDist\AmoCRM\Resources\Companies;
+use DealDist\AmoCRM\Resources\Contacts;
+use DealDist\AmoCRM\Resources\Leads;
+use DealDist\AmoCRM\Resources\Notes;
+use DealDist\AmoCRM\Resources\Pipelines;
+use DealDist\AmoCRM\Resources\Tasks;
+use DealDist\AmoCRM\Resources\Users;
+use DealDist\AmoCRM\Resources\Webhooks;
 use Monolog\Logger;
 
 /**
- * Thin wrapper around the AmoCRM REST API v4.
+ * Domain-oriented facade over the AmoCRM Connector + Resources.
  *
- * Each account has its own access/refresh tokens stored in the filesystem
- * (STORAGE_PATH/tokens/{accountId}.json). The client automatically refreshes
- * the access token when it receives a 401 response.
+ * Kept for backwards compatibility with controllers that instantiate it as
+ * `new ApiClient($logger)`. New code is encouraged to use Connector and the
+ * Resource classes directly via $apiClient->connector() or by constructing
+ * a Connector explicitly.
  */
 class ApiClient
 {
-    private const API_VERSION = 'v4';
-    private Client $http;
-    private string $storagePath;
+    private Connector $connector;
 
-    public function __construct(
-        private readonly Logger $logger,
-    ) {
-        $this->storagePath = rtrim($_ENV['STORAGE_PATH'] ?? sys_get_temp_dir(), '/');
-        $this->http        = new Client(['timeout' => 15, 'connect_timeout' => 5]);
-    }
-
-    // ── Token management ─────────────────────────────────────────────────────
-
-    public function saveTokens(string $accountId, string $baseDomain, array $tokens): void
+    public function __construct(Logger $logger, ?Connector $connector = null)
     {
-        $dir = $this->storagePath . '/tokens';
-        if (!is_dir($dir)) {
-            mkdir($dir, 0755, true);
-        }
-
-        $tokens['base_domain']  = $baseDomain;
-        $tokens['saved_at']     = time();
-
-        file_put_contents(
-            $dir . '/' . $accountId . '.json',
-            json_encode($tokens, JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT)
-        );
+        $this->connector = $connector ?? Connector::fromEnv($logger);
     }
 
-    public function loadTokens(string $accountId): ?array
+    public function connector(): Connector
     {
-        $file = $this->storagePath . '/tokens/' . $accountId . '.json';
-        if (!file_exists($file)) {
-            return null;
-        }
-        return json_decode(file_get_contents($file), true, 512, JSON_THROW_ON_ERROR);
+        return $this->connector;
     }
 
-    private function refreshTokens(string $accountId, array $tokens): array
-    {
-        $response = $this->http->post('https://' . $tokens['base_domain'] . '/oauth2/access_token', [
-            'json' => [
-                'client_id'     => $_ENV['AMO_CLIENT_ID'],
-                'client_secret' => $_ENV['AMO_CLIENT_SECRET'],
-                'grant_type'    => 'refresh_token',
-                'refresh_token' => $tokens['refresh_token'],
-                'redirect_uri'  => $_ENV['AMO_REDIRECT_URI'],
-            ],
-        ]);
+    // ── Resource accessors ───────────────────────────────────────────────────
 
-        $new = json_decode((string) $response->getBody(), true, 512, JSON_THROW_ON_ERROR);
-        $this->saveTokens($accountId, $tokens['base_domain'], $new);
-        $this->logger->info('Refreshed tokens', ['account_id' => $accountId]);
-        return $new;
-    }
+    public function account(string $accountId):   Account   { return $this->connector->account($accountId);   }
+    public function leads(string $accountId):     Leads     { return $this->connector->leads($accountId);     }
+    public function contacts(string $accountId):  Contacts  { return $this->connector->contacts($accountId);  }
+    public function companies(string $accountId): Companies { return $this->connector->companies($accountId); }
+    public function users(string $accountId):     Users     { return $this->connector->users($accountId);     }
+    public function pipelines(string $accountId): Pipelines { return $this->connector->pipelines($accountId); }
+    public function notes(string $accountId):     Notes     { return $this->connector->notes($accountId);     }
+    public function tasks(string $accountId):     Tasks     { return $this->connector->tasks($accountId);     }
+    public function webhooks(string $accountId):  Webhooks  { return $this->connector->webhooks($accountId);  }
 
-    // ── Generic request helper ────────────────────────────────────────────────
-
-    private function request(string $accountId, string $method, string $path, array $options = []): array
-    {
-        $tokens = $this->loadTokens($accountId);
-        if (!$tokens) {
-            throw new \RuntimeException("No tokens for account $accountId");
-        }
-
-        $url = 'https://' . $tokens['base_domain'] . '/api/' . self::API_VERSION . $path;
-        $options['headers']['Authorization'] = 'Bearer ' . $tokens['access_token'];
-
-        try {
-            $response = $this->http->request($method, $url, $options);
-        } catch (\GuzzleHttp\Exception\ClientException $e) {
-            if ($e->getResponse()->getStatusCode() === 401) {
-                // Token expired — refresh and retry once
-                $tokens = $this->refreshTokens($accountId, $tokens);
-                $options['headers']['Authorization'] = 'Bearer ' . $tokens['access_token'];
-                $response = $this->http->request($method, $url, $options);
-            } else {
-                throw $e;
-            }
-        }
-
-        $body = (string) $response->getBody();
-        return $body ? json_decode($body, true, 512, JSON_THROW_ON_ERROR) : [];
-    }
-
-    // ── Lead ──────────────────────────────────────────────────────────────────
+    // ── Backwards-compatible high-level operations ──────────────────────────
 
     public function getLead(string $accountId, int $leadId, array $with = []): array
     {
-        $query = $with ? '?with=' . implode(',', $with) : '';
-        $data  = $this->request($accountId, 'GET', "/leads/$leadId$query");
-        return $data;
+        return $this->leads($accountId)->get($leadId, $with);
     }
 
     public function updateLeadResponsible(string $accountId, int $leadId, int $responsibleUserId): void
     {
-        $this->request($accountId, 'PATCH', '/leads', [
-            'json' => [
-                [
-                    'id'                  => $leadId,
-                    'responsible_user_id' => $responsibleUserId,
-                ],
-            ],
-        ]);
-        $this->logger->info('Lead responsible updated', [
-            'account_id'   => $accountId,
-            'lead_id'      => $leadId,
-            'new_user_id'  => $responsibleUserId,
-        ]);
+        $this->leads($accountId)->setResponsibleUser($leadId, $responsibleUserId);
     }
 
-    // ── Contacts / Companies ──────────────────────────────────────────────────
-
     /**
-     * Returns the responsible_user_id from any deal related to the same
+     * Returns the responsible_user_id from any deal linked to the same
      * contact or company, if one exists.
-     *
-     * @param array|null $leadData  Already-loaded lead data (avoids an extra API call)
      */
     public function getExistingResponsible(string $accountId, int $leadId, ?array $leadData = null): ?int
     {
-        // Reuse already-loaded lead data when available
-        $lead = $leadData ?? $this->getLead($accountId, $leadId, ['contacts', 'companies']);
+        $lead = $leadData ?? $this->leads($accountId)->get($leadId, ['contacts', 'companies']);
 
-        $contactIds = array_column($lead['_embedded']['contacts'] ?? [], 'id');
-        $companyIds = array_column($lead['_embedded']['companies'] ?? [], 'id');
-
-        // Check contacts
-        foreach ($contactIds as $contactId) {
-            $userId = $this->getResponsibleFromContactLeads($accountId, (int) $contactId, $leadId);
+        foreach ($lead['_embedded']['contacts'] ?? [] as $contact) {
+            $userId = $this->contacts($accountId)->findResponsibleFromLeads((int) $contact['id'], $leadId);
             if ($userId !== null) {
                 return $userId;
             }
         }
 
-        // Check companies
-        foreach ($companyIds as $companyId) {
-            $userId = $this->getResponsibleFromCompanyLeads($accountId, (int) $companyId, $leadId);
+        foreach ($lead['_embedded']['companies'] ?? [] as $company) {
+            $userId = $this->companies($accountId)->findResponsibleFromLeads((int) $company['id'], $leadId);
             if ($userId !== null) {
                 return $userId;
             }
@@ -162,56 +85,32 @@ class ApiClient
 
         return null;
     }
-
-    private function getResponsibleFromContactLeads(string $accountId, int $contactId, int $excludeLeadId): ?int
-    {
-        $data = $this->request($accountId, 'GET', "/contacts/$contactId?with=leads");
-        foreach ($data['_embedded']['leads'] ?? [] as $lead) {
-            if ((int) $lead['id'] !== $excludeLeadId) {
-                return (int) $lead['responsible_user_id'];
-            }
-        }
-        return null;
-    }
-
-    private function getResponsibleFromCompanyLeads(string $accountId, int $companyId, int $excludeLeadId): ?int
-    {
-        $data = $this->request($accountId, 'GET', "/companies/$companyId?with=leads");
-        foreach ($data['_embedded']['leads'] ?? [] as $lead) {
-            if ((int) $lead['id'] !== $excludeLeadId) {
-                return (int) $lead['responsible_user_id'];
-            }
-        }
-        return null;
-    }
-
-    // ── Users ──────────────────────────────────────────────────────────────────
 
     /**
-     * Returns open (active) leads count per user.
-     *
-     * @return array<int, int>  [userId => leadCount]
+     * @param array<int> $userIds
+     * @return array<int,int> [userId => leadCount]
      */
     public function getOpenLeadsCountByUser(string $accountId, array $userIds): array
     {
-        $counts = array_fill_keys($userIds, 0);
+        return $this->leads($accountId)->countOpenByUser($userIds);
+    }
 
-        foreach ($userIds as $userId) {
-            $total = 0;
-            $page  = 1;
-            do {
-                $data  = $this->request($accountId, 'GET',
-                    '/leads?filter[responsible_user_id]=' . $userId .
-                    '&filter[is_deleted]=false&limit=250&page=' . $page);
-                $items = $data['_embedded']['leads'] ?? [];
-                $total += count($items);
-                $page++;
-                $hasNext = isset($data['_links']['next']);
-            } while ($hasNext && count($items) === 250);
+    /**
+     * @deprecated Prefer Connector::exchangeAuthorizationCode() which also
+     *             resolves the account_id from the AmoCRM API.
+     */
+    public function saveTokens(string $accountId, string $baseDomain, array $tokens): void
+    {
+        $token = Token::fromTokenEndpointResponse($tokens, $baseDomain, time());
+        $this->connector->saveToken($accountId, $token);
+    }
 
-            $counts[$userId] = $total;
-        }
-
-        return $counts;
+    /**
+     * @deprecated Use Connector::getToken().
+     */
+    public function loadTokens(string $accountId): ?array
+    {
+        $token = $this->connector->getToken($accountId);
+        return $token?->toArray();
     }
 }
