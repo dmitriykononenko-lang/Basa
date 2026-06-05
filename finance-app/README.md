@@ -8,7 +8,7 @@
 
 - **Next.js 14** (App Router, TypeScript) + Tailwind CSS
 - **Supabase** — Postgres, Auth, Row Level Security
-- **Vercel** — хостинг фронтенда
+- **Vercel** — хостинг фронтенда (production: `basa-16bf.vercel.app`)
 
 ## Локальный запуск
 
