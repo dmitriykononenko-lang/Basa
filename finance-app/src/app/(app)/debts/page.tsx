@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import { formatMoney } from "@/lib/format";
+import { buildRateMap, toBase } from "@/lib/fx";
 import AddObligationForm from "@/components/AddObligationForm";
 import PayObligationButton from "@/components/PayObligationButton";
 
@@ -48,7 +49,7 @@ export default async function DebtsPage({
     data: { user },
   } = await supabase.auth.getUser();
 
-  const [{ data: obligations }, { data: balances }, { data: counterparties }, { data: projects }] =
+  const [{ data: obligations }, { data: balances }, { data: counterparties }, { data: projects }, { data: fxRows }] =
     await Promise.all([
       supabase
         .from("obligation_balances")
@@ -61,7 +62,7 @@ export default async function DebtsPage({
         .order("created_at", { ascending: false }),
       supabase
         .from("account_balances")
-        .select("balance")
+        .select("balance, currency")
         .eq("team_id", team.id),
       supabase
         .from("counterparties")
@@ -75,19 +76,25 @@ export default async function DebtsPage({
         .eq("team_id", team.id)
         .eq("archived", false)
         .order("name"),
+      supabase.from("fx_rates").select("currency, rate, rate_date").eq("team_id", team.id),
     ]);
 
   const rows = (obligations ?? []) as unknown as Row[];
+  const rates = buildRateMap(fxRows ?? [], cur);
 
   let receivable = 0;
   let payable = 0;
   for (const o of rows) {
     if (o.outstanding <= 0) continue;
-    if (o.type === "receivable") receivable += o.outstanding;
-    else payable += o.outstanding;
+    const val = toBase(o.outstanding, o.currency, rates);
+    if (o.type === "receivable") receivable += val;
+    else payable += val;
   }
   const obligationsBalance = receivable - payable;
-  const moneyOnAccounts = (balances ?? []).reduce((s, b) => s + b.balance, 0);
+  const moneyOnAccounts = (balances ?? []).reduce(
+    (s, b) => s + toBase(b.balance, b.currency, rates),
+    0
+  );
 
   // Разбивка по контрагентам/проектам (нетто = дебиторка − кредиторка)
   const groups = new Map<string, { name: string; net: number }>();
@@ -101,7 +108,8 @@ export default async function DebtsPage({
       groupBy === "projects"
         ? o.project?.name ?? "Без проекта"
         : o.counterparty?.name ?? "—";
-    const signed = o.type === "receivable" ? o.outstanding : -o.outstanding;
+    const valBase = toBase(o.outstanding, o.currency, rates);
+    const signed = o.type === "receivable" ? valBase : -valBase;
     const g = groups.get(key) ?? { name, net: 0 };
     g.net += signed;
     groups.set(key, g);
@@ -308,8 +316,7 @@ export default async function DebtsPage({
       )}
 
       <p className="mt-4 text-xs text-slate-400 dark:text-neutral-600">
-        Итоги сводятся в основной валюте ({cur}). Пересчёт сумм в других валютах
-        по курсам появится в разделе аналитики.
+        Итоги сводятся в основной валюте ({cur}) по курсам из раздела «Отчёты».
       </p>
     </div>
   );

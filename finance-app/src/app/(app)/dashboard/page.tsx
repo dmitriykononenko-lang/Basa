@@ -4,6 +4,7 @@ import CreateTeamForm from "@/components/CreateTeamForm";
 import { ROLE_LABELS } from "@/lib/types";
 import { formatMoney } from "@/lib/format";
 import { getCurrentTeam } from "@/lib/team";
+import { buildRateMap, toBase } from "@/lib/fx";
 import { IconTransactions, IconAccounts, IconReports } from "@/components/icons";
 
 export default async function DashboardPage() {
@@ -49,17 +50,22 @@ export default async function DashboardPage() {
   monthStart.setDate(1);
   const monthStartStr = monthStart.toISOString().slice(0, 10);
 
-  const { data: monthTx } = await supabase
-    .from("transactions")
-    .select("type, amount")
-    .eq("team_id", team.id)
-    .gte("occurred_on", monthStartStr);
+  const [{ data: monthTx }, { data: fxRows }] = await Promise.all([
+    supabase
+      .from("transactions")
+      .select("type, amount, currency")
+      .eq("team_id", team.id)
+      .gte("occurred_on", monthStartStr),
+    supabase.from("fx_rates").select("currency, rate, rate_date").eq("team_id", team.id),
+  ]);
 
+  const rates = buildRateMap(fxRows ?? [], team.base_currency);
   let income = 0;
   let expense = 0;
   for (const t of monthTx ?? []) {
-    if (t.type === "income") income += t.amount;
-    else if (t.type === "expense") expense += t.amount;
+    const val = toBase(t.amount, t.currency, rates);
+    if (t.type === "income") income += val;
+    else if (t.type === "expense") expense += val;
   }
 
   return (
