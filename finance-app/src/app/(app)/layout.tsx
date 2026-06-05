@@ -4,6 +4,7 @@ import Sidebar from "@/components/Sidebar";
 import SignOutButton from "@/components/SignOutButton";
 import Brand from "@/components/Brand";
 import ThemeToggle from "@/components/ThemeToggle";
+import NavProgress from "@/components/NavProgress";
 import { IconBell, IconChevronDown } from "@/components/icons";
 
 function initials(name: string) {
@@ -38,7 +39,8 @@ export default async function AppLayout({
 
   return (
     <div className="min-h-screen p-2 sm:p-3">
-      <div className="surface flex min-h-[calc(100vh-1rem)] flex-col overflow-hidden sm:min-h-[calc(100vh-1.5rem)]">
+      <div className="surface relative flex min-h-[calc(100vh-1rem)] flex-col overflow-hidden sm:min-h-[calc(100vh-1.5rem)]">
+        <NavProgress />
         {/* Шапка */}
         <header className="relative flex h-16 items-center justify-between border-b border-slate-100 px-4 dark:border-neutral-800 sm:px-6">
           <div className="flex items-center gap-2">
