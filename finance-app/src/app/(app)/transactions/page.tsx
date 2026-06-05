@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canWriteTx, canEditFinance } from "@/lib/team";
 import AddTransactionForm from "@/components/AddTransactionForm";
+import ImportTransactions from "@/components/ImportTransactions";
 import EditableTransactionRow, { type TxData } from "@/components/EditableTransactionRow";
 
 type TxRow = {
@@ -73,13 +74,25 @@ export default async function TransactionsPage() {
 
   return (
     <div className="p-6 sm:p-8">
-      <header className="mb-6">
-        <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
-          Операции
-        </h1>
-        <p className="text-sm text-slate-500 dark:text-neutral-400">
-          Доходы, расходы и переводы команды «{team.name}»
-        </p>
+      <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+            Операции
+          </h1>
+          <p className="text-sm text-slate-500 dark:text-neutral-400">
+            Доходы, расходы и переводы команды «{team.name}»
+          </p>
+        </div>
+        {writable && user && (
+          <ImportTransactions
+            teamId={team.id}
+            userId={user.id}
+            accounts={accounts ?? []}
+            categories={cats}
+            counterparties={counterparties ?? []}
+            projects={projects ?? []}
+          />
+        )}
       </header>
 
       {writable && user && (
