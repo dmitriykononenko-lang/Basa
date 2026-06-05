@@ -28,6 +28,7 @@ export default function AddTransactionForm({
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [type, setType] = useState<TxType>("expense");
+  const [planned, setPlanned] = useState(false);
   const [amount, setAmount] = useState("");
   const [accountId, setAccountId] = useState(accounts[0]?.id ?? "");
   const [transferAccountId, setTransferAccountId] = useState("");
@@ -117,6 +118,7 @@ export default function AddTransactionForm({
       project_id: projectId || null,
       occurred_on: date,
       note: note || null,
+      status: planned ? "planned" : "actual",
       created_by: userId,
     });
 
@@ -168,6 +170,16 @@ export default function AddTransactionForm({
           </button>
         ))}
       </div>
+
+      <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-neutral-300">
+        <input
+          type="checkbox"
+          checked={planned}
+          onChange={(e) => setPlanned(e.target.checked)}
+          className="h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
+        />
+        Плановая операция (прогноз — попадёт в платёжный календарь, не влияет на баланс)
+      </label>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field label="Сумма">

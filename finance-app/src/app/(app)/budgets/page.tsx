@@ -52,6 +52,7 @@ export default async function BudgetsPage() {
         .select("category_id, amount, occurred_on")
         .eq("team_id", team.id)
         .eq("type", "expense")
+        .eq("status", "actual")
         .gte("occurred_on", yearStart),
       supabase
         .from("categories")

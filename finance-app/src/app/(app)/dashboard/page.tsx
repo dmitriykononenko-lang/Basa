@@ -94,6 +94,7 @@ export default async function DashboardPage() {
       .from("transactions")
       .select("type, amount, currency")
       .eq("team_id", team.id)
+      .eq("status", "actual")
       .gte("occurred_on", monthStartStr),
     supabase.from("fx_rates").select("currency, rate, rate_date").eq("team_id", team.id),
   ]);
@@ -134,6 +135,7 @@ export default async function DashboardPage() {
       .select("category_id, amount, currency, occurred_on")
       .eq("team_id", team.id)
       .eq("type", "expense")
+      .eq("status", "actual")
       .gte("occurred_on", yearStart),
   ]);
 

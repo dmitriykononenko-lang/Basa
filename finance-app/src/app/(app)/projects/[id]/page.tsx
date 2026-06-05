@@ -30,6 +30,7 @@ export default async function ProjectPage({
       .select("id, type, amount, currency, occurred_on, category:categories(name), counterparty:counterparties(name)")
       .eq("team_id", team.id)
       .eq("project_id", id)
+      .eq("status", "actual")
       .order("occurred_on", { ascending: false })
       .limit(100),
     supabase

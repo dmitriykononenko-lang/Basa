@@ -30,7 +30,7 @@ export default async function CalendarPage() {
   const base = team.base_currency;
   const supabase = await createClient();
 
-  const [{ data: balances }, { data: obls }, { data: fxRows }] = await Promise.all([
+  const [{ data: balances }, { data: obls }, { data: planned }, { data: fxRows }] = await Promise.all([
     supabase.from("account_balances").select("balance, currency").eq("team_id", team.id),
     supabase
       .from("obligation_balances")
@@ -39,6 +39,11 @@ export default async function CalendarPage() {
       .gt("outstanding", 0)
       .not("due_date", "is", null)
       .order("due_date", { ascending: true }),
+    supabase
+      .from("transactions")
+      .select("type, amount, currency, occurred_on, counterparty:counterparties(name)")
+      .eq("team_id", team.id)
+      .eq("status", "planned"),
     supabase.from("fx_rates").select("currency, rate, rate_date").eq("team_id", team.id),
   ]);
 
@@ -58,6 +63,24 @@ export default async function CalendarPage() {
     byDate.set(d, g);
   }
 
+  // Плановые операции
+  for (const t of (planned ?? []) as unknown as {
+    type: "income" | "expense" | "transfer";
+    amount: number;
+    currency: string;
+    occurred_on: string;
+    counterparty: { name: string } | null;
+  }[]) {
+    if (t.type === "transfer") continue;
+    const d = t.occurred_on;
+    const v = toBase(t.amount, t.currency, rates);
+    const g = byDate.get(d) ?? { inflow: 0, outflow: 0, items: [] };
+    if (t.type === "income") g.inflow += v;
+    else g.outflow += v;
+    g.items.push({ name: (t.counterparty?.name ?? "Плановая") + " (план)", amount: v, type: t.type });
+    byDate.set(d, g);
+  }
+
   const dates = [...byDate.keys()].sort();
   const today = new Date().toISOString().slice(0, 10);
 
@@ -74,8 +97,12 @@ export default async function CalendarPage() {
     return { date: d, ...g, running };
   });
 
-  const totalIn = rows.filter((o) => o.type === "receivable").reduce((s, o) => s + toBase(o.outstanding, o.currency, rates), 0);
-  const totalOut = rows.filter((o) => o.type === "payable").reduce((s, o) => s + toBase(o.outstanding, o.currency, rates), 0);
+  let totalIn = 0;
+  let totalOut = 0;
+  for (const g of byDate.values()) {
+    totalIn += g.inflow;
+    totalOut += g.outflow;
+  }
   const endBalance = startBalance + totalIn - totalOut;
   const hasGap = minRunning < 0;
 

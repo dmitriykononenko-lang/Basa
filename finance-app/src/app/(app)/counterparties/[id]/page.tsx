@@ -34,6 +34,7 @@ export default async function CounterpartyPage({
       .select("id, type, amount, currency, occurred_on, category:categories(name), project:projects(name)")
       .eq("team_id", team.id)
       .eq("counterparty_id", id)
+      .eq("status", "actual")
       .order("occurred_on", { ascending: false })
       .limit(50),
     supabase

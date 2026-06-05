@@ -11,6 +11,7 @@ type TxRow = {
   currency: string;
   occurred_on: string;
   note: string | null;
+  status: string;
   account_id: string | null;
   transfer_account_id: string | null;
   category_id: string | null;
@@ -50,7 +51,7 @@ export default async function TransactionsPage() {
       supabase
         .from("transactions")
         .select(
-          `id, type, amount, currency, occurred_on, note,
+          `id, type, amount, currency, occurred_on, note, status,
            account_id, transfer_account_id, category_id, counterparty_id, project_id, created_by,
            account:accounts!transactions_account_id_fkey(name),
            to_account:accounts!transactions_transfer_account_id_fkey(name),
@@ -153,6 +154,7 @@ export default async function TransactionsPage() {
                   currency: t.currency,
                   occurred_on: t.occurred_on,
                   note: t.note,
+                  status: t.status,
                   account_id: t.account_id,
                   transfer_account_id: t.transfer_account_id,
                   category_id: t.category_id,

@@ -69,6 +69,7 @@ export default async function ReportsPage({
          project:projects(name)`
       )
       .eq("team_id", team.id)
+      .eq("status", "actual")
       .gte("occurred_on", start)
       .order("occurred_on", { ascending: false }),
     supabase.from("fx_rates").select("currency, rate, rate_date").eq("team_id", team.id),

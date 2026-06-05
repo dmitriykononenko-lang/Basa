@@ -55,6 +55,7 @@ export default async function CashflowPage({
       .from("transactions")
       .select("type, amount, currency, occurred_on, category:categories(name, cf_activity)")
       .eq("team_id", team.id)
+      .eq("status", "actual")
       .gte("occurred_on", start),
     supabase.from("account_balances").select("balance, currency").eq("team_id", team.id),
     supabase.from("fx_rates").select("currency, rate, rate_date").eq("team_id", team.id),

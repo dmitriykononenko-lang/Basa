@@ -53,6 +53,7 @@ export default async function PnlPage({
       .from("transactions")
       .select("type, amount, currency, occurred_on, project_id, category:categories(name, kind, cf_activity, pnl_treatment)")
       .eq("team_id", team.id)
+      .eq("status", "actual")
       .gte("occurred_on", start),
     supabase.from("fx_rates").select("currency, rate, rate_date").eq("team_id", team.id),
   ]);

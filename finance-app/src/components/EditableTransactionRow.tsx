@@ -17,6 +17,7 @@ export type TxData = {
   currency: string;
   occurred_on: string;
   note: string | null;
+  status: string;
   account_id: string | null;
   transfer_account_id: string | null;
   category_id: string | null;
@@ -98,6 +99,22 @@ export default function EditableTransactionRow({
     router.refresh();
   }
 
+  async function confirmPlanned() {
+    setBusy(true);
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("transactions")
+      .update({ status: "actual", occurred_on: new Date().toISOString().slice(0, 10) })
+      .eq("id", tx.id);
+    if (error) {
+      setError(error.message);
+      setBusy(false);
+      return;
+    }
+    setBusy(false);
+    router.refresh();
+  }
+
   async function remove() {
     if (!confirm("Удалить операцию?")) return;
     setBusy(true);
@@ -129,6 +146,11 @@ export default function EditableTransactionRow({
         <td className="px-5 py-3">
           <div className="font-medium text-slate-800 dark:text-neutral-200">
             {isTransfer ? "Перевод" : tx.categoryName ?? "Без категории"}
+            {tx.status === "planned" && (
+              <span className="ml-2 rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-medium text-violet-700 dark:bg-violet-950/50 dark:text-violet-300">
+                План
+              </span>
+            )}
           </div>
           <div className="text-xs text-slate-400 dark:text-neutral-500">
             {[tx.counterpartyName, tx.projectName, tx.note].filter(Boolean).join(" · ")}
@@ -147,6 +169,15 @@ export default function EditableTransactionRow({
         <td className="px-3 py-3 text-right">
           {editable && (
             <div className="flex justify-end gap-1">
+              {tx.status === "planned" && (
+                <button
+                  onClick={confirmPlanned}
+                  disabled={busy}
+                  className="rounded-full bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 transition hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300"
+                >
+                  Провести
+                </button>
+              )}
               <button
                 onClick={() => setEditing(true)}
                 className="rounded-full px-2 py-1 text-xs text-slate-500 transition hover:bg-slate-100 dark:text-neutral-400 dark:hover:bg-neutral-800"
