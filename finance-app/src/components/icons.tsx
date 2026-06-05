@@ -85,6 +85,13 @@ export const IconTeam = (p: P) => (
   </svg>
 );
 
+export const IconTag = (p: P) => (
+  <svg {...base} className={p.className}>
+    <path d="M3 12V5a2 2 0 0 1 2-2h7l9 9-9 9z" />
+    <circle cx="7.5" cy="7.5" r="1.3" />
+  </svg>
+);
+
 export const IconBell = (p: P) => (
   <svg {...base} className={p.className}>
     <path d="M6 9a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6" />

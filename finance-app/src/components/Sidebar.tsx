@@ -12,6 +12,7 @@ import {
   IconBudgets,
   IconReports,
   IconTeam,
+  IconTag,
 } from "./icons";
 
 type Item = {
@@ -28,6 +29,7 @@ const NAV: Item[] = [
   { href: "/projects", label: "Проекты", Icon: IconProjects },
   { href: "/debts", label: "Долги", Icon: IconDebts },
   { href: "/budgets", label: "Бюджеты", Icon: IconBudgets },
+  { href: "/categories", label: "Статьи", Icon: IconTag },
   { href: "/reports", label: "Отчёты", Icon: IconReports },
   { href: "/team", label: "Команда", Icon: IconTeam },
 ];
