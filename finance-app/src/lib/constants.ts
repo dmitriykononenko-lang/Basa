@@ -1,4 +1,13 @@
-export const CURRENCIES = ["RUB", "USD", "EUR", "KZT", "UAH", "GBP", "CNY"];
+export const CURRENCIES = ["RUB", "USD", "USDT", "EUR", "KZT", "UAH", "GBP", "CNY"];
+
+export const EMPLOYMENT_TYPES: { value: string; label: string }[] = [
+  { value: "salary", label: "Окладная" },
+  { value: "project", label: "Проектная" },
+  { value: "mixed", label: "Смешанная" },
+];
+export const EMPLOYMENT_TYPE_LABELS: Record<string, string> = Object.fromEntries(
+  EMPLOYMENT_TYPES.map((e) => [e.value, e.label])
+);
 
 export const ACCOUNT_KINDS: { value: string; label: string }[] = [
   { value: "cash", label: "Наличные" },

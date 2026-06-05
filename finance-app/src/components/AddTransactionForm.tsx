@@ -17,6 +17,7 @@ export default function AddTransactionForm({
   categories,
   counterparties,
   projects,
+  employees = [],
 }: {
   teamId: string;
   userId: string;
@@ -24,6 +25,7 @@ export default function AddTransactionForm({
   categories: Category[];
   counterparties: Named[];
   projects: Named[];
+  employees?: Named[];
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -34,6 +36,8 @@ export default function AddTransactionForm({
   const [categoryId, setCategoryId] = useState("");
   const [counterpartyId, setCounterpartyId] = useState("");
   const [projectId, setProjectId] = useState("");
+  const [employeeId, setEmployeeId] = useState("");
+  const [payPart, setPayPart] = useState("");
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(false);
@@ -79,6 +83,8 @@ export default function AddTransactionForm({
       category_id: type === "transfer" ? null : categoryId || null,
       counterparty_id: counterpartyId || null,
       project_id: projectId || null,
+      employee_id: type === "expense" ? employeeId || null : null,
+      pay_part: type === "expense" && employeeId ? payPart || null : null,
       occurred_on: date,
       note: note || null,
       created_by: userId,
@@ -228,6 +234,37 @@ export default function AddTransactionForm({
             ))}
           </select>
         </Field>
+
+        {type === "expense" && employees.length > 0 && (
+          <Field label="Сотрудник (выплата)">
+            <select
+              value={employeeId}
+              onChange={(e) => setEmployeeId(e.target.value)}
+              className="input"
+            >
+              <option value="">— не выплата —</option>
+              {employees.map((emp) => (
+                <option key={emp.id} value={emp.id}>
+                  {emp.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
+
+        {type === "expense" && employeeId && (
+          <Field label="Часть выплаты">
+            <select
+              value={payPart}
+              onChange={(e) => setPayPart(e.target.value)}
+              className="input"
+            >
+              <option value="">— не указана —</option>
+              <option value="fixed">Фиксированная</option>
+              <option value="variable">Переменная</option>
+            </select>
+          </Field>
+        )}
 
         <Field label="Дата">
           <input

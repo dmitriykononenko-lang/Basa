@@ -92,6 +92,15 @@ export const IconTag = (p: P) => (
   </svg>
 );
 
+export const IconEmployees = (p: P) => (
+  <svg {...base} className={p.className}>
+    <circle cx="9" cy="8" r="3" />
+    <path d="M3.5 20c0-3 2.5-5 5.5-5s5.5 2 5.5 5" />
+    <path d="M16 4a3 3 0 0 1 0 6" />
+    <path d="M18.5 20c0-2.4-.9-4-2.4-4.7" />
+  </svg>
+);
+
 export const IconSettings = (p: P) => (
   <svg {...base} className={p.className}>
     <circle cx="12" cy="12" r="3" />

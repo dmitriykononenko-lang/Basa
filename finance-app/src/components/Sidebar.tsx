@@ -11,6 +11,7 @@ import {
   IconBudgets,
   IconReports,
   IconDebts,
+  IconEmployees,
   IconSettings,
   IconChevronDown,
 } from "./icons";
@@ -27,6 +28,7 @@ const NAV: Item[] = [
   { href: "/transactions", label: "Операции", Icon: IconTransactions },
   { href: "/counterparties", label: "Контрагенты", Icon: IconCounterparties },
   { href: "/projects", label: "Проекты", Icon: IconProjects },
+  { href: "/employees", label: "Сотрудники", Icon: IconEmployees },
   { href: "/budgets", label: "Бюджеты", Icon: IconBudgets },
 ];
 

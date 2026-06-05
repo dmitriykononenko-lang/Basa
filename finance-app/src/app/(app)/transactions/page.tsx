@@ -45,7 +45,7 @@ export default async function TransactionsPage() {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const [{ data: txs }, { data: accounts }, { data: categories }, { data: counterparties }, { data: projects }] =
+  const [{ data: txs }, { data: accounts }, { data: categories }, { data: counterparties }, { data: projects }, { data: employees }] =
     await Promise.all([
       supabase
         .from("transactions")
@@ -66,6 +66,7 @@ export default async function TransactionsPage() {
       supabase.from("categories").select("id, name, kind").eq("team_id", team.id).eq("archived", false).order("name"),
       supabase.from("counterparties").select("id, name").eq("team_id", team.id).eq("archived", false).order("name"),
       supabase.from("projects").select("id, name").eq("team_id", team.id).eq("archived", false).order("name"),
+      supabase.from("employees").select("id, name").eq("team_id", team.id).eq("status", "active").order("name"),
     ]);
 
   const rows = (txs ?? []) as unknown as TxRow[];
@@ -119,6 +120,7 @@ export default async function TransactionsPage() {
             categories={cats}
             counterparties={counterparties ?? []}
             projects={projects ?? []}
+            employees={employees ?? []}
           />
         </div>
       )}
