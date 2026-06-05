@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentTeam, canWriteTx } from "@/lib/team";
-import { formatMoney, formatDate } from "@/lib/format";
+import { getCurrentTeam, canWriteTx, canEditFinance } from "@/lib/team";
 import AddTransactionForm from "@/components/AddTransactionForm";
+import EditableTransactionRow, { type TxData } from "@/components/EditableTransactionRow";
 
 type TxRow = {
   id: string;
@@ -10,6 +10,12 @@ type TxRow = {
   currency: string;
   occurred_on: string;
   note: string | null;
+  account_id: string | null;
+  transfer_account_id: string | null;
+  category_id: string | null;
+  counterparty_id: string | null;
+  project_id: string | null;
+  created_by: string | null;
   account: { name: string } | null;
   to_account: { name: string } | null;
   category: { name: string } | null;
@@ -21,9 +27,11 @@ export default async function TransactionsPage() {
   const current = await getCurrentTeam();
   if (!current) {
     return (
-      <div className="p-8">
-        <h1 className="text-2xl font-semibold text-slate-900">Операции</h1>
-        <p className="mt-4 text-sm text-slate-500">
+      <div className="p-6 sm:p-8">
+        <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+          Операции
+        </h1>
+        <p className="mt-4 text-sm text-slate-500 dark:text-neutral-400">
           Сначала создайте команду на дашборде.
         </p>
       </div>
@@ -42,6 +50,7 @@ export default async function TransactionsPage() {
         .from("transactions")
         .select(
           `id, type, amount, currency, occurred_on, note,
+           account_id, transfer_account_id, category_id, counterparty_id, project_id, created_by,
            account:accounts!transactions_account_id_fkey(name),
            to_account:accounts!transactions_transfer_account_id_fkey(name),
            category:categories(name),
@@ -52,34 +61,15 @@ export default async function TransactionsPage() {
         .order("occurred_on", { ascending: false })
         .order("created_at", { ascending: false })
         .limit(100),
-      supabase
-        .from("accounts")
-        .select("id, name, currency")
-        .eq("team_id", team.id)
-        .eq("archived", false)
-        .order("created_at"),
-      supabase
-        .from("categories")
-        .select("id, name, kind")
-        .eq("team_id", team.id)
-        .eq("archived", false)
-        .order("name"),
-      supabase
-        .from("counterparties")
-        .select("id, name")
-        .eq("team_id", team.id)
-        .eq("archived", false)
-        .order("name"),
-      supabase
-        .from("projects")
-        .select("id, name")
-        .eq("team_id", team.id)
-        .eq("archived", false)
-        .order("name"),
+      supabase.from("accounts").select("id, name, currency").eq("team_id", team.id).eq("archived", false).order("created_at"),
+      supabase.from("categories").select("id, name, kind").eq("team_id", team.id).eq("archived", false).order("name"),
+      supabase.from("counterparties").select("id, name").eq("team_id", team.id).eq("archived", false).order("name"),
+      supabase.from("projects").select("id, name").eq("team_id", team.id).eq("archived", false).order("name"),
     ]);
 
   const rows = (txs ?? []) as unknown as TxRow[];
   const writable = canWriteTx(role) && (accounts?.length ?? 0) > 0;
+  const cats = (categories ?? []) as { id: string; name: string; kind: "income" | "expense" }[];
 
   return (
     <div className="p-6 sm:p-8">
@@ -98,7 +88,7 @@ export default async function TransactionsPage() {
             teamId={team.id}
             userId={user.id}
             accounts={accounts ?? []}
-            categories={(categories ?? []) as { id: string; name: string; kind: "income" | "expense" }[]}
+            categories={cats}
             counterparties={counterparties ?? []}
             projects={projects ?? []}
           />
@@ -106,7 +96,7 @@ export default async function TransactionsPage() {
       )}
 
       {!writable && canWriteTx(role) && (
-        <p className="mb-6 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-700">
+        <p className="mb-6 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
           Сначала добавьте хотя бы один счёт в разделе «Счета».
         </p>
       )}
@@ -120,48 +110,44 @@ export default async function TransactionsPage() {
                 <th className="px-5 py-3 font-medium">Описание</th>
                 <th className="px-5 py-3 font-medium">Счёт</th>
                 <th className="px-5 py-3 text-right font-medium">Сумма</th>
+                <th className="px-3 py-3"></th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((t) => (
-                <tr
-                  key={t.id}
-                  className="border-b border-slate-50 last:border-0 dark:border-neutral-800/60"
-                >
-                  <td className="whitespace-nowrap px-5 py-3 text-slate-500 dark:text-neutral-400">
-                    {formatDate(t.occurred_on)}
-                  </td>
-                  <td className="px-5 py-3">
-                    <div className="font-medium text-slate-800 dark:text-neutral-200">
-                      {t.type === "transfer"
-                        ? "Перевод"
-                        : t.category?.name ?? "Без категории"}
-                    </div>
-                    <div className="text-xs text-slate-400 dark:text-neutral-500">
-                      {[t.counterparty?.name, t.project?.name, t.note]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </div>
-                  </td>
-                  <td className="px-5 py-3 text-slate-500 dark:text-neutral-400">
-                    {t.type === "transfer"
-                      ? `${t.account?.name} → ${t.to_account?.name}`
-                      : t.account?.name}
-                  </td>
-                  <td
-                    className={`whitespace-nowrap px-5 py-3 text-right font-semibold ${
-                      t.type === "income"
-                        ? "text-emerald-600 dark:text-emerald-400"
-                        : t.type === "expense"
-                          ? "text-red-600 dark:text-red-400"
-                          : "text-slate-600 dark:text-neutral-300"
-                    }`}
-                  >
-                    {t.type === "income" ? "+" : t.type === "expense" ? "−" : ""}
-                    {formatMoney(t.amount, t.currency)}
-                  </td>
-                </tr>
-              ))}
+              {rows.map((t) => {
+                const editable =
+                  canEditFinance(role) ||
+                  (role === "employee" && t.created_by === user?.id);
+                const data: TxData = {
+                  id: t.id,
+                  type: t.type,
+                  amount: t.amount,
+                  currency: t.currency,
+                  occurred_on: t.occurred_on,
+                  note: t.note,
+                  account_id: t.account_id,
+                  transfer_account_id: t.transfer_account_id,
+                  category_id: t.category_id,
+                  counterparty_id: t.counterparty_id,
+                  project_id: t.project_id,
+                  accountName: t.account?.name ?? null,
+                  toAccountName: t.to_account?.name ?? null,
+                  categoryName: t.category?.name ?? null,
+                  counterpartyName: t.counterparty?.name ?? null,
+                  projectName: t.project?.name ?? null,
+                };
+                return (
+                  <EditableTransactionRow
+                    key={t.id}
+                    tx={data}
+                    editable={editable}
+                    accounts={accounts ?? []}
+                    categories={cats}
+                    counterparties={counterparties ?? []}
+                    projects={projects ?? []}
+                  />
+                );
+              })}
             </tbody>
           </table>
         </div>

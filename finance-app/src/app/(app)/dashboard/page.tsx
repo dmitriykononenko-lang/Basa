@@ -107,9 +107,38 @@ export default async function DashboardPage() {
     else if (t.type === "expense") expense += val;
   }
 
+  // Просроченные долги
+  const today = new Date().toISOString().slice(0, 10);
+  const { data: overdue } = await supabase
+    .from("obligation_balances")
+    .select("outstanding, currency, due_date")
+    .eq("team_id", team.id)
+    .gt("outstanding", 0)
+    .lt("due_date", today);
+
+  let overdueAmount = 0;
+  const overdueCount = (overdue ?? []).length;
+  for (const o of overdue ?? []) {
+    overdueAmount += toBase(o.outstanding, o.currency, rates);
+  }
+
   return (
     <div className="p-6 sm:p-8">
       {InvitesBlock}
+      {overdueCount > 0 && (
+        <Link
+          href="/debts"
+          className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-3xl bg-amber-50 px-5 py-4 ring-1 ring-amber-200 transition hover:ring-amber-300 dark:bg-amber-950/30 dark:ring-amber-900/40"
+        >
+          <span className="text-sm text-amber-800 dark:text-amber-200">
+            ⚠️ Просрочено обязательств: <b>{overdueCount}</b> на сумму{" "}
+            <b>{formatMoney(overdueAmount, team.base_currency)}</b>
+          </span>
+          <span className="text-sm font-medium text-amber-700 dark:text-amber-300">
+            Открыть долги →
+          </span>
+        </Link>
+      )}
       <header className="mb-7">
         <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
           Дашборд
