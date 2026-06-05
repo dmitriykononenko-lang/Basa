@@ -10,7 +10,7 @@ export default function Placeholder({
       <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
         {title}
       </h1>
-      <div className="mt-6 rounded-3xl bg-white p-10 text-center ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:ring-neutral-800">
+      <div className="mt-6 rounded-3xl bg-white p-10 text-center ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
         <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-accent/10 text-2xl text-accent">
           ⏳
         </div>

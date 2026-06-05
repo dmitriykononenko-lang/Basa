@@ -44,10 +44,10 @@ export default async function CounterpartiesPage() {
       </header>
 
       {items && items.length > 0 ? (
-        <div className="overflow-hidden rounded-3xl bg-white ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:ring-neutral-800">
+        <div className="overflow-hidden rounded-3xl bg-white ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wider text-slate-400 dark:border-neutral-800 dark:text-neutral-500">
+              <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wider text-slate-400 dark:border-white/[0.07] dark:text-neutral-500">
                 <th className="px-5 py-3 font-medium">Название</th>
                 <th className="px-5 py-3 font-medium">Тип</th>
                 <th className="px-5 py-3 font-medium">ИНН</th>
@@ -56,7 +56,7 @@ export default async function CounterpartiesPage() {
             </thead>
             <tbody>
               {items.map((c) => (
-                <tr key={c.id} className="border-b border-slate-50 last:border-0 dark:border-neutral-800/60">
+                <tr key={c.id} className="border-b border-slate-50 last:border-0 dark:border-white/[0.05]">
                   <td className="px-5 py-3 font-medium">
                     <Link href={`/counterparties/${c.id}`} className="text-slate-800 hover:text-brand dark:text-neutral-200">
                       {c.name}
@@ -75,7 +75,7 @@ export default async function CounterpartiesPage() {
           </table>
         </div>
       ) : (
-        <p className="rounded-3xl bg-white p-6 text-sm text-slate-500 ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:text-neutral-400 dark:ring-neutral-800">
+        <p className="rounded-3xl bg-white p-6 text-sm text-slate-500 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:text-neutral-400 dark:ring-white/[0.07]">
           Пока нет контрагентов.
           {canEditFinance(role) ? " Добавьте первого кнопкой выше." : " Их может добавить владелец или менеджер."}
         </p>

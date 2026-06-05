@@ -101,8 +101,8 @@ function Column({
   manage: boolean;
 }) {
   return (
-    <section className="overflow-hidden rounded-3xl bg-white ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:ring-neutral-800">
-      <h2 className="border-b border-slate-100 px-5 py-3 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:border-neutral-800 dark:text-neutral-500">
+    <section className="overflow-hidden rounded-3xl bg-white ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
+      <h2 className="border-b border-slate-100 px-5 py-3 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:border-white/[0.07] dark:text-neutral-500">
         {title}
       </h2>
       {data.roots.length > 0 ? (

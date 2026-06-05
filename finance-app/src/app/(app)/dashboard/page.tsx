@@ -242,7 +242,7 @@ export default async function DashboardPage() {
               {[...totalByCurrency.entries()].map(([cur, total]) => (
                 <div
                   key={cur}
-                  className="rounded-2xl bg-white px-5 py-3 ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:ring-neutral-800"
+                  className="rounded-2xl bg-white px-5 py-3 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]"
                 >
                   <div className="text-xs text-slate-400 dark:text-neutral-500">
                     Итого {cur}
@@ -257,7 +257,7 @@ export default async function DashboardPage() {
               {accounts.map((a) => (
                 <div
                   key={a.id}
-                  className="rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:ring-neutral-800"
+                  className="rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]"
                 >
                   <div className="text-sm font-medium text-slate-800 dark:text-neutral-200">
                     {a.name}
@@ -273,7 +273,7 @@ export default async function DashboardPage() {
             </div>
           </>
         ) : (
-          <p className="rounded-3xl bg-white p-6 text-sm text-slate-500 ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:text-neutral-400 dark:ring-neutral-800">
+          <p className="rounded-3xl bg-white p-6 text-sm text-slate-500 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:text-neutral-400 dark:ring-white/[0.07]">
             Пока нет счетов. Добавьте их в разделе «Счета», чтобы видеть балансы.
           </p>
         )}
@@ -304,7 +304,7 @@ function ActionCard({
   return (
     <Link
       href={href}
-      className="group flex items-center gap-3 rounded-3xl bg-white p-4 ring-1 ring-slate-200/80 transition hover:ring-brand/40 dark:bg-neutral-900 dark:ring-neutral-800 dark:hover:ring-brand/50"
+      className="group flex items-center gap-3 rounded-3xl bg-white p-4 ring-1 ring-slate-200/80 transition hover:ring-brand/40 dark:bg-[#15171c] dark:ring-white/[0.07] dark:hover:ring-brand/50"
     >
       <span
         className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ${COLOR_MAP[color]}`}
@@ -338,7 +338,7 @@ function Metric({
     brand: "text-brand dark:text-brand",
   };
   return (
-    <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:ring-neutral-800">
+    <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
       <div className="text-sm text-slate-500 dark:text-neutral-400">{title}</div>
       <div className={`mt-2 text-2xl font-bold ${accentMap[accent]}`}>
         {children}

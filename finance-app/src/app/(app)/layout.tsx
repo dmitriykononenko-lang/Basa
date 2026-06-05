@@ -42,7 +42,7 @@ export default async function AppLayout({
       <div className="surface relative flex min-h-[calc(100vh-1rem)] flex-col overflow-hidden sm:min-h-[calc(100vh-1.5rem)]">
         <NavProgress />
         {/* Шапка */}
-        <header className="relative flex h-16 items-center justify-between border-b border-slate-100 px-4 dark:border-neutral-800 sm:px-6">
+        <header className="relative flex h-16 items-center justify-between border-b border-slate-100 px-4 dark:border-white/[0.07] sm:px-6">
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-2.5 rounded-full bg-slate-100 py-1.5 pl-1.5 pr-3 dark:bg-neutral-800">
               <span className="flex h-7 w-7 items-center justify-center rounded-full bg-brand text-xs font-semibold text-white">

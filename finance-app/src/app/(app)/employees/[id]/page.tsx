@@ -103,10 +103,10 @@ export default async function EmployeePage({
         По месяцам
       </h2>
       {months.length > 0 ? (
-        <div className="overflow-hidden rounded-3xl bg-white ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:ring-neutral-800">
+        <div className="overflow-hidden rounded-3xl bg-white ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wider text-slate-400 dark:border-neutral-800 dark:text-neutral-500">
+              <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wider text-slate-400 dark:border-white/[0.07] dark:text-neutral-500">
                 <th className="px-5 py-3 font-medium">Месяц</th>
                 <th className="px-5 py-3 text-right font-medium">Фикс. начислено</th>
                 <th className="px-5 py-3 text-right font-medium">Перем. начислено</th>
@@ -119,7 +119,7 @@ export default async function EmployeePage({
                 const m = byMonth.get(ym)!;
                 const delta = m.fixed + m.variable - m.paid;
                 return (
-                  <tr key={ym} className="border-b border-slate-50 last:border-0 dark:border-neutral-800/60">
+                  <tr key={ym} className="border-b border-slate-50 last:border-0 dark:border-white/[0.05]">
                     <td className="px-5 py-3 font-medium text-slate-800 dark:text-neutral-200">{monthLabel(ym)}</td>
                     <td className="px-5 py-3 text-right text-slate-600 dark:text-neutral-400">{formatMoney(m.fixed, base)}</td>
                     <td className="px-5 py-3 text-right text-slate-600 dark:text-neutral-400">{formatMoney(m.variable, base)}</td>
@@ -134,7 +134,7 @@ export default async function EmployeePage({
           </table>
         </div>
       ) : (
-        <p className="rounded-3xl bg-white p-6 text-sm text-slate-500 ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:text-neutral-400 dark:ring-neutral-800">
+        <p className="rounded-3xl bg-white p-6 text-sm text-slate-500 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:text-neutral-400 dark:ring-white/[0.07]">
           Нет начислений и выплат. Нажмите «Начислить», а выплаты отмечайте в операциях
           (расход с привязкой к сотруднику).
         </p>
@@ -146,7 +146,7 @@ export default async function EmployeePage({
 function Kpi({ title, value, accent }: { title: string; value: string; accent?: "amber" | "emerald" }) {
   const color = accent === "amber" ? "text-amber-600 dark:text-amber-400" : accent === "emerald" ? "text-emerald-600 dark:text-emerald-400" : "text-slate-900 dark:text-white";
   return (
-    <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:ring-neutral-800">
+    <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
       <div className="text-sm text-slate-500 dark:text-neutral-400">{title}</div>
       <div className={`mt-2 text-lg font-bold ${color}`}>{value}</div>
     </div>

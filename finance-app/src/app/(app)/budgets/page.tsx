@@ -125,7 +125,7 @@ export default async function BudgetsPage() {
           {items.map((b) => (
             <div
               key={b.id}
-              className="rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:ring-neutral-800"
+              className="rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]"
             >
               <div className="flex items-start justify-between">
                 <div>
@@ -168,7 +168,7 @@ export default async function BudgetsPage() {
           ))}
         </div>
       ) : (
-        <p className="rounded-3xl bg-white p-6 text-sm text-slate-500 ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:text-neutral-400 dark:ring-neutral-800">
+        <p className="rounded-3xl bg-white p-6 text-sm text-slate-500 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:text-neutral-400 dark:ring-white/[0.07]">
           Пока нет бюджетов.
           {canEditFinance(role)
             ? " Задайте лимит по категории кнопкой выше."

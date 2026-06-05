@@ -132,10 +132,10 @@ export default async function TransactionsPage() {
       )}
 
       {rows.length > 0 ? (
-        <div className="overflow-hidden rounded-3xl bg-white ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:ring-neutral-800">
+        <div className="overflow-hidden rounded-3xl bg-white ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wider text-slate-400 dark:border-neutral-800 dark:text-neutral-500">
+              <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wider text-slate-400 dark:border-white/[0.07] dark:text-neutral-500">
                 <th className="px-5 py-3 font-medium">Дата</th>
                 <th className="px-5 py-3 font-medium">Описание</th>
                 <th className="px-5 py-3 font-medium">Счёт</th>
@@ -185,7 +185,7 @@ export default async function TransactionsPage() {
           </table>
         </div>
       ) : (
-        <p className="rounded-3xl bg-white p-6 text-sm text-slate-500 ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:text-neutral-400 dark:ring-neutral-800">
+        <p className="rounded-3xl bg-white p-6 text-sm text-slate-500 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:text-neutral-400 dark:ring-white/[0.07]">
           Операций пока нет.
         </p>
       )}

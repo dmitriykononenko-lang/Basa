@@ -186,7 +186,7 @@ export default async function ReportsPage({
       </div>
 
       {/* График по месяцам */}
-      <section className="mt-6 rounded-3xl bg-white p-6 ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:ring-neutral-800">
+      <section className="mt-6 rounded-3xl bg-white p-6 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
         <h2 className="mb-4 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">
           Доходы и расходы по месяцам
         </h2>
@@ -231,7 +231,7 @@ export default async function ReportsPage({
 
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Категории расходов */}
-        <section className="rounded-3xl bg-white p-6 ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:ring-neutral-800">
+        <section className="rounded-3xl bg-white p-6 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
           <h2 className="mb-4 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">
             Расходы по категориям
           </h2>
@@ -260,7 +260,7 @@ export default async function ReportsPage({
         </section>
 
         {/* Проекты */}
-        <section className="rounded-3xl bg-white p-6 ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:ring-neutral-800">
+        <section className="rounded-3xl bg-white p-6 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
           <h2 className="mb-4 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">
             Прибыль по проектам
           </h2>
@@ -317,7 +317,7 @@ function Kpi({
     brand: "text-brand",
   };
   return (
-    <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:ring-neutral-800">
+    <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
       <div className="text-sm text-slate-500 dark:text-neutral-400">{title}</div>
       <div className={`mt-2 text-2xl font-bold ${map[accent]}`}>{value}</div>
     </div>

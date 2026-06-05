@@ -48,7 +48,7 @@ export default async function ProjectsPage() {
             <Link
               key={p.id}
               href={`/projects/${p.id}`}
-              className="rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 transition hover:ring-brand/40 dark:bg-neutral-900 dark:ring-neutral-800 dark:hover:ring-brand/50"
+              className="rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 transition hover:ring-brand/40 dark:bg-[#15171c] dark:ring-white/[0.07] dark:hover:ring-brand/50"
             >
               <div className="text-sm font-medium text-slate-800 dark:text-neutral-200">
                 {p.name}
@@ -60,7 +60,7 @@ export default async function ProjectsPage() {
           ))}
         </div>
       ) : (
-        <p className="rounded-3xl bg-white p-6 text-sm text-slate-500 ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:text-neutral-400 dark:ring-neutral-800">
+        <p className="rounded-3xl bg-white p-6 text-sm text-slate-500 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:text-neutral-400 dark:ring-white/[0.07]">
           Пока нет проектов.
           {canEditFinance(role)
             ? " Добавьте первый кнопкой выше."

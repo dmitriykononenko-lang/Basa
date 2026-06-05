@@ -89,7 +89,7 @@ export default function CreateTeamForm() {
       <button
         type="submit"
         disabled={loading}
-        className="btn-primary w-full"
+        className="btn-magic w-full"
       >
         {loading ? "Создаём…" : "Создать команду"}
       </button>

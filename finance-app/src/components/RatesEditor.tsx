@@ -66,7 +66,7 @@ export default function RatesEditor({
   }
 
   return (
-    <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:ring-neutral-800">
+    <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
       <h2 className="mb-1 text-sm font-semibold text-slate-800 dark:text-neutral-200">
         Курсы валют
       </h2>

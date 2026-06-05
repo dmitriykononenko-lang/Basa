@@ -72,10 +72,10 @@ export default async function TeamPage() {
       <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">
         Участники
       </h2>
-      <div className="overflow-hidden rounded-3xl bg-white ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:ring-neutral-800">
+      <div className="overflow-hidden rounded-3xl bg-white ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wider text-slate-400 dark:border-neutral-800 dark:text-neutral-500">
+            <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wider text-slate-400 dark:border-white/[0.07] dark:text-neutral-500">
               <th className="px-5 py-3 font-medium">Участник</th>
               <th className="px-5 py-3 font-medium">В команде с</th>
               <th className="px-5 py-3 text-right font-medium">Роль</th>
@@ -90,7 +90,7 @@ export default async function TeamPage() {
               return (
                 <tr
                   key={m.user_id}
-                  className="border-b border-slate-50 last:border-0 dark:border-neutral-800/60"
+                  className="border-b border-slate-50 last:border-0 dark:border-white/[0.05]"
                 >
                   <td className="px-5 py-3 font-medium text-slate-800 dark:text-neutral-200">
                     {profile?.full_name ?? "—"}
@@ -126,13 +126,13 @@ export default async function TeamPage() {
           <h2 className="mb-3 mt-8 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">
             Ожидают принятия
           </h2>
-          <div className="overflow-hidden rounded-3xl bg-white ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:ring-neutral-800">
+          <div className="overflow-hidden rounded-3xl bg-white ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
             <table className="w-full text-sm">
               <tbody>
                 {(invites ?? []).map((inv) => (
                   <tr
                     key={inv.id}
-                    className="border-b border-slate-50 last:border-0 dark:border-neutral-800/60"
+                    className="border-b border-slate-50 last:border-0 dark:border-white/[0.05]"
                   >
                     <td className="px-5 py-3 font-medium text-slate-800 dark:text-neutral-200">
                       {inv.email}

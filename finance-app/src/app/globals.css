@@ -11,30 +11,78 @@
 }
 
 body {
-  @apply bg-slate-200 text-slate-900 antialiased dark:bg-neutral-950 dark:text-neutral-100;
+  @apply bg-slate-100 text-slate-900 antialiased dark:text-neutral-100;
 }
 
-/* Поля ввода в стиле референса (мягкие, скруглённые) */
+/* Премиальный тёмный фон с лёгким свечением (как в референсе) */
+.dark body {
+  background-color: #0a0b0d;
+  background-image: radial-gradient(
+    900px circle at 50% -10%,
+    rgba(47, 109, 246, 0.08),
+    transparent 60%
+  );
+}
+
+/* ---------- Поля ввода ---------- */
 .input {
   @apply w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 outline-none transition
-    focus:border-brand focus:ring-2 focus:ring-brand/20
-    dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100;
+    placeholder:text-slate-400
+    focus:border-brand focus:ring-2 focus:ring-brand/25
+    dark:border-white/10 dark:bg-white/[0.04] dark:text-neutral-100 dark:placeholder:text-neutral-500;
 }
 
-/* Основная кнопка-пилюля */
+/* ---------- Кнопки ---------- */
+/* Primary — синяя пилюля с мягкой тенью и градиентом */
 .btn-primary {
-  @apply inline-flex items-center justify-center rounded-full bg-brand px-5 py-2.5 text-sm font-semibold text-white
-    transition hover:bg-brand-dark disabled:opacity-60;
+  @apply inline-flex items-center justify-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold text-white
+    transition-all disabled:opacity-60;
+  background-image: linear-gradient(180deg, #3b7bff 0%, #2f6df6 100%);
+  box-shadow: 0 4px 14px rgba(47, 109, 246, 0.3);
+}
+.btn-primary:hover {
+  filter: brightness(1.05);
+  box-shadow: 0 6px 18px rgba(47, 109, 246, 0.42);
+}
+.btn-primary:active {
+  transform: translateY(1px);
 }
 
+/* Magic — акцентная кнопка со свечением (сине-фиолетовый градиент) */
+.btn-magic {
+  @apply inline-flex items-center justify-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold text-white
+    transition-all disabled:opacity-60;
+  background-image: linear-gradient(135deg, #2f6df6 0%, #6d5dfb 100%);
+  box-shadow: 0 0 0 1px rgba(109, 93, 251, 0.4), 0 8px 26px rgba(109, 93, 251, 0.4);
+}
+.btn-magic:hover {
+  filter: brightness(1.06);
+  box-shadow: 0 0 0 1px rgba(109, 93, 251, 0.6), 0 10px 32px rgba(109, 93, 251, 0.55);
+}
+.btn-magic:active {
+  transform: translateY(1px);
+}
+
+/* Secondary — нейтральная пилюля */
 .btn-ghost {
-  @apply inline-flex items-center justify-center rounded-full px-4 py-2.5 text-sm font-medium text-slate-500
-    transition hover:bg-slate-100 dark:text-neutral-400 dark:hover:bg-neutral-800;
+  @apply inline-flex items-center justify-center gap-2 rounded-full px-4 py-2.5 text-sm font-medium text-slate-600
+    transition hover:bg-slate-100 dark:text-neutral-300 dark:hover:bg-white/[0.06];
 }
 
-/* Карточка-поверхность */
+/* Круглая иконочная кнопка */
+.btn-icon {
+  @apply inline-flex h-9 w-9 items-center justify-center rounded-full text-white transition-all;
+  background-image: linear-gradient(180deg, #3b7bff 0%, #2f6df6 100%);
+  box-shadow: 0 4px 14px rgba(47, 109, 246, 0.3);
+}
+
+/* ---------- Поверхность-карточка ---------- */
 .surface {
-  @apply rounded-3xl bg-white ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:ring-neutral-800;
+  @apply rounded-3xl bg-white ring-1 ring-slate-200/70 dark:bg-[#15171c] dark:ring-white/[0.07];
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 8px 24px rgba(16, 24, 40, 0.06);
+}
+.dark .surface {
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 20px 50px rgba(0, 0, 0, 0.5);
 }
 
 /* Анимация полосы прогресса навигации */

@@ -96,7 +96,7 @@ export default function Sidebar() {
         />
       </button>
       {open && (
-        <div className="ml-3 flex flex-col gap-1 border-l border-slate-100 pl-2 dark:border-neutral-800">
+        <div className="ml-3 flex flex-col gap-1 border-l border-slate-100 pl-2 dark:border-white/[0.07]">
           {ANALYTICS.map((item) => (
             <Link key={item.href} href={item.href} className={cls(isActive(item))}>
               <item.Icon className="h-[18px] w-[18px] shrink-0" />
@@ -106,7 +106,7 @@ export default function Sidebar() {
         </div>
       )}
 
-      <div className="my-2 border-t border-slate-100 dark:border-neutral-800" />
+      <div className="my-2 border-t border-slate-100 dark:border-white/[0.07]" />
       {link(SETTINGS)}
     </nav>
   );

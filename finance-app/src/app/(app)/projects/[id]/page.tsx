@@ -106,7 +106,7 @@ export default async function ProjectPage({
 
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Структура затрат */}
-        <section className="rounded-3xl bg-white p-6 ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:ring-neutral-800">
+        <section className="rounded-3xl bg-white p-6 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
           <h2 className="mb-4 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">
             Затраты по статьям
           </h2>
@@ -130,15 +130,15 @@ export default async function ProjectPage({
         </section>
 
         {/* Операции */}
-        <section className="rounded-3xl bg-white ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:ring-neutral-800">
-          <h2 className="border-b border-slate-100 px-5 py-3 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:border-neutral-800 dark:text-neutral-500">
+        <section className="rounded-3xl bg-white ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
+          <h2 className="border-b border-slate-100 px-5 py-3 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:border-white/[0.07] dark:text-neutral-500">
             Операции
           </h2>
           {rows.length > 0 ? (
             <table className="w-full text-sm">
               <tbody>
                 {rows.slice(0, 30).map((t) => (
-                  <tr key={t.id} className="border-b border-slate-50 last:border-0 dark:border-neutral-800/60">
+                  <tr key={t.id} className="border-b border-slate-50 last:border-0 dark:border-white/[0.05]">
                     <td className="whitespace-nowrap px-5 py-3 text-slate-500 dark:text-neutral-400">{formatDate(t.occurred_on)}</td>
                     <td className="px-5 py-3 text-slate-700 dark:text-neutral-300">
                       {t.category?.name ?? "—"}
@@ -169,7 +169,7 @@ function Stat({ title, value, accent }: { title: string; value: string; accent: 
     brand: "text-brand",
   };
   return (
-    <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:ring-neutral-800">
+    <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
       <div className="text-sm text-slate-500 dark:text-neutral-400">{title}</div>
       <div className={`mt-2 text-xl font-bold ${map[accent]}`}>{value}</div>
     </div>

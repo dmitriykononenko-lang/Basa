@@ -86,7 +86,7 @@ export default async function CounterpartyPage({
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         {/* Реквизиты */}
-        <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:ring-neutral-800">
+        <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
           <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">
             Реквизиты
           </h2>
@@ -115,11 +115,11 @@ export default async function CounterpartyPage({
           Операции
         </h2>
         {rows.length > 0 ? (
-          <div className="overflow-hidden rounded-3xl bg-white ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:ring-neutral-800">
+          <div className="overflow-hidden rounded-3xl bg-white ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
             <table className="w-full text-sm">
               <tbody>
                 {rows.map((t) => (
-                  <tr key={t.id} className="border-b border-slate-50 last:border-0 dark:border-neutral-800/60">
+                  <tr key={t.id} className="border-b border-slate-50 last:border-0 dark:border-white/[0.05]">
                     <td className="whitespace-nowrap px-5 py-3 text-slate-500 dark:text-neutral-400">
                       {formatDate(t.occurred_on)}
                     </td>
@@ -139,7 +139,7 @@ export default async function CounterpartyPage({
             </table>
           </div>
         ) : (
-          <p className="rounded-3xl bg-white p-6 text-sm text-slate-500 ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:text-neutral-400 dark:ring-neutral-800">
+          <p className="rounded-3xl bg-white p-6 text-sm text-slate-500 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:text-neutral-400 dark:ring-white/[0.07]">
             Операций с этим контрагентом пока нет.
           </p>
         )}
@@ -160,7 +160,7 @@ function Info({ label, value }: { label: string; value: string | null }) {
 function Stat({ title, value, accent }: { title: string; value: string; accent: "emerald" | "red" }) {
   const map = { emerald: "text-emerald-600 dark:text-emerald-400", red: "text-red-600 dark:text-red-400" };
   return (
-    <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:ring-neutral-800">
+    <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
       <div className="text-sm text-slate-500 dark:text-neutral-400">{title}</div>
       <div className={`mt-2 text-xl font-bold ${map[accent]}`}>{value}</div>
     </div>

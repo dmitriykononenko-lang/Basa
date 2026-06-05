@@ -6,11 +6,11 @@ export default function Loading() {
         {[0, 1, 2].map((i) => (
           <div
             key={i}
-            className="h-24 rounded-3xl bg-slate-100 ring-1 ring-slate-200/60 dark:bg-neutral-900 dark:ring-neutral-800"
+            className="h-24 rounded-3xl bg-slate-100 ring-1 ring-slate-200/60 dark:bg-[#15171c] dark:ring-white/[0.07]"
           />
         ))}
       </div>
-      <div className="mt-6 h-64 rounded-3xl bg-slate-100 ring-1 ring-slate-200/60 dark:bg-neutral-900 dark:ring-neutral-800" />
+      <div className="mt-6 h-64 rounded-3xl bg-slate-100 ring-1 ring-slate-200/60 dark:bg-[#15171c] dark:ring-white/[0.07]" />
     </div>
   );
 }

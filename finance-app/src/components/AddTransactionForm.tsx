@@ -105,7 +105,7 @@ export default function AddTransactionForm({
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="btn-primary">
+      <button onClick={() => setOpen(true)} className="btn-magic">
         + Добавить операцию
       </button>
     );
@@ -120,7 +120,7 @@ export default function AddTransactionForm({
   return (
     <form
       onSubmit={handleSubmit}
-      className="space-y-4 rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:ring-neutral-800"
+      className="space-y-4 rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]"
     >
       <div className="grid grid-cols-3 gap-1 rounded-full bg-slate-100 p-1 text-sm dark:bg-neutral-800">
         {TYPES.map(([t, label]) => (

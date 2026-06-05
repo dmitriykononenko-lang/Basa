@@ -62,7 +62,7 @@ export default function AddAccrualForm({
   }
 
   return (
-    <form onSubmit={submit} className="flex flex-wrap items-end gap-3 rounded-3xl bg-white p-4 ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:ring-neutral-800">
+    <form onSubmit={submit} className="flex flex-wrap items-end gap-3 rounded-3xl bg-white p-4 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
       <div>
         <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Месяц</label>
         <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="input" />

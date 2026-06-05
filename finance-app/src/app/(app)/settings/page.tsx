@@ -66,7 +66,7 @@ export default function SettingsPage() {
                 <Link
                   key={c.href}
                   href={c.href}
-                  className="group flex items-center gap-3 rounded-3xl bg-white p-4 ring-1 ring-slate-200/80 transition hover:ring-brand/40 dark:bg-neutral-900 dark:ring-neutral-800 dark:hover:ring-brand/50"
+                  className="group flex items-center gap-3 rounded-3xl bg-white p-4 ring-1 ring-slate-200/80 transition hover:ring-brand/40 dark:bg-[#15171c] dark:ring-white/[0.07] dark:hover:ring-brand/50"
                 >
                   <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ${c.color}`}>
                     <c.Icon className="h-5 w-5" />

@@ -122,7 +122,7 @@ export default function EditableTransactionRow({
 
   if (!editing) {
     return (
-      <tr className="border-b border-slate-50 last:border-0 dark:border-neutral-800/60">
+      <tr className="border-b border-slate-50 last:border-0 dark:border-white/[0.05]">
         <td className="whitespace-nowrap px-5 py-3 text-slate-500 dark:text-neutral-400">
           {formatDate(tx.occurred_on)}
         </td>
@@ -168,7 +168,7 @@ export default function EditableTransactionRow({
   }
 
   return (
-    <tr className="border-b border-slate-50 bg-slate-50/60 last:border-0 dark:border-neutral-800/60 dark:bg-neutral-800/30">
+    <tr className="border-b border-slate-50 bg-slate-50/60 last:border-0 dark:border-white/[0.05] dark:bg-neutral-800/30">
       <td colSpan={5} className="px-5 py-4">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           <Field label="Сумма">

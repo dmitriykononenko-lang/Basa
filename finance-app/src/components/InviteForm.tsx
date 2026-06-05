@@ -46,7 +46,7 @@ export default function InviteForm({
   }
 
   return (
-    <div className="rounded-3xl bg-white p-4 ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:ring-neutral-800">
+    <div className="rounded-3xl bg-white p-4 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
       <form onSubmit={submit} className="flex flex-wrap items-end gap-3">
         <div className="min-w-[200px] flex-1">
           <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">
