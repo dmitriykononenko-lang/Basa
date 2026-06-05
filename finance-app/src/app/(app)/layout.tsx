@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentTeam } from "@/lib/team";
 import Sidebar from "@/components/Sidebar";
 import SignOutButton from "@/components/SignOutButton";
 import Brand from "@/components/Brand";
@@ -37,6 +38,9 @@ export default async function AppLayout({
 
   const displayName = profile?.full_name ?? user.email ?? "Пользователь";
 
+  const current = await getCurrentTeam();
+  const company = current?.team.name ?? null;
+
   return (
     <div className="min-h-screen p-2 sm:p-3">
       <div className="surface relative flex min-h-[calc(100vh-1rem)] flex-col overflow-hidden sm:min-h-[calc(100vh-1.5rem)]">
@@ -45,13 +49,23 @@ export default async function AppLayout({
         <header className="relative flex h-16 items-center justify-between border-b border-slate-100 px-4 dark:border-white/[0.07] sm:px-6">
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-2.5 rounded-full bg-slate-100 py-1.5 pl-1.5 pr-3 dark:bg-neutral-800">
-              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-brand text-xs font-semibold text-white">
-                {initials(displayName)}
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand text-xs font-semibold text-white">
+                {initials(company ?? displayName)}
               </span>
-              <span className="max-w-[120px] truncate text-sm font-medium text-slate-700 dark:text-neutral-200">
-                {displayName}
+              <span className="flex min-w-0 flex-col leading-tight">
+                <span
+                  className="max-w-[200px] truncate text-sm font-semibold text-slate-800 dark:text-neutral-100"
+                  title={company ?? displayName}
+                >
+                  {company ?? displayName}
+                </span>
+                {company && (
+                  <span className="max-w-[200px] truncate text-[11px] text-slate-400 dark:text-neutral-500">
+                    {displayName}
+                  </span>
+                )}
               </span>
-              <IconChevronDown className="h-4 w-4 text-slate-400" />
+              <IconChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
             </div>
             <button
               type="button"

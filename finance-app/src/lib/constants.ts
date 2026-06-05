@@ -9,6 +9,15 @@ export const EMPLOYMENT_TYPE_LABELS: Record<string, string> = Object.fromEntries
   EMPLOYMENT_TYPES.map((e) => [e.value, e.label])
 );
 
+export const PAYMENT_METHODS: { value: string; label: string }[] = [
+  { value: "bank", label: "Банк (фиат)" },
+  { value: "crypto", label: "Крипта (USDT)" },
+];
+
+export const LEGAL_STATUSES = ["Самозанятый", "ИП", "Физлицо", "ООО"];
+
+export const WALLET_NETWORKS = ["TRC20", "ERC20", "BEP20", "TON", "SOL", "Polygon"];
+
 export const ACCOUNT_KINDS: { value: string; label: string }[] = [
   { value: "cash", label: "Наличные" },
   { value: "bank", label: "Банк" },

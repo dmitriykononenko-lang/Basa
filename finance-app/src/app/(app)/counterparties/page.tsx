@@ -58,7 +58,7 @@ export default async function CounterpartiesPage() {
               {items.map((c) => (
                 <tr key={c.id} className="border-b border-slate-50 last:border-0 dark:border-white/[0.05]">
                   <td className="px-5 py-3 font-medium">
-                    <Link href={`/counterparties/${c.id}`} className="text-slate-800 hover:text-brand dark:text-neutral-200">
+                    <Link href={`/counterparties/${c.id}`} className="break-words text-slate-800 hover:text-brand dark:text-neutral-200">
                       {c.name}
                     </Link>
                   </td>

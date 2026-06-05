@@ -6,6 +6,8 @@ import { formatMoney, formatDate } from "@/lib/format";
 import { buildRateMap, toBase } from "@/lib/fx";
 import { EMPLOYMENT_TYPE_LABELS } from "@/lib/constants";
 import AddAccrualForm from "@/components/AddAccrualForm";
+import CopyField from "@/components/CopyField";
+import EditEmployeePayment from "@/components/EditEmployeePayment";
 
 const MONTHS_RU = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
 function monthLabel(ym: string) {
@@ -27,7 +29,7 @@ export default async function EmployeePage({
 
   const { data: emp } = await supabase
     .from("employees")
-    .select("id, name, employment_type, start_date, payout_currency, status, note")
+    .select("id, name, employment_type, start_date, payout_currency, status, note, payment_method, legal_status, payee_name, inn, bank_account, bank_name, bik, wallet_address, wallet_network")
     .eq("id", id)
     .maybeSingle();
   if (!emp) notFound();
@@ -110,6 +112,50 @@ export default async function EmployeePage({
         <Kpi title="Выплачено" value={formatMoney(totalPaid, base)} />
         <Kpi title="Остаток к выплате" value={formatMoney(balance, base)} accent={balance > 0 ? "amber" : "emerald"} />
       </div>
+
+      <section className="mb-6 rounded-3xl bg-white p-6 ring-1 ring-slate-200/70 dark:bg-[#15171c] dark:ring-white/[0.07]">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">
+            Платёжные реквизиты
+          </h2>
+          {canEditFinance(role) && (
+            <EditEmployeePayment
+              employeeId={emp.id}
+              initial={{
+                payment_method: emp.payment_method ?? "bank",
+                legal_status: emp.legal_status ?? "",
+                payee_name: emp.payee_name ?? "",
+                inn: emp.inn ?? "",
+                bank_account: emp.bank_account ?? "",
+                bank_name: emp.bank_name ?? "",
+                bik: emp.bik ?? "",
+                wallet_address: emp.wallet_address ?? "",
+                wallet_network: emp.wallet_network ?? "TRC20",
+              }}
+            />
+          )}
+        </div>
+        <div className="mt-2 max-w-md text-sm">
+          {emp.payment_method === "crypto" ? (
+            <>
+              <CopyField label="Кошелёк" value={emp.wallet_address ?? ""} />
+              <CopyField label="Сеть" value={emp.wallet_network ?? ""} />
+            </>
+          ) : (
+            <>
+              <CopyField label="ФИО получателя" value={emp.payee_name ?? ""} />
+              <CopyField label="Статус" value={emp.legal_status ?? ""} />
+              <CopyField label="ИНН" value={emp.inn ?? ""} />
+              <CopyField label="Р/С" value={emp.bank_account ?? ""} />
+              <CopyField label="Банк" value={emp.bank_name ?? ""} />
+              <CopyField label="БИК" value={emp.bik ?? ""} />
+            </>
+          )}
+          {!emp.payee_name && !emp.bank_account && !emp.wallet_address && (
+            <p className="text-slate-400 dark:text-neutral-500">Реквизиты не заполнены.</p>
+          )}
+        </div>
+      </section>
 
       {projectRows.length > 0 && (
         <section className="mb-6">

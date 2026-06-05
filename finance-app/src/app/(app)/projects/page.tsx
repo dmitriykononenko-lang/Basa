@@ -50,7 +50,7 @@ export default async function ProjectsPage() {
               href={`/projects/${p.id}`}
               className="rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 transition hover:ring-brand/40 dark:bg-[#15171c] dark:ring-white/[0.07] dark:hover:ring-brand/50"
             >
-              <div className="text-sm font-medium text-slate-800 dark:text-neutral-200">
+              <div className="line-clamp-2 break-words text-sm font-medium text-slate-800 dark:text-neutral-200">
                 {p.name}
               </div>
               <div className="mt-1 text-xs text-slate-400 dark:text-neutral-500">

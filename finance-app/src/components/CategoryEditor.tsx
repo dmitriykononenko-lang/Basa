@@ -92,18 +92,18 @@ export default function CategoryEditor({
 
   if (!editing) {
     return (
-      <div className={`flex items-center justify-between px-5 py-2.5 ${child ? "pl-10" : ""}`}>
-        <span className="flex items-center gap-2 text-sm text-slate-700 dark:text-neutral-300">
+      <div className={`group flex items-start justify-between gap-3 px-5 py-3 ${child ? "pl-10" : ""}`}>
+        <div className="flex min-w-0 flex-wrap items-center gap-2 text-sm text-slate-700 dark:text-neutral-300">
           {child && <span className="text-slate-300">└</span>}
-          {category.name}
-          <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${ACTIVITY_COLOR[category.cf_activity] ?? ""}`}>
+          <span className="break-words">{category.name}</span>
+          <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${ACTIVITY_COLOR[category.cf_activity] ?? ""}`}>
             {CF_ACTIVITY_LABELS[category.cf_activity]}
           </span>
-        </span>
+        </div>
         {manage && (
           <button
             onClick={() => setEditing(true)}
-            className="rounded-full px-2 py-1 text-xs font-medium text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-neutral-800"
+            className="shrink-0 rounded-full px-2 py-1 text-xs font-medium text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 group-hover:text-slate-600 dark:hover:bg-neutral-800"
           >
             Изм.
           </button>

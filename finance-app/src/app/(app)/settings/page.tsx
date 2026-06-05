@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { IconAccounts, IconTag, IconTeam } from "@/components/icons";
+import { IconAccounts, IconTag, IconTeam, IconSettings } from "@/components/icons";
 
 type Card = {
   href: string;
@@ -13,6 +13,13 @@ const GROUPS: { title: string; items: Card[] }[] = [
   {
     title: "Ваш бизнес",
     items: [
+      {
+        href: "/settings/company",
+        title: "Профиль компании",
+        desc: "Название и реквизиты компании",
+        Icon: IconSettings,
+        color: "bg-neutral-800 text-white dark:bg-neutral-700",
+      },
       {
         href: "/accounts",
         title: "Счета",
