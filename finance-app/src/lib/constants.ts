@@ -10,3 +10,13 @@ export const ACCOUNT_KINDS: { value: string; label: string }[] = [
 export const ACCOUNT_KIND_LABELS: Record<string, string> = Object.fromEntries(
   ACCOUNT_KINDS.map((k) => [k.value, k.label])
 );
+
+export const COUNTERPARTY_KINDS: { value: string; label: string }[] = [
+  { value: "client", label: "Клиент" },
+  { value: "supplier", label: "Поставщик" },
+  { value: "partner", label: "Партнёр" },
+  { value: "other", label: "Другое" },
+];
+
+export const COUNTERPARTY_KIND_LABELS: Record<string, string> =
+  Object.fromEntries(COUNTERPARTY_KINDS.map((k) => [k.value, k.label]));
