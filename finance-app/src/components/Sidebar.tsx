@@ -21,6 +21,7 @@ type Item = {
   label: string;
   Icon: (p: { className?: string }) => JSX.Element;
   match?: string[];
+  exact?: boolean;
 };
 
 const NAV: Item[] = [
@@ -34,7 +35,8 @@ const NAV: Item[] = [
 
 const ANALYTICS: Item[] = [
   { href: "/reports/cashflow", label: "Движение средств", Icon: IconReports },
-  { href: "/reports", label: "Анализ расходов", Icon: IconReports },
+  { href: "/reports/pnl", label: "Прибыли и убытки", Icon: IconReports },
+  { href: "/reports", label: "Анализ расходов", Icon: IconReports, exact: true },
   { href: "/debts", label: "Задолженности", Icon: IconDebts },
 ];
 
@@ -61,7 +63,8 @@ export default function Sidebar() {
     }`;
   }
 
-  function isActive({ href, match }: Item) {
+  function isActive({ href, match, exact }: Item) {
+    if (exact) return pathname === href;
     return (
       pathname === href ||
       pathname.startsWith(href + "/") ||
