@@ -27,7 +27,7 @@ export default async function ProjectPage({
   const [{ data: txs }, { data: obls }, { data: fxRows }] = await Promise.all([
     supabase
       .from("transactions")
-      .select("id, type, amount, currency, occurred_on, category:categories(name), counterparty:counterparties(name)")
+      .select("id, type, amount, currency, occurred_on, employee_id, category:categories(name), counterparty:counterparties(name), employee:employees(name)")
       .eq("team_id", team.id)
       .eq("project_id", id)
       .order("occurred_on", { ascending: false })
@@ -47,13 +47,17 @@ export default async function ProjectPage({
     amount: number;
     currency: string;
     occurred_on: string;
+    employee_id: string | null;
     category: { name: string } | null;
     counterparty: { name: string } | null;
+    employee: { name: string } | null;
   }[];
 
   let revenue = 0;
   let costs = 0;
+  let laborPaid = 0;
   const costByCat = new Map<string, number>();
+  const laborByEmployee = new Map<string, number>();
   for (const t of rows) {
     const v = toBase(t.amount, t.currency, rates);
     if (t.type === "income") revenue += v;
@@ -61,10 +65,16 @@ export default async function ProjectPage({
       costs += v;
       const c = t.category?.name ?? "Без статьи";
       costByCat.set(c, (costByCat.get(c) ?? 0) + v);
+      if (t.employee_id) {
+        laborPaid += v;
+        const en = t.employee?.name ?? "Сотрудник";
+        laborByEmployee.set(en, (laborByEmployee.get(en) ?? 0) + v);
+      }
     }
   }
   const profit = revenue - costs;
   const margin = revenue > 0 ? (profit / revenue) * 100 : 0;
+  const laborRows = [...laborByEmployee.entries()].sort((a, b) => b[1] - a[1]);
 
   let receivable = 0;
   let payable = 0;
@@ -97,10 +107,17 @@ export default async function ProjectPage({
         <Stat title="Маржинальность" value={`${margin.toFixed(1)}%`} accent={margin < 0 ? "red" : "brand"} />
       </div>
 
-      {(receivable > 0 || payable > 0) && (
-        <div className="mt-3 grid grid-cols-2 gap-3 sm:max-w-md">
-          <Stat title="Нам должны по проекту" value={formatMoney(receivable, base)} accent="emerald" />
-          <Stat title="Мы должны по проекту" value={formatMoney(payable, base)} accent="red" />
+      {(receivable > 0 || payable > 0 || laborPaid > 0) && (
+        <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+          {laborPaid > 0 && (
+            <Stat title="Оплата труда (выплачено)" value={formatMoney(laborPaid, base)} accent="red" />
+          )}
+          {receivable > 0 && (
+            <Stat title="Нам должны по проекту" value={formatMoney(receivable, base)} accent="emerald" />
+          )}
+          {payable > 0 && (
+            <Stat title="Мы должны по проекту" value={formatMoney(payable, base)} accent="red" />
+          )}
         </div>
       )}
 
@@ -126,6 +143,22 @@ export default async function ProjectPage({
             </div>
           ) : (
             <p className="text-sm text-slate-400">Затрат по проекту нет.</p>
+          )}
+
+          {laborRows.length > 0 && (
+            <div className="mt-5 border-t border-slate-100 pt-4 dark:border-white/[0.06]">
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">
+                в т.ч. оплата труда
+              </div>
+              <ul className="space-y-1.5 text-sm">
+                {laborRows.map(([n, v]) => (
+                  <li key={n} className="flex justify-between">
+                    <span className="text-slate-600 dark:text-neutral-400">{n}</span>
+                    <span className="font-medium text-slate-700 dark:text-neutral-300">{formatMoney(v, base)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
         </section>
 
