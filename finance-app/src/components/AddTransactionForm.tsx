@@ -135,11 +135,24 @@ export default function AddTransactionForm({
     router.refresh();
   }
 
+  function openWith(t: TxType) {
+    setType(t);
+    setOpen(true);
+  }
+
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="btn-magic">
-        + Добавить операцию
-      </button>
+      <div className="flex flex-wrap gap-2">
+        <button onClick={() => openWith("income")} className="btn-primary" style={{ backgroundImage: "linear-gradient(180deg,#34c578,#22a565)", boxShadow: "0 4px 14px rgba(34,165,101,.3)" }}>
+          + Приход
+        </button>
+        <button onClick={() => openWith("expense")} className="btn-primary" style={{ backgroundImage: "linear-gradient(180deg,#f2564e,#e23b32)", boxShadow: "0 4px 14px rgba(226,59,50,.3)" }}>
+          − Расход
+        </button>
+        <button onClick={() => openWith("transfer")} className="btn-ghost ring-1 ring-slate-200 dark:ring-white/10">
+          ⇄ Перевод
+        </button>
+      </div>
     );
   }
 
@@ -291,7 +304,12 @@ export default function AddTransactionForm({
           <input
             type="date"
             value={date}
-            onChange={(e) => setDate(e.target.value)}
+            onChange={(e) => {
+              const d = e.target.value;
+              setDate(d);
+              // дата ≠ сегодня → операция плановая
+              setPlanned(d !== new Date().toISOString().slice(0, 10));
+            }}
             className="input"
           />
         </Field>

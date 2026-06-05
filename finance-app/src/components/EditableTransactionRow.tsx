@@ -139,36 +139,39 @@ export default function EditableTransactionRow({
 
   if (!editing) {
     return (
-      <tr className="border-b border-slate-50 last:border-0 dark:border-white/[0.05]">
+      <tr
+        onClick={() => editable && setEditing(true)}
+        className={`border-b border-slate-50 last:border-0 dark:border-white/[0.05] ${editable ? "cursor-pointer hover:bg-slate-50/70 dark:hover:bg-white/[0.02]" : ""}`}
+      >
         <td className="whitespace-nowrap px-5 py-3 text-slate-500 dark:text-neutral-400">
-          {formatDate(tx.occurred_on)}
+          <span className="inline-flex items-center gap-1">
+            {tx.status === "planned" && <span title="Плановая" className="text-violet-500">🕒</span>}
+            {formatDate(tx.occurred_on)}
+          </span>
         </td>
-        <td className="px-5 py-3">
-          <div className="font-medium text-slate-800 dark:text-neutral-200">
-            {isTransfer ? "Перевод" : tx.categoryName ?? "Без категории"}
-            {tx.status === "planned" && (
-              <span className="ml-2 rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-medium text-violet-700 dark:bg-violet-950/50 dark:text-violet-300">
-                План
-              </span>
-            )}
-          </div>
-          <div className="text-xs text-slate-400 dark:text-neutral-500">
-            {[tx.counterpartyName, tx.projectName, tx.note].filter(Boolean).join(" · ")}
-            {attachments.length > 0 && (
-              <span className="ml-1 text-slate-400">📎 {attachments.length}</span>
-            )}
-          </div>
-        </td>
-        <td className="px-5 py-3 text-slate-500 dark:text-neutral-400">
-          {isTransfer ? `${tx.accountName} → ${tx.toAccountName}` : tx.accountName}
-        </td>
-        <td className={`whitespace-nowrap px-5 py-3 text-right font-semibold ${amountColor}`}>
+        <td className={`whitespace-nowrap px-5 py-3 font-semibold ${amountColor}`}>
           {sign}
           {formatMoney(tx.amount, tx.currency)}
         </td>
+        <td className="px-5 py-3">
+          <div className="font-medium text-slate-800 dark:text-neutral-200">
+            {isTransfer ? "Перевод" : tx.categoryName ?? "Без статьи"}
+          </div>
+          {(tx.note || attachments.length > 0) && (
+            <div className="text-xs text-slate-400 dark:text-neutral-500">
+              {tx.note}
+              {attachments.length > 0 && <span className="ml-1">📎 {attachments.length}</span>}
+            </div>
+          )}
+        </td>
+        <td className="px-5 py-3 text-slate-500 dark:text-neutral-400">{tx.projectName ?? "—"}</td>
+        <td className="px-5 py-3 text-slate-500 dark:text-neutral-400">{tx.counterpartyName ?? "—"}</td>
+        <td className="px-5 py-3 text-slate-500 dark:text-neutral-400">
+          {isTransfer ? `${tx.accountName} → ${tx.toAccountName}` : tx.accountName}
+        </td>
         <td className="px-3 py-3 text-right">
           {editable && (
-            <div className="flex justify-end gap-1">
+            <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
               {tx.status === "planned" && (
                 <button
                   onClick={confirmPlanned}
@@ -200,7 +203,7 @@ export default function EditableTransactionRow({
 
   return (
     <tr className="border-b border-slate-50 bg-slate-50/60 last:border-0 dark:border-white/[0.05] dark:bg-neutral-800/30">
-      <td colSpan={5} className="px-5 py-4">
+      <td colSpan={7} className="px-5 py-4">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           <Field label="Сумма">
             <input value={amount} onChange={(e) => setAmount(e.target.value)} className="input" />
