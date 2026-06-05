@@ -1,26 +1,65 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import CreateTeamForm from "@/components/CreateTeamForm";
-import { ROLE_LABELS } from "@/lib/types";
+import { ROLE_LABELS, type AppRole } from "@/lib/types";
 import { formatMoney } from "@/lib/format";
 import { getCurrentTeam } from "@/lib/team";
 import { buildRateMap, toBase } from "@/lib/fx";
+import AcceptInviteButton from "@/components/AcceptInviteButton";
 import { IconTransactions, IconAccounts, IconReports } from "@/components/icons";
 
 export default async function DashboardPage() {
   const current = await getCurrentTeam();
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  // Нет команды — показываем онбординг
+  // Приглашения, ожидающие принятия текущим пользователем
+  const { data: myInvites } = await supabase
+    .from("invites")
+    .select("id, role, team:teams(name)")
+    .eq("status", "pending")
+    .eq("email", (user?.email ?? "").toLowerCase());
+
+  const invites = (myInvites ?? []) as unknown as {
+    id: string;
+    role: AppRole;
+    team: { name: string } | null;
+  }[];
+
+  const InvitesBlock =
+    invites.length > 0 ? (
+      <div className="mb-6 space-y-2">
+        {invites.map((inv) => (
+          <div
+            key={inv.id}
+            className="flex flex-wrap items-center justify-between gap-3 rounded-3xl bg-brand/5 px-5 py-4 ring-1 ring-brand/20"
+          >
+            <div className="text-sm text-slate-700 dark:text-neutral-200">
+              Вас пригласили в команду{" "}
+              <b>{inv.team?.name ?? "—"}</b> как{" "}
+              {ROLE_LABELS[inv.role]}
+            </div>
+            <AcceptInviteButton inviteId={inv.id} />
+          </div>
+        ))}
+      </div>
+    ) : null;
+
+  // Нет команды — показываем приглашения и/или онбординг
   if (!current) {
     return (
-      <div className="flex min-h-[70vh] items-center justify-center p-8">
-        <CreateTeamForm />
+      <div className="mx-auto max-w-2xl p-6 sm:p-8">
+        {InvitesBlock}
+        <div className="flex justify-center">
+          <CreateTeamForm />
+        </div>
       </div>
     );
   }
 
   const { team, role } = current;
-  const supabase = await createClient();
 
   const { data: accounts } = await supabase
     .from("accounts")
@@ -70,6 +109,7 @@ export default async function DashboardPage() {
 
   return (
     <div className="p-6 sm:p-8">
+      {InvitesBlock}
       <header className="mb-7">
         <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
           Дашборд

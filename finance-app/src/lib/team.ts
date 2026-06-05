@@ -32,3 +32,7 @@ export function canEditFinance(role: AppRole): boolean {
 export function canWriteTx(role: AppRole): boolean {
   return canEditFinance(role) || role === "employee";
 }
+
+export function canManageTeam(role: AppRole): boolean {
+  return role === "owner" || role === "admin";
+}
