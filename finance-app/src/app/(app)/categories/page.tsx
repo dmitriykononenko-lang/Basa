@@ -2,17 +2,16 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import AddCategoryForm from "@/components/AddCategoryForm";
-import ArchiveCategoryButton from "@/components/ArchiveCategoryButton";
+import CategoryEditor, { type CategoryData } from "@/components/CategoryEditor";
 
-type Cat = {
-  id: string;
-  name: string;
-  kind: "income" | "expense";
-  parent_id: string | null;
-  archived: boolean;
-};
+export default async function CategoriesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ archived?: string }>;
+}) {
+  const { archived } = await searchParams;
+  const showArchived = archived === "1";
 
-export default async function CategoriesPage() {
   const current = await getCurrentTeam();
   if (!current) {
     return (
@@ -33,18 +32,21 @@ export default async function CategoriesPage() {
 
   const { data } = await supabase
     .from("categories")
-    .select("id, name, kind, parent_id, archived")
+    .select("id, name, kind, parent_id, note, cf_activity, pnl_treatment, archived")
     .eq("team_id", team.id)
     .order("name");
 
-  const all = (data ?? []) as Cat[];
-  const active = all.filter((c) => !c.archived);
+  const all = (data ?? []) as CategoryData[];
+  const visible = all.filter((c) => (showArchived ? true : !c.archived));
 
-  function tree(kind: "income" | "expense") {
-    const items = active.filter((c) => c.kind === kind);
+  function group(kind: "income" | "expense") {
+    const items = visible.filter((c) => c.kind === kind);
     const roots = items.filter((c) => !c.parent_id);
     const childrenOf = (id: string) => items.filter((c) => c.parent_id === id);
-    return { roots, childrenOf };
+    const parentOptions = all
+      .filter((c) => c.kind === kind && !c.parent_id && !c.archived)
+      .map((c) => ({ id: c.id, name: c.name }));
+    return { roots, childrenOf, parentOptions };
   }
 
   return (
@@ -58,47 +60,68 @@ export default async function CategoriesPage() {
             Статьи
           </h1>
           <p className="text-sm text-slate-500 dark:text-neutral-400">
-            Статьи доходов и расходов для классификации операций
+            Статьи доходов и расходов: вид деятельности (ДДС) и правило учёта (ОПиУ)
           </p>
         </div>
-        {manage && (
-          <AddCategoryForm
-            teamId={team.id}
-            categories={active.map((c) => ({ id: c.id, name: c.name, kind: c.kind }))}
-          />
-        )}
+        <div className="flex items-center gap-3">
+          <Link
+            href={showArchived ? "/categories" : "/categories?archived=1"}
+            className="text-sm text-slate-400 hover:text-brand"
+          >
+            {showArchived ? "Скрыть архив" : "Показать архив"}
+          </Link>
+          {manage && (
+            <AddCategoryForm
+              teamId={team.id}
+              categories={all.filter((c) => !c.archived).map((c) => ({ id: c.id, name: c.name, kind: c.kind }))}
+            />
+          )}
+        </div>
       </header>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <CategoryColumn title="Расходы" kind="expense" tree={tree("expense")} manage={manage} />
-        <CategoryColumn title="Доходы" kind="income" tree={tree("income")} manage={manage} />
+        <Column title="Статьи расходов" data={group("expense")} manage={manage} />
+        <Column title="Статьи доходов" data={group("income")} manage={manage} />
       </div>
     </div>
   );
 }
 
-function CategoryColumn({
+function Column({
   title,
-  tree,
+  data,
   manage,
 }: {
   title: string;
-  kind: "income" | "expense";
-  tree: { roots: Cat[]; childrenOf: (id: string) => Cat[] };
+  data: {
+    roots: CategoryData[];
+    childrenOf: (id: string) => CategoryData[];
+    parentOptions: { id: string; name: string }[];
+  };
   manage: boolean;
 }) {
   return (
-    <section className="rounded-3xl bg-white ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:ring-neutral-800">
+    <section className="overflow-hidden rounded-3xl bg-white ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:ring-neutral-800">
       <h2 className="border-b border-slate-100 px-5 py-3 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:border-neutral-800 dark:text-neutral-500">
         {title}
       </h2>
-      {tree.roots.length > 0 ? (
+      {data.roots.length > 0 ? (
         <ul className="divide-y divide-slate-50 dark:divide-neutral-800/60">
-          {tree.roots.map((c) => (
+          {data.roots.map((c) => (
             <li key={c.id}>
-              <Row c={c} manage={manage} />
-              {tree.childrenOf(c.id).map((ch) => (
-                <Row key={ch.id} c={ch} manage={manage} child />
+              <CategoryEditor
+                category={c}
+                parents={data.parentOptions.filter((p) => p.id !== c.id)}
+                manage={manage}
+              />
+              {data.childrenOf(c.id).map((ch) => (
+                <CategoryEditor
+                  key={ch.id}
+                  category={ch}
+                  parents={data.parentOptions.filter((p) => p.id !== ch.id)}
+                  manage={manage}
+                  child
+                />
               ))}
             </li>
           ))}
@@ -107,21 +130,5 @@ function CategoryColumn({
         <p className="px-5 py-4 text-sm text-slate-400">Нет статей.</p>
       )}
     </section>
-  );
-}
-
-function Row({ c, manage, child }: { c: Cat; manage: boolean; child?: boolean }) {
-  return (
-    <div
-      className={`flex items-center justify-between px-5 py-2.5 ${
-        child ? "pl-10" : ""
-      }`}
-    >
-      <span className="text-sm text-slate-700 dark:text-neutral-300">
-        {child && <span className="mr-2 text-slate-300">└</span>}
-        {c.name}
-      </span>
-      {manage && <ArchiveCategoryButton categoryId={c.id} archived={c.archived} />}
-    </div>
   );
 }
