@@ -101,6 +101,13 @@ export const IconEmployees = (p: P) => (
   </svg>
 );
 
+export const IconCalendar = (p: P) => (
+  <svg {...base} className={p.className}>
+    <rect x="3" y="4.5" width="18" height="16" rx="2.5" />
+    <path d="M3 9h18M8 3v3M16 3v3" />
+  </svg>
+);
+
 export const IconSettings = (p: P) => (
   <svg {...base} className={p.className}>
     <circle cx="12" cy="12" r="3" />
