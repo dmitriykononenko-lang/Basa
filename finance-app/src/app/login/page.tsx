@@ -25,6 +25,9 @@ export default function LoginPage() {
     setError(null);
     setMessage(null);
 
+    const next =
+      new URLSearchParams(window.location.search).get("next") || "/dashboard";
+
     try {
       if (mode === "signin") {
         const { error } = await supabase.auth.signInWithPassword({
@@ -32,7 +35,7 @@ export default function LoginPage() {
           password,
         });
         if (error) throw error;
-        router.push("/dashboard");
+        router.push(next);
         router.refresh();
       } else if (mode === "signup") {
         const { error } = await supabase.auth.signUp({
@@ -49,7 +52,7 @@ export default function LoginPage() {
         const { error } = await supabase.auth.signInWithOtp({
           email,
           options: {
-            emailRedirectTo: `${window.location.origin}/auth/callback`,
+            emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
           },
         });
         if (error) throw error;

@@ -4,6 +4,7 @@ import { getCurrentTeam, canManageTeam } from "@/lib/team";
 import { ROLE_LABELS, type AppRole } from "@/lib/types";
 import InviteForm from "@/components/InviteForm";
 import InviteRevoke from "@/components/InviteRow";
+import CopyInviteLink from "@/components/CopyInviteLink";
 import MemberRoleControls from "@/components/MemberRoleControls";
 
 export default async function TeamPage() {
@@ -60,6 +61,11 @@ export default async function TeamPage() {
       {manage && user && (
         <div className="mb-6">
           <InviteForm teamId={team.id} userId={user.id} />
+          <p className="mt-2 text-xs text-slate-400 dark:text-neutral-500">
+            После создания приглашения нажмите «Скопировать ссылку» ниже и отправьте
+            её коллеге. По ссылке он войдёт/зарегистрируется этим email и сразу
+            попадёт в команду. (Автописьма подключим позже.)
+          </p>
         </div>
       )}
 
@@ -135,7 +141,10 @@ export default async function TeamPage() {
                       {ROLE_LABELS[inv.role as AppRole]}
                     </td>
                     <td className="px-5 py-3 text-right">
-                      <InviteRevoke inviteId={inv.id} />
+                      <div className="flex items-center justify-end gap-2">
+                        <CopyInviteLink inviteId={inv.id} />
+                        <InviteRevoke inviteId={inv.id} />
+                      </div>
                     </td>
                   </tr>
                 ))}
