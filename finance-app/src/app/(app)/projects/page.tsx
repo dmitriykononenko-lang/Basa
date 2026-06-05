@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import AddProjectForm from "@/components/AddProjectForm";
@@ -44,9 +45,10 @@ export default async function ProjectsPage() {
       {items && items.length > 0 ? (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {items.map((p) => (
-            <div
+            <Link
               key={p.id}
-              className="rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:ring-neutral-800"
+              href={`/projects/${p.id}`}
+              className="rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 transition hover:ring-brand/40 dark:bg-neutral-900 dark:ring-neutral-800 dark:hover:ring-brand/50"
             >
               <div className="text-sm font-medium text-slate-800 dark:text-neutral-200">
                 {p.name}
@@ -54,7 +56,7 @@ export default async function ProjectsPage() {
               <div className="mt-1 text-xs text-slate-400 dark:text-neutral-500">
                 {p.status === "active" ? "Активный" : p.status}
               </div>
-            </div>
+            </Link>
           ))}
         </div>
       ) : (
