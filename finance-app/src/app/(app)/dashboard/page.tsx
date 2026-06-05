@@ -1,18 +1,14 @@
 import { createClient } from "@/lib/supabase/server";
 import CreateTeamForm from "@/components/CreateTeamForm";
-import { ROLE_LABELS, type AppRole } from "@/lib/types";
+import { ROLE_LABELS } from "@/lib/types";
 import { formatMoney } from "@/lib/format";
+import { getCurrentTeam } from "@/lib/team";
 
 export default async function DashboardPage() {
-  const supabase = await createClient();
-
-  const { data: memberships } = await supabase
-    .from("team_members")
-    .select("role, teams(id, name, base_currency)")
-    .order("created_at", { ascending: true });
+  const current = await getCurrentTeam();
 
   // Нет команды — показываем онбординг
-  if (!memberships || memberships.length === 0) {
+  if (!current) {
     return (
       <div className="flex min-h-screen items-center justify-center p-8">
         <CreateTeamForm />
@@ -20,18 +16,33 @@ export default async function DashboardPage() {
     );
   }
 
-  const current = memberships[0] as unknown as {
-    role: AppRole;
-    teams: { id: string; name: string; base_currency: string };
-  };
-  const team = current.teams;
+  const { team, role } = current;
+  const supabase = await createClient();
 
-  // Сводка по балансам счетов
   const { data: accounts } = await supabase
     .from("accounts")
     .select("id, name, currency")
     .eq("team_id", team.id)
-    .eq("archived", false);
+    .eq("archived", false)
+    .order("created_at", { ascending: true });
+
+  const { data: balances } = await supabase
+    .from("account_balances")
+    .select("account_id, currency, balance")
+    .eq("team_id", team.id);
+
+  const balanceMap = new Map(
+    (balances ?? []).map((b) => [b.account_id, b.balance])
+  );
+
+  // Суммарно по счетам в базовой валюте (без пересчёта курса — пока валюта к валюте)
+  const totalByCurrency = new Map<string, number>();
+  for (const b of balances ?? []) {
+    totalByCurrency.set(
+      b.currency,
+      (totalByCurrency.get(b.currency) ?? 0) + b.balance
+    );
+  }
 
   // Операции текущего месяца для дохода/расхода
   const monthStart = new Date();
@@ -40,7 +51,7 @@ export default async function DashboardPage() {
 
   const { data: monthTx } = await supabase
     .from("transactions")
-    .select("type, amount, currency")
+    .select("type, amount")
     .eq("team_id", team.id)
     .gte("occurred_on", monthStartStr);
 
@@ -53,13 +64,11 @@ export default async function DashboardPage() {
 
   return (
     <div className="p-8">
-      <header className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-slate-900">Дашборд</h1>
-          <p className="text-sm text-slate-500">
-            {team.name} · ваша роль: {ROLE_LABELS[current.role]}
-          </p>
-        </div>
+      <header className="mb-6">
+        <h1 className="text-2xl font-semibold text-slate-900">Дашборд</h1>
+        <p className="text-sm text-slate-500">
+          {team.name} · ваша роль: {ROLE_LABELS[role]}
+        </p>
       </header>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -76,26 +85,43 @@ export default async function DashboardPage() {
 
       <section className="mt-8">
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">
-          Счета
+          Деньги на счетах
         </h2>
         {accounts && accounts.length > 0 ? (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {accounts.map((a) => (
-              <div
-                key={a.id}
-                className="rounded-xl bg-white p-4 ring-1 ring-slate-200"
-              >
-                <div className="text-sm font-medium text-slate-800">
-                  {a.name}
+          <>
+            <div className="mb-3 flex flex-wrap gap-4">
+              {[...totalByCurrency.entries()].map(([cur, total]) => (
+                <div
+                  key={cur}
+                  className="rounded-xl bg-white px-5 py-3 ring-1 ring-slate-200"
+                >
+                  <div className="text-xs text-slate-400">Итого {cur}</div>
+                  <div className="text-lg font-semibold text-slate-900">
+                    {formatMoney(total, cur)}
+                  </div>
                 </div>
-                <div className="text-xs text-slate-400">{a.currency}</div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {accounts.map((a) => (
+                <div
+                  key={a.id}
+                  className="rounded-xl bg-white p-4 ring-1 ring-slate-200"
+                >
+                  <div className="text-sm font-medium text-slate-800">
+                    {a.name}
+                  </div>
+                  <div className="text-xs text-slate-400">{a.currency}</div>
+                  <div className="mt-2 text-lg font-semibold text-slate-900">
+                    {formatMoney(balanceMap.get(a.id) ?? 0, a.currency)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
         ) : (
           <p className="rounded-xl bg-white p-6 text-sm text-slate-500 ring-1 ring-slate-200">
-            Пока нет счетов. Скоро здесь появится возможность их добавить, и мы
-            покажем балансы.
+            Пока нет счетов. Добавьте их в разделе «Счета», чтобы видеть балансы.
           </p>
         )}
       </section>
