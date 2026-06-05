@@ -32,10 +32,10 @@ export default async function EmployeePage({
     .maybeSingle();
   if (!emp) notFound();
 
-  const [{ data: accruals }, { data: pays }, { data: fxRows }] = await Promise.all([
+  const [{ data: accruals }, { data: pays }, { data: fxRows }, { data: projects }] = await Promise.all([
     supabase
       .from("payroll_accruals")
-      .select("period_month, kind, amount, currency")
+      .select("period_month, kind, amount, currency, project:projects(name)")
       .eq("employee_id", id)
       .order("period_month", { ascending: false }),
     supabase
@@ -45,6 +45,7 @@ export default async function EmployeePage({
       .eq("employee_id", id)
       .eq("type", "expense"),
     supabase.from("fx_rates").select("currency, rate, rate_date").eq("team_id", team.id),
+    supabase.from("projects").select("id, name").eq("team_id", team.id).eq("archived", false).order("name"),
   ]);
 
   const rates = buildRateMap(fxRows ?? [], base);
@@ -57,15 +58,21 @@ export default async function EmployeePage({
     return m;
   }
 
+  const variableByProject = new Map<string, number>();
   let totalAccrued = 0;
   let totalPaid = 0;
   for (const a of accruals ?? []) {
     const ym = a.period_month.slice(0, 7);
     const v = toBase(a.amount, a.currency, rates);
     if (a.kind === "fixed") bucket(ym).fixed += v;
-    else bucket(ym).variable += v;
+    else {
+      bucket(ym).variable += v;
+      const proj = (a.project as unknown as { name: string } | null)?.name ?? "Без проекта";
+      variableByProject.set(proj, (variableByProject.get(proj) ?? 0) + v);
+    }
     totalAccrued += v;
   }
+  const projectRows = [...variableByProject.entries()].sort((a, b) => b[1] - a[1]);
   for (const p of pays ?? []) {
     const ym = p.occurred_on.slice(0, 7);
     const v = toBase(p.amount, p.currency, rates);
@@ -89,7 +96,12 @@ export default async function EmployeePage({
           </p>
         </div>
         {canEditFinance(role) && (
-          <AddAccrualForm teamId={team.id} employeeId={emp.id} defaultCurrency={emp.payout_currency} />
+          <AddAccrualForm
+            teamId={team.id}
+            employeeId={emp.id}
+            defaultCurrency={emp.payout_currency}
+            projects={projects ?? []}
+          />
         )}
       </header>
 
@@ -98,6 +110,28 @@ export default async function EmployeePage({
         <Kpi title="Выплачено" value={formatMoney(totalPaid, base)} />
         <Kpi title="Остаток к выплате" value={formatMoney(balance, base)} accent={balance > 0 ? "amber" : "emerald"} />
       </div>
+
+      {projectRows.length > 0 && (
+        <section className="mb-6">
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">
+            Переменная оплата по проектам
+          </h2>
+          <div className="overflow-hidden rounded-3xl bg-white ring-1 ring-slate-200/70 dark:bg-[#15171c] dark:ring-white/[0.07]">
+            <table className="w-full text-sm">
+              <tbody>
+                {projectRows.map(([name, val]) => (
+                  <tr key={name} className="border-b border-slate-50 last:border-0 dark:border-white/[0.05]">
+                    <td className="px-5 py-2.5 text-slate-700 dark:text-neutral-300">{name}</td>
+                    <td className="px-5 py-2.5 text-right font-medium text-slate-800 dark:text-neutral-200">
+                      {formatMoney(val, base)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">
         По месяцам

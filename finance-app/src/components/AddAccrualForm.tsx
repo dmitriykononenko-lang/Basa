@@ -10,10 +10,12 @@ export default function AddAccrualForm({
   teamId,
   employeeId,
   defaultCurrency,
+  projects = [],
 }: {
   teamId: string;
   employeeId: string;
   defaultCurrency: string;
+  projects?: { id: string; name: string }[];
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -24,6 +26,7 @@ export default function AddAccrualForm({
   const [kind, setKind] = useState<"fixed" | "variable">("fixed");
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState(defaultCurrency);
+  const [projectId, setProjectId] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -41,6 +44,7 @@ export default function AddAccrualForm({
       kind,
       amount: minor,
       currency,
+      project_id: projectId || null,
     });
     if (error) {
       setError(error.message);
@@ -48,6 +52,7 @@ export default function AddAccrualForm({
       return;
     }
     setAmount("");
+    setProjectId("");
     setOpen(false);
     setLoading(false);
     router.refresh();
@@ -74,6 +79,19 @@ export default function AddAccrualForm({
           <option value="variable">Переменная</option>
         </select>
       </div>
+      {projects.length > 0 && (
+        <div>
+          <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">
+            Проект {kind === "variable" ? "(за что)" : ""}
+          </label>
+          <select value={projectId} onChange={(e) => setProjectId(e.target.value)} className="input">
+            <option value="">— без проекта —</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
       <div>
         <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Сумма</label>
         <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" placeholder="0,00" className="input w-32" />
