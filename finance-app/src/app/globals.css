@@ -6,6 +6,33 @@
   color-scheme: light;
 }
 
+.dark {
+  color-scheme: dark;
+}
+
 body {
-  @apply bg-slate-50 text-slate-900 antialiased;
+  @apply bg-slate-200 text-slate-900 antialiased dark:bg-neutral-950 dark:text-neutral-100;
+}
+
+/* Поля ввода в стиле референса (мягкие, скруглённые) */
+.input {
+  @apply w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 outline-none transition
+    focus:border-brand focus:ring-2 focus:ring-brand/20
+    dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100;
+}
+
+/* Основная кнопка-пилюля */
+.btn-primary {
+  @apply inline-flex items-center justify-center rounded-full bg-brand px-5 py-2.5 text-sm font-semibold text-white
+    transition hover:bg-brand-dark disabled:opacity-60;
+}
+
+.btn-ghost {
+  @apply inline-flex items-center justify-center rounded-full px-4 py-2.5 text-sm font-medium text-slate-500
+    transition hover:bg-slate-100 dark:text-neutral-400 dark:hover:bg-neutral-800;
+}
+
+/* Карточка-поверхность */
+.surface {
+  @apply rounded-3xl bg-white ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:ring-neutral-800;
 }

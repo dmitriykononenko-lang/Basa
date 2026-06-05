@@ -6,14 +6,18 @@ export default function Placeholder({
   description: string;
 }) {
   return (
-    <div className="p-8">
-      <h1 className="text-2xl font-semibold text-slate-900">{title}</h1>
-      <div className="mt-6 rounded-xl bg-white p-8 text-center ring-1 ring-slate-200">
-        <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-brand/10 text-brand">
+    <div className="p-6 sm:p-8">
+      <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+        {title}
+      </h1>
+      <div className="mt-6 rounded-3xl bg-white p-10 text-center ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:ring-neutral-800">
+        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-accent/10 text-2xl text-accent">
           ⏳
         </div>
-        <p className="text-sm text-slate-500">{description}</p>
-        <p className="mt-1 text-xs text-slate-400">
+        <p className="mx-auto max-w-md text-sm text-slate-500 dark:text-neutral-400">
+          {description}
+        </p>
+        <p className="mt-1 text-xs text-slate-400 dark:text-neutral-600">
           Раздел в разработке — появится в ближайших обновлениях.
         </p>
       </div>

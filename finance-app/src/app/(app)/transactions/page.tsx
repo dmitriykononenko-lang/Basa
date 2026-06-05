@@ -82,14 +82,14 @@ export default async function TransactionsPage() {
   const writable = canWriteTx(role) && (accounts?.length ?? 0) > 0;
 
   return (
-    <div className="p-8">
-      <header className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-slate-900">Операции</h1>
-          <p className="text-sm text-slate-500">
-            Доходы, расходы и переводы команды «{team.name}»
-          </p>
-        </div>
+    <div className="p-6 sm:p-8">
+      <header className="mb-6">
+        <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+          Операции
+        </h1>
+        <p className="text-sm text-slate-500 dark:text-neutral-400">
+          Доходы, расходы и переводы команды «{team.name}»
+        </p>
       </header>
 
       {writable && user && (
@@ -112,10 +112,10 @@ export default async function TransactionsPage() {
       )}
 
       {rows.length > 0 ? (
-        <div className="overflow-hidden rounded-xl bg-white ring-1 ring-slate-200">
+        <div className="overflow-hidden rounded-3xl bg-white ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:ring-neutral-800">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-400">
+              <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wider text-slate-400 dark:border-neutral-800 dark:text-neutral-500">
                 <th className="px-5 py-3 font-medium">Дата</th>
                 <th className="px-5 py-3 font-medium">Описание</th>
                 <th className="px-5 py-3 font-medium">Счёт</th>
@@ -126,24 +126,24 @@ export default async function TransactionsPage() {
               {rows.map((t) => (
                 <tr
                   key={t.id}
-                  className="border-b border-slate-100 last:border-0"
+                  className="border-b border-slate-50 last:border-0 dark:border-neutral-800/60"
                 >
-                  <td className="whitespace-nowrap px-5 py-3 text-slate-500">
+                  <td className="whitespace-nowrap px-5 py-3 text-slate-500 dark:text-neutral-400">
                     {formatDate(t.occurred_on)}
                   </td>
                   <td className="px-5 py-3">
-                    <div className="font-medium text-slate-800">
+                    <div className="font-medium text-slate-800 dark:text-neutral-200">
                       {t.type === "transfer"
                         ? "Перевод"
                         : t.category?.name ?? "Без категории"}
                     </div>
-                    <div className="text-xs text-slate-400">
+                    <div className="text-xs text-slate-400 dark:text-neutral-500">
                       {[t.counterparty?.name, t.project?.name, t.note]
                         .filter(Boolean)
                         .join(" · ")}
                     </div>
                   </td>
-                  <td className="px-5 py-3 text-slate-500">
+                  <td className="px-5 py-3 text-slate-500 dark:text-neutral-400">
                     {t.type === "transfer"
                       ? `${t.account?.name} → ${t.to_account?.name}`
                       : t.account?.name}
@@ -151,10 +151,10 @@ export default async function TransactionsPage() {
                   <td
                     className={`whitespace-nowrap px-5 py-3 text-right font-semibold ${
                       t.type === "income"
-                        ? "text-emerald-600"
+                        ? "text-emerald-600 dark:text-emerald-400"
                         : t.type === "expense"
-                          ? "text-red-600"
-                          : "text-slate-600"
+                          ? "text-red-600 dark:text-red-400"
+                          : "text-slate-600 dark:text-neutral-300"
                     }`}
                   >
                     {t.type === "income" ? "+" : t.type === "expense" ? "−" : ""}
@@ -166,7 +166,7 @@ export default async function TransactionsPage() {
           </table>
         </div>
       ) : (
-        <p className="rounded-xl bg-white p-6 text-sm text-slate-500 ring-1 ring-slate-200">
+        <p className="rounded-3xl bg-white p-6 text-sm text-slate-500 ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:text-neutral-400 dark:ring-neutral-800">
           Операций пока нет.
         </p>
       )}

@@ -33,18 +33,20 @@ export default async function TeamPage() {
     .order("created_at", { ascending: true });
 
   return (
-    <div className="p-8">
+    <div className="p-6 sm:p-8">
       <header className="mb-6">
-        <h1 className="text-2xl font-semibold text-slate-900">Команда</h1>
-        <p className="text-sm text-slate-500">
+        <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+          Команда
+        </h1>
+        <p className="text-sm text-slate-500 dark:text-neutral-400">
           {team.name} · основная валюта {team.base_currency}
         </p>
       </header>
 
-      <div className="overflow-hidden rounded-xl bg-white ring-1 ring-slate-200">
+      <div className="overflow-hidden rounded-3xl bg-white ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:ring-neutral-800">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-400">
+            <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wider text-slate-400 dark:border-neutral-800 dark:text-neutral-500">
               <th className="px-5 py-3 font-medium">Участник</th>
               <th className="px-5 py-3 font-medium">Роль</th>
               <th className="px-5 py-3 font-medium">В команде с</th>
@@ -58,15 +60,15 @@ export default async function TeamPage() {
               return (
                 <tr
                   key={m.user_id}
-                  className="border-b border-slate-100 last:border-0"
+                  className="border-b border-slate-50 last:border-0 dark:border-neutral-800/60"
                 >
-                  <td className="px-5 py-3 font-medium text-slate-800">
+                  <td className="px-5 py-3 font-medium text-slate-800 dark:text-neutral-200">
                     {profile?.full_name ?? "—"}
                   </td>
-                  <td className="px-5 py-3 text-slate-600">
+                  <td className="px-5 py-3 text-slate-600 dark:text-neutral-400">
                     {ROLE_LABELS[m.role as AppRole]}
                   </td>
-                  <td className="px-5 py-3 text-slate-400">
+                  <td className="px-5 py-3 text-slate-400 dark:text-neutral-500">
                     {new Date(m.created_at).toLocaleDateString("ru-RU")}
                   </td>
                 </tr>
@@ -76,7 +78,7 @@ export default async function TeamPage() {
         </table>
       </div>
 
-      <p className="mt-4 text-xs text-slate-400">
+      <p className="mt-4 text-xs text-slate-400 dark:text-neutral-600">
         Приглашение участников по email и смена ролей появятся в следующем
         обновлении.
       </p>

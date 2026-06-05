@@ -2,42 +2,55 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import {
+  IconDashboard,
+  IconTransactions,
+  IconAccounts,
+  IconCounterparties,
+  IconProjects,
+  IconDebts,
+  IconBudgets,
+  IconReports,
+  IconTeam,
+} from "./icons";
 
-const NAV: { href: string; label: string; soon?: boolean }[] = [
-  { href: "/dashboard", label: "Дашборд" },
-  { href: "/transactions", label: "Операции" },
-  { href: "/accounts", label: "Счета" },
-  { href: "/counterparties", label: "Контрагенты" },
-  { href: "/projects", label: "Проекты" },
-  { href: "/debts", label: "Долги" },
-  { href: "/budgets", label: "Бюджеты" },
-  { href: "/reports", label: "Отчёты" },
-  { href: "/team", label: "Команда" },
+type Item = {
+  href: string;
+  label: string;
+  Icon: (p: { className?: string }) => JSX.Element;
+};
+
+const NAV: Item[] = [
+  { href: "/dashboard", label: "Дашборд", Icon: IconDashboard },
+  { href: "/transactions", label: "Операции", Icon: IconTransactions },
+  { href: "/accounts", label: "Счета", Icon: IconAccounts },
+  { href: "/counterparties", label: "Контрагенты", Icon: IconCounterparties },
+  { href: "/projects", label: "Проекты", Icon: IconProjects },
+  { href: "/debts", label: "Долги", Icon: IconDebts },
+  { href: "/budgets", label: "Бюджеты", Icon: IconBudgets },
+  { href: "/reports", label: "Отчёты", Icon: IconReports },
+  { href: "/team", label: "Команда", Icon: IconTeam },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <nav className="flex flex-1 flex-col gap-0.5 px-3">
-      {NAV.map((item) => {
-        const active = pathname === item.href || pathname.startsWith(item.href + "/");
+    <nav className="flex flex-1 flex-col gap-1 px-3">
+      {NAV.map(({ href, label, Icon }) => {
+        const active = pathname === href || pathname.startsWith(href + "/");
         return (
           <Link
-            key={item.href}
-            href={item.href}
-            className={`flex items-center justify-between rounded-lg px-3 py-2 text-sm font-medium transition ${
+            key={href}
+            href={href}
+            className={`flex items-center gap-3 rounded-2xl px-3.5 py-2.5 text-sm font-medium transition ${
               active
-                ? "bg-brand/10 text-brand"
-                : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                ? "bg-neutral-900 text-white dark:bg-neutral-800"
+                : "text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-neutral-400 dark:hover:bg-neutral-800/60 dark:hover:text-neutral-100"
             }`}
           >
-            <span>{item.label}</span>
-            {item.soon && (
-              <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-400">
-                скоро
-              </span>
-            )}
+            <Icon className="h-[18px] w-[18px] shrink-0" />
+            <span>{label}</span>
           </Link>
         );
       })}

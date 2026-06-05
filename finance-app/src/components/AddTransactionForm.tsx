@@ -99,10 +99,7 @@ export default function AddTransactionForm({
 
   if (!open) {
     return (
-      <button
-        onClick={() => setOpen(true)}
-        className="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-dark"
-      >
+      <button onClick={() => setOpen(true)} className="btn-primary">
         + Добавить операцию
       </button>
     );
@@ -117,18 +114,18 @@ export default function AddTransactionForm({
   return (
     <form
       onSubmit={handleSubmit}
-      className="space-y-4 rounded-xl bg-white p-5 ring-1 ring-slate-200"
+      className="space-y-4 rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:ring-neutral-800"
     >
-      <div className="grid grid-cols-3 gap-1 rounded-lg bg-slate-100 p-1 text-sm">
+      <div className="grid grid-cols-3 gap-1 rounded-full bg-slate-100 p-1 text-sm dark:bg-neutral-800">
         {TYPES.map(([t, label]) => (
           <button
             key={t}
             type="button"
             onClick={() => setType(t)}
-            className={`rounded-md px-2 py-1.5 font-medium transition ${
+            className={`rounded-full px-2 py-1.5 font-medium transition ${
               type === t
-                ? "bg-white text-brand shadow-sm"
-                : "text-slate-500 hover:text-slate-700"
+                ? "bg-white text-brand shadow-sm dark:bg-neutral-700 dark:text-white"
+                : "text-slate-500 hover:text-slate-700 dark:text-neutral-400"
             }`}
           >
             {label}
@@ -259,36 +256,17 @@ export default function AddTransactionForm({
       )}
 
       <div className="flex gap-2">
-        <button
-          type="submit"
-          disabled={loading}
-          className="rounded-lg bg-brand px-5 py-2 text-sm font-semibold text-white transition hover:bg-brand-dark disabled:opacity-60"
-        >
+        <button type="submit" disabled={loading} className="btn-primary">
           {loading ? "Сохраняем…" : "Сохранить"}
         </button>
         <button
           type="button"
           onClick={() => setOpen(false)}
-          className="rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100"
+          className="btn-ghost"
         >
           Отмена
         </button>
       </div>
-
-      <style jsx>{`
-        :global(.input) {
-          width: 100%;
-          border-radius: 0.5rem;
-          border: 1px solid rgb(203 213 225);
-          padding: 0.5rem 0.75rem;
-          font-size: 0.875rem;
-          outline: none;
-        }
-        :global(.input:focus) {
-          border-color: #2f6df6;
-          box-shadow: 0 0 0 1px #2f6df6;
-        }
-      `}</style>
     </form>
   );
 }
@@ -302,7 +280,7 @@ function Field({
 }) {
   return (
     <div>
-      <label className="mb-1 block text-xs font-medium text-slate-500">
+      <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">
         {label}
       </label>
       {children}

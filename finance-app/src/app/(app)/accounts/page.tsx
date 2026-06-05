@@ -37,11 +37,13 @@ export default async function AccountsPage() {
   );
 
   return (
-    <div className="p-8">
-      <header className="mb-6 flex items-center justify-between">
+    <div className="p-6 sm:p-8">
+      <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-900">Счета</h1>
-          <p className="text-sm text-slate-500">
+          <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+            Счета
+          </h1>
+          <p className="text-sm text-slate-500 dark:text-neutral-400">
             Кассы и счета команды «{team.name}»
           </p>
         </div>
@@ -55,19 +57,15 @@ export default async function AccountsPage() {
             return (
               <div
                 key={a.id}
-                className="rounded-xl bg-white p-5 ring-1 ring-slate-200"
+                className="rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:ring-neutral-800"
               >
-                <div className="flex items-start justify-between">
-                  <div>
-                    <div className="text-sm font-medium text-slate-800">
-                      {a.name}
-                    </div>
-                    <div className="text-xs text-slate-400">
-                      {ACCOUNT_KIND_LABELS[a.kind] ?? a.kind} · {a.currency}
-                    </div>
-                  </div>
+                <div className="text-sm font-medium text-slate-800 dark:text-neutral-200">
+                  {a.name}
                 </div>
-                <div className="mt-3 text-xl font-semibold text-slate-900">
+                <div className="text-xs text-slate-400 dark:text-neutral-500">
+                  {ACCOUNT_KIND_LABELS[a.kind] ?? a.kind} · {a.currency}
+                </div>
+                <div className="mt-3 text-xl font-bold text-slate-900 dark:text-white">
                   {formatMoney(balance, a.currency)}
                 </div>
               </div>
@@ -75,7 +73,7 @@ export default async function AccountsPage() {
           })}
         </div>
       ) : (
-        <p className="rounded-xl bg-white p-6 text-sm text-slate-500 ring-1 ring-slate-200">
+        <p className="rounded-3xl bg-white p-6 text-sm text-slate-500 ring-1 ring-slate-200/80 dark:bg-neutral-900 dark:text-neutral-400 dark:ring-neutral-800">
           Пока нет счетов.
           {canEditFinance(role)
             ? " Добавьте первый счёт кнопкой выше."
