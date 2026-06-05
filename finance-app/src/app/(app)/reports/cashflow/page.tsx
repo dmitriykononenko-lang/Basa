@@ -1,36 +1,22 @@
-import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam } from "@/lib/team";
 import { formatMoney } from "@/lib/format";
 import { buildRateMap, toBase } from "@/lib/fx";
-import { CF_ACTIVITY_LABELS } from "@/lib/constants";
+
+const MONTHS_RU = [
+  "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+  "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
+];
 
 type Tx = {
   type: "income" | "expense" | "transfer";
   amount: number;
   currency: string;
   occurred_on: string;
-  category: { name: string; cf_activity: string } | null;
+  category: { name: string } | null;
 };
 
-function periodStart(period: string): string {
-  const now = new Date();
-  if (period === "month") return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-  if (period === "quarter")
-    return new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1).toISOString().slice(0, 10);
-  return new Date(now.getFullYear(), 0, 1).toISOString().slice(0, 10);
-}
-
-const ACTIVITIES = ["operating", "investing", "financial"] as const;
-
-export default async function CashflowPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ period?: string }>;
-}) {
-  const { period: p } = await searchParams;
-  const period = p === "month" || p === "quarter" ? p : "year";
-
+export default async function CashflowPage() {
   const current = await getCurrentTeam();
   if (!current) {
     return (
@@ -48,150 +34,141 @@ export default async function CashflowPage({
   const { team } = current;
   const base = team.base_currency;
   const supabase = await createClient();
-  const start = periodStart(period);
+  const now = new Date();
+  const year = now.getFullYear();
+  const monthsCount = now.getMonth() + 1; // Январь..текущий месяц
+  const yearStart = `${year}-01-01`;
 
   const [{ data: txs }, { data: balances }, { data: fxRows }] = await Promise.all([
     supabase
       .from("transactions")
-      .select("type, amount, currency, occurred_on, category:categories(name, cf_activity)")
+      .select("type, amount, currency, occurred_on, category:categories(name)")
       .eq("team_id", team.id)
       .eq("status", "actual")
-      .gte("occurred_on", start),
+      .gte("occurred_on", yearStart),
     supabase.from("account_balances").select("balance, currency").eq("team_id", team.id),
     supabase.from("fx_rates").select("currency, rate, rate_date").eq("team_id", team.id),
   ]);
 
   const rates = buildRateMap(fxRows ?? [], base);
   const rows = (txs ?? []) as unknown as Tx[];
+  const months = Array.from({ length: monthsCount }, (_, i) => i); // индексы 0..
 
-  // Структура по видам деятельности
-  type Act = { inflow: number; outflow: number; items: Map<string, number> };
-  const acts: Record<string, Act> = {
-    operating: { inflow: 0, outflow: 0, items: new Map() },
-    investing: { inflow: 0, outflow: 0, items: new Map() },
-    financial: { inflow: 0, outflow: 0, items: new Map() },
-  };
+  const incomeM = new Array(monthsCount).fill(0);
+  const expenseM = new Array(monthsCount).fill(0);
+  const incomeCat = new Map<string, number[]>();
+  const expenseCat = new Map<string, number[]>();
 
-  let inflowTotal = 0;
-  let outflowTotal = 0;
+  function bump(map: Map<string, number[]>, name: string, mi: number, v: number) {
+    let arr = map.get(name);
+    if (!arr) { arr = new Array(monthsCount).fill(0); map.set(name, arr); }
+    arr[mi] += v;
+  }
+
   for (const t of rows) {
-    if (t.type === "transfer") continue; // переводы между своими счетами не меняют общий остаток
+    const mi = new Date(t.occurred_on).getMonth();
+    if (mi >= monthsCount) continue;
     const v = toBase(t.amount, t.currency, rates);
-    const act = t.category?.cf_activity ?? "operating";
-    const a = acts[act] ?? acts.operating;
-    const name = t.category?.name ?? (t.type === "income" ? "Прочие поступления" : "Прочие выбытия");
     if (t.type === "income") {
-      a.inflow += v;
-      inflowTotal += v;
-      a.items.set(name, (a.items.get(name) ?? 0) + v);
-    } else {
-      a.outflow += v;
-      outflowTotal += v;
-      a.items.set(name, (a.items.get(name) ?? 0) - v);
+      incomeM[mi] += v;
+      bump(incomeCat, t.category?.name ?? "Без статьи", mi, v);
+    } else if (t.type === "expense") {
+      expenseM[mi] += v;
+      bump(expenseCat, t.category?.name ?? "Без статьи", mi, v);
     }
   }
 
-  const netChange = inflowTotal - outflowTotal;
-  const closing = (balances ?? []).reduce((s, b) => s + toBase(b.balance, b.currency, rates), 0);
-  const opening = closing - netChange;
+  const saldoM = months.map((i) => incomeM[i] - expenseM[i]);
+  const netYTD = saldoM.reduce((s, x) => s + x, 0);
+  const currentBalance = (balances ?? []).reduce((s, b) => s + toBase(b.balance, b.currency, rates), 0);
+  const openingFirst = currentBalance - netYTD;
+  const opening = new Array(monthsCount).fill(0);
+  const closing = new Array(monthsCount).fill(0);
+  let run = openingFirst;
+  for (const i of months) {
+    opening[i] = run;
+    run += saldoM[i];
+    closing[i] = run;
+  }
 
-  const PERIODS: [string, string][] = [
-    ["month", "Месяц"],
-    ["quarter", "Квартал"],
-    ["year", "Год"],
-  ];
+  const incomeCats = [...incomeCat.entries()].sort((a, b) => b[1].reduce((s, x) => s + x, 0) - a[1].reduce((s, x) => s + x, 0));
+  const expenseCats = [...expenseCat.entries()].sort((a, b) => b[1].reduce((s, x) => s + x, 0) - a[1].reduce((s, x) => s + x, 0));
+
+  const cell = "whitespace-nowrap px-4 py-2.5 text-right tabular-nums";
 
   return (
     <div className="p-6 sm:p-8">
-      <header className="mb-6">
+      <header className="mb-5">
         <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
           Движение денежных средств
         </h1>
         <p className="text-sm text-slate-500 dark:text-neutral-400">
-          На что компания тратит и откуда получает деньги ({base})
+          По месяцам, {year} год · в {base} (только фактические операции)
         </p>
       </header>
 
-      <div className="mb-6 inline-flex gap-1 rounded-full bg-slate-100 p-1 text-sm dark:bg-neutral-800">
-        {PERIODS.map(([val, label]) => (
-          <Link
-            key={val}
-            href={`/reports/cashflow?period=${val}`}
-            className={`rounded-full px-4 py-1.5 font-medium transition ${
-              period === val
-                ? "bg-white text-brand shadow-sm dark:bg-neutral-700 dark:text-white"
-                : "text-slate-500 hover:text-slate-700 dark:text-neutral-400"
-            }`}
-          >
-            {label}
-          </Link>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Kpi title="Остаток на начало" value={formatMoney(opening, base)} accent="slate" />
-        <Kpi title="Поступления" value={formatMoney(inflowTotal, base)} accent="emerald" />
-        <Kpi title="Выбытия" value={formatMoney(outflowTotal, base)} accent="red" />
-        <Kpi title="Остаток на конец" value={formatMoney(closing, base)} accent="brand" />
-      </div>
-
-      <div className="mt-6 space-y-4">
-        {ACTIVITIES.map((key) => {
-          const a = acts[key];
-          const net = a.inflow - a.outflow;
-          const items = [...a.items.entries()].sort((x, y) => Math.abs(y[1]) - Math.abs(x[1]));
-          if (a.inflow === 0 && a.outflow === 0) return null;
-          return (
-            <section
-              key={key}
-              className="rounded-3xl bg-white p-6 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]"
-            >
-              <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-slate-800 dark:text-neutral-200">
-                  {CF_ACTIVITY_LABELS[key]} деятельность
-                </h2>
-                <span className={`text-sm font-bold ${net < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}>
-                  {(net < 0 ? "−" : "+") + formatMoney(Math.abs(net), base)}
-                </span>
-              </div>
-              <ul className="space-y-1.5 text-sm">
-                {items.map(([name, val]) => (
-                  <li key={name} className="flex justify-between">
-                    <span className="text-slate-600 dark:text-neutral-400">{name}</span>
-                    <span className={`font-medium ${val < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}>
-                      {(val < 0 ? "−" : "+") + formatMoney(Math.abs(val), base)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          );
-        })}
-      </div>
-
-      <div className="mt-6 rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
-        <div className="flex items-center justify-between text-sm font-semibold text-slate-800 dark:text-neutral-200">
-          <span>Чистый денежный поток за период</span>
-          <span className={netChange < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}>
-            {(netChange < 0 ? "−" : "+") + formatMoney(Math.abs(netChange), base)}
-          </span>
-        </div>
+      <div className="overflow-x-auto rounded-3xl bg-white ring-1 ring-slate-200/70 dark:bg-[#15171c] dark:ring-white/[0.07]">
+        <table className="w-full min-w-[700px] text-sm">
+          <thead>
+            <tr className="border-b border-slate-100 text-xs uppercase tracking-wider text-slate-400 dark:border-white/[0.07] dark:text-neutral-500">
+              <th className="sticky left-0 bg-white px-5 py-3 text-left font-medium dark:bg-[#15171c]">Статья</th>
+              {months.map((i) => (
+                <th key={i} className="px-4 py-3 text-right font-medium">{MONTHS_RU[i]}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            <Row label="Деньги на начало периода" values={opening} muted cellCls={cell} base={base} sticky />
+            <Row label="Поступления" values={incomeM} bold accent="emerald" cellCls={cell} base={base} sticky />
+            {incomeCats.map(([name, arr]) => (
+              <Row key={"i" + name} label={name} values={arr} sub cellCls={cell} base={base} sticky />
+            ))}
+            <Row label="Выплаты" values={expenseM.map((x) => -x)} bold accent="red" cellCls={cell} base={base} sticky />
+            {expenseCats.map(([name, arr]) => (
+              <Row key={"e" + name} label={name} values={arr.map((x) => -x)} sub cellCls={cell} base={base} sticky />
+            ))}
+            <Row label="Переводы между счетами" values={months.map(() => 0)} muted cellCls={cell} base={base} sticky />
+            <Row label="Сальдо" values={saldoM} bold signed cellCls={cell} base={base} sticky />
+            <Row label="Деньги на конец периода" values={closing} bold muted cellCls={cell} base={base} sticky />
+          </tbody>
+        </table>
       </div>
     </div>
   );
 }
 
-function Kpi({ title, value, accent }: { title: string; value: string; accent: "emerald" | "red" | "brand" | "slate" }) {
-  const map = {
-    emerald: "text-emerald-600 dark:text-emerald-400",
-    red: "text-red-600 dark:text-red-400",
-    brand: "text-brand",
-    slate: "text-slate-700 dark:text-neutral-200",
-  };
+function Row({
+  label, values, bold, sub, muted, accent, signed, cellCls, base, sticky,
+}: {
+  label: string;
+  values: number[];
+  bold?: boolean;
+  sub?: boolean;
+  muted?: boolean;
+  accent?: "emerald" | "red";
+  signed?: boolean;
+  cellCls: string;
+  base: string;
+  sticky?: boolean;
+}) {
+  const labelColor = muted ? "text-slate-400 dark:text-neutral-500" : "text-slate-800 dark:text-neutral-200";
+  function color(v: number) {
+    if (signed) return v < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400";
+    if (accent === "emerald") return "text-emerald-600 dark:text-emerald-400";
+    if (accent === "red") return "text-red-600 dark:text-red-400";
+    if (muted) return "text-slate-400 dark:text-neutral-500";
+    return "text-slate-600 dark:text-neutral-400";
+  }
   return (
-    <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
-      <div className="text-sm text-slate-500 dark:text-neutral-400">{title}</div>
-      <div className={`mt-2 text-lg font-bold ${map[accent]}`}>{value}</div>
-    </div>
+    <tr className="border-b border-slate-50 last:border-0 dark:border-white/[0.04]">
+      <td className={`${sticky ? "sticky left-0 bg-white dark:bg-[#15171c]" : ""} px-5 py-2.5 ${sub ? "pl-10 text-slate-500 dark:text-neutral-400" : `font-medium ${labelColor}`} ${bold ? "font-semibold" : ""}`}>
+        {label}
+      </td>
+      {values.map((v, i) => (
+        <td key={i} className={`${cellCls} ${bold ? "font-semibold" : ""} ${color(v)}`}>
+          {v === 0 ? "—" : formatMoney(v, base)}
+        </td>
+      ))}
+    </tr>
   );
 }
