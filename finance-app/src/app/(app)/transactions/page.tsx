@@ -72,6 +72,21 @@ export default async function TransactionsPage() {
   const writable = canWriteTx(role) && (accounts?.length ?? 0) > 0;
   const cats = (categories ?? []) as { id: string; name: string; kind: "income" | "expense" }[];
 
+  // Вложения по операциям
+  const txIds = rows.map((r) => r.id);
+  const { data: atts } = txIds.length
+    ? await supabase
+        .from("attachments")
+        .select("id, transaction_id, storage_path, file_name")
+        .in("transaction_id", txIds)
+    : { data: [] };
+  const attByTx = new Map<string, { id: string; storage_path: string; file_name: string }[]>();
+  for (const a of atts ?? []) {
+    const arr = attByTx.get(a.transaction_id) ?? [];
+    arr.push({ id: a.id, storage_path: a.storage_path, file_name: a.file_name });
+    attByTx.set(a.transaction_id, arr);
+  }
+
   return (
     <div className="p-6 sm:p-8">
       <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
@@ -154,6 +169,9 @@ export default async function TransactionsPage() {
                     key={t.id}
                     tx={data}
                     editable={editable}
+                    teamId={team.id}
+                    userId={user?.id ?? ""}
+                    attachments={attByTx.get(t.id) ?? []}
                     accounts={accounts ?? []}
                     categories={cats}
                     counterparties={counterparties ?? []}

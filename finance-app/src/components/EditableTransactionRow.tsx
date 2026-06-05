@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { formatMoney, formatDate, parseMoney } from "@/lib/format";
+import Attachments, { type Attachment } from "@/components/Attachments";
 
 type Account = { id: string; name: string; currency: string };
 type Named = { id: string; name: string };
@@ -31,6 +32,9 @@ export type TxData = {
 export default function EditableTransactionRow({
   tx,
   editable,
+  teamId,
+  userId,
+  attachments,
   accounts,
   categories,
   counterparties,
@@ -38,6 +42,9 @@ export default function EditableTransactionRow({
 }: {
   tx: TxData;
   editable: boolean;
+  teamId: string;
+  userId: string;
+  attachments: Attachment[];
   accounts: Account[];
   categories: Category[];
   counterparties: Named[];
@@ -125,6 +132,9 @@ export default function EditableTransactionRow({
           </div>
           <div className="text-xs text-slate-400 dark:text-neutral-500">
             {[tx.counterpartyName, tx.projectName, tx.note].filter(Boolean).join(" · ")}
+            {attachments.length > 0 && (
+              <span className="ml-1 text-slate-400">📎 {attachments.length}</span>
+            )}
           </div>
         </td>
         <td className="px-5 py-3 text-slate-500 dark:text-neutral-400">
@@ -206,6 +216,15 @@ export default function EditableTransactionRow({
             <Field label="Комментарий">
               <input value={note} onChange={(e) => setNote(e.target.value)} className="input" />
             </Field>
+          </div>
+          <div className="col-span-2 sm:col-span-3 lg:col-span-6">
+            <Attachments
+              teamId={teamId}
+              transactionId={tx.id}
+              userId={userId}
+              items={attachments}
+              canEdit={editable}
+            />
           </div>
         </div>
         {error && <p className="mt-2 text-sm text-red-600">{error}</p>}

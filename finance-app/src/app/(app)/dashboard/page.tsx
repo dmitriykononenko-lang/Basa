@@ -122,6 +122,38 @@ export default async function DashboardPage() {
     overdueAmount += toBase(o.outstanding, o.currency, rates);
   }
 
+  // Превышенные бюджеты
+  const yearStart = new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10);
+  const [{ data: budgets }, { data: yearExp }] = await Promise.all([
+    supabase
+      .from("budgets")
+      .select("amount, period, period_start, category_id")
+      .eq("team_id", team.id),
+    supabase
+      .from("transactions")
+      .select("category_id, amount, currency, occurred_on")
+      .eq("team_id", team.id)
+      .eq("type", "expense")
+      .gte("occurred_on", yearStart),
+  ]);
+
+  let overBudgets = 0;
+  for (const b of budgets ?? []) {
+    const start = b.period_start;
+    const end = new Date(b.period_start);
+    if (b.period === "year") end.setFullYear(end.getFullYear() + 1);
+    else if (b.period === "quarter") end.setMonth(end.getMonth() + 3);
+    else end.setMonth(end.getMonth() + 1);
+    const endStr = end.toISOString().slice(0, 10);
+    let spent = 0;
+    for (const t of yearExp ?? []) {
+      if (t.category_id === b.category_id && t.occurred_on >= start && t.occurred_on < endStr) {
+        spent += toBase(t.amount, t.currency, rates);
+      }
+    }
+    if (spent > b.amount) overBudgets++;
+  }
+
   return (
     <div className="p-6 sm:p-8">
       {InvitesBlock}
@@ -136,6 +168,19 @@ export default async function DashboardPage() {
           </span>
           <span className="text-sm font-medium text-amber-700 dark:text-amber-300">
             Открыть долги →
+          </span>
+        </Link>
+      )}
+      {overBudgets > 0 && (
+        <Link
+          href="/budgets"
+          className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-3xl bg-red-50 px-5 py-4 ring-1 ring-red-200 transition hover:ring-red-300 dark:bg-red-950/30 dark:ring-red-900/40"
+        >
+          <span className="text-sm text-red-800 dark:text-red-200">
+            🚨 Превышено бюджетов: <b>{overBudgets}</b>
+          </span>
+          <span className="text-sm font-medium text-red-700 dark:text-red-300">
+            Открыть бюджеты →
           </span>
         </Link>
       )}
