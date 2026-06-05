@@ -25,45 +25,42 @@ export default async function EmployeesPage() {
   const base = team.base_currency;
   const supabase = await createClient();
 
-  const [{ data: employees }, { data: accruals }, { data: pays }, { data: fxRows }] =
-    await Promise.all([
-      supabase
-        .from("employees")
-        .select("id, name, employment_type, status, payout_currency, start_date")
-        .eq("team_id", team.id)
-        .order("created_at", { ascending: true }),
-      supabase
-        .from("payroll_accruals")
-        .select("employee_id, kind, amount, currency")
-        .eq("team_id", team.id),
-      supabase
-        .from("transactions")
-        .select("employee_id, amount, currency, pay_part")
-        .eq("team_id", team.id)
-        .eq("type", "expense")
-        .not("employee_id", "is", null),
-      supabase.from("fx_rates").select("currency, rate, rate_date").eq("team_id", team.id),
-    ]);
+  const [{ data: employees }, { data: balances }, { data: fxRows }] = await Promise.all([
+    supabase
+      .from("counterparties")
+      .select("id, name, employment_type, payout_currency")
+      .eq("team_id", team.id)
+      .eq("kind", "employee")
+      .eq("archived", false)
+      .order("name"),
+    supabase
+      .from("obligation_balances")
+      .select("counterparty_id, amount, paid, outstanding, currency")
+      .eq("team_id", team.id)
+      .eq("type", "payable"),
+    supabase.from("fx_rates").select("currency, rate, rate_date").eq("team_id", team.id),
+  ]);
 
   const rates = buildRateMap(fxRows ?? [], base);
 
   const accruedBy = new Map<string, number>();
-  for (const a of accruals ?? []) {
-    accruedBy.set(a.employee_id, (accruedBy.get(a.employee_id) ?? 0) + toBase(a.amount, a.currency, rates));
-  }
   const paidBy = new Map<string, number>();
+  const outBy = new Map<string, number>();
   let paidUSDT = 0;
-  for (const p of pays ?? []) {
-    if (!p.employee_id) continue;
-    paidBy.set(p.employee_id, (paidBy.get(p.employee_id) ?? 0) + toBase(p.amount, p.currency, rates));
-    if (p.currency === "USDT") paidUSDT += p.amount;
+  for (const o of balances ?? []) {
+    if (!o.counterparty_id) continue;
+    accruedBy.set(o.counterparty_id, (accruedBy.get(o.counterparty_id) ?? 0) + toBase(o.amount, o.currency, rates));
+    paidBy.set(o.counterparty_id, (paidBy.get(o.counterparty_id) ?? 0) + toBase(o.paid, o.currency, rates));
+    outBy.set(o.counterparty_id, (outBy.get(o.counterparty_id) ?? 0) + toBase(o.outstanding, o.currency, rates));
+    if (o.currency === "USDT") paidUSDT += o.paid;
   }
 
-  const rows = (employees ?? []).map((e) => {
-    const accrued = accruedBy.get(e.id) ?? 0;
-    const paid = paidBy.get(e.id) ?? 0;
-    return { ...e, accrued, paid, balance: accrued - paid };
-  });
+  const rows = (employees ?? []).map((e) => ({
+    ...e,
+    accrued: accruedBy.get(e.id) ?? 0,
+    paid: paidBy.get(e.id) ?? 0,
+    balance: outBy.get(e.id) ?? 0,
+  }));
 
   const totalAccrued = rows.reduce((s, r) => s + r.accrued, 0);
   const totalPaid = rows.reduce((s, r) => s + r.paid, 0);
@@ -76,7 +73,7 @@ export default async function EmployeesPage() {
             Сотрудники
           </h1>
           <p className="text-sm text-slate-500 dark:text-neutral-400">
-            Начислено, выплачено и остаток к выплате
+            Тип контрагента «Сотрудник» · начислено / выплачено / остаток
           </p>
         </div>
         {canEditFinance(role) && <AddEmployeeForm teamId={team.id} />}
@@ -89,7 +86,7 @@ export default async function EmployeesPage() {
       </div>
 
       {rows.length > 0 ? (
-        <div className="overflow-hidden rounded-3xl bg-white ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
+        <div className="overflow-hidden rounded-3xl bg-white ring-1 ring-slate-200/70 dark:bg-[#15171c] dark:ring-white/[0.07]">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wider text-slate-400 dark:border-white/[0.07] dark:text-neutral-500">
@@ -104,12 +101,12 @@ export default async function EmployeesPage() {
               {rows.map((e) => (
                 <tr key={e.id} className="border-b border-slate-50 last:border-0 dark:border-white/[0.05]">
                   <td className="px-5 py-3 font-medium">
-                    <Link href={`/employees/${e.id}`} className="text-slate-800 hover:text-brand dark:text-neutral-200">
+                    <Link href={`/employees/${e.id}`} className="break-words text-slate-800 hover:text-brand dark:text-neutral-200">
                       {e.name}
                     </Link>
                   </td>
                   <td className="px-5 py-3 text-slate-500 dark:text-neutral-400">
-                    {EMPLOYMENT_TYPE_LABELS[e.employment_type] ?? e.employment_type}
+                    {e.employment_type ? EMPLOYMENT_TYPE_LABELS[e.employment_type] ?? e.employment_type : "—"}
                   </td>
                   <td className="px-5 py-3 text-right text-slate-700 dark:text-neutral-300">{formatMoney(e.accrued, base)}</td>
                   <td className="px-5 py-3 text-right text-slate-700 dark:text-neutral-300">{formatMoney(e.paid, base)}</td>
@@ -122,7 +119,7 @@ export default async function EmployeesPage() {
           </table>
         </div>
       ) : (
-        <p className="rounded-3xl bg-white p-6 text-sm text-slate-500 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:text-neutral-400 dark:ring-white/[0.07]">
+        <p className="rounded-3xl bg-white p-6 text-sm text-slate-500 ring-1 ring-slate-200/70 dark:bg-[#15171c] dark:text-neutral-400 dark:ring-white/[0.07]">
           Пока нет сотрудников.
           {canEditFinance(role) ? " Добавьте первого кнопкой выше." : " Их может добавить владелец или менеджер."}
         </p>
@@ -133,7 +130,7 @@ export default async function EmployeesPage() {
 
 function Kpi({ title, value }: { title: string; value: string }) {
   return (
-    <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
+    <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200/70 dark:bg-[#15171c] dark:ring-white/[0.07]">
       <div className="text-sm text-slate-500 dark:text-neutral-400">{title}</div>
       <div className="mt-2 text-lg font-bold text-slate-900 dark:text-white">{value}</div>
     </div>

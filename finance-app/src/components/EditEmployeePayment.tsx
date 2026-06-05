@@ -23,7 +23,7 @@ export default function EditEmployeePayment({
     setError(null);
     const supabase = createClient();
     const { error } = await supabase
-      .from("employees")
+      .from("counterparties")
       .update({
         payment_method: value.payment_method,
         legal_status: value.legal_status || null,

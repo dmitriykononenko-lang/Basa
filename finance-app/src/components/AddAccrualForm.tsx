@@ -37,14 +37,18 @@ export default function AddAccrualForm({
     if (minor <= 0) return setError("Введите сумму больше нуля");
     setLoading(true);
     const supabase = createClient();
-    const { error } = await supabase.from("payroll_accruals").insert({
+    const { error } = await supabase.from("obligations").insert({
       team_id: teamId,
-      employee_id: employeeId,
-      period_month: `${month}-01`,
-      kind,
+      counterparty_id: employeeId,
+      type: "payable",
       amount: minor,
       currency,
       project_id: projectId || null,
+      due_date: `${month}-01`,
+      period_month: `${month}-01`,
+      pay_part: kind,
+      status: "open",
+      note: "Начисление ЗП",
     });
     if (error) {
       setError(error.message);

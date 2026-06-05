@@ -8,12 +8,25 @@ import { EMPLOYMENT_TYPE_LABELS } from "@/lib/constants";
 import AddAccrualForm from "@/components/AddAccrualForm";
 import CopyField from "@/components/CopyField";
 import EditEmployeePayment from "@/components/EditEmployeePayment";
+import PayObligationButton from "@/components/PayObligationButton";
 
 const MONTHS_RU = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
 function monthLabel(ym: string) {
   const [y, m] = ym.split("-");
   return `${MONTHS_RU[parseInt(m) - 1]} ${y}`;
 }
+
+type Bal = {
+  id: string;
+  amount: number;
+  paid: number;
+  outstanding: number;
+  currency: string;
+  project_id: string | null;
+  pay_part: "fixed" | "variable" | null;
+  period_month: string | null;
+  due_date: string | null;
+};
 
 export default async function EmployeePage({
   params,
@@ -26,64 +39,55 @@ export default async function EmployeePage({
   const { team, role } = current;
   const base = team.base_currency;
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
 
   const { data: emp } = await supabase
-    .from("employees")
-    .select("id, name, employment_type, start_date, payout_currency, status, note, payment_method, legal_status, payee_name, inn, bank_account, bank_name, bik, wallet_address, wallet_network")
+    .from("counterparties")
+    .select("id, name, kind, employment_type, start_date, payout_currency, payment_method, legal_status, payee_name, inn, bank_account, bank_name, bik, wallet_address, wallet_network")
     .eq("id", id)
     .maybeSingle();
   if (!emp) notFound();
 
-  const [{ data: accruals }, { data: pays }, { data: fxRows }, { data: projects }] = await Promise.all([
+  const [{ data: bals }, { data: projects }] = await Promise.all([
     supabase
-      .from("payroll_accruals")
-      .select("period_month, kind, amount, currency, project:projects(name)")
-      .eq("employee_id", id)
-      .order("period_month", { ascending: false }),
-    supabase
-      .from("transactions")
-      .select("amount, currency, occurred_on, pay_part")
+      .from("obligation_balances")
+      .select("id, amount, paid, outstanding, currency, project_id, pay_part, period_month, due_date")
       .eq("team_id", team.id)
-      .eq("employee_id", id)
-      .eq("type", "expense"),
-    supabase.from("fx_rates").select("currency, rate, rate_date").eq("team_id", team.id),
-    supabase.from("projects").select("id, name").eq("team_id", team.id).eq("archived", false).order("name"),
+      .eq("type", "payable")
+      .eq("counterparty_id", id),
+    supabase.from("projects").select("id, name").eq("team_id", team.id).order("name"),
   ]);
 
-  const rates = buildRateMap(fxRows ?? [], base);
+  const rates = buildRateMap([], base); // курсы не критичны на карточке; суммы в валюте обязательства
+  const projName = new Map((projects ?? []).map((p) => [p.id, p.name]));
+  const rows = (bals ?? []) as unknown as Bal[];
 
+  let totalAccrued = 0, totalPaid = 0, totalOut = 0;
   type M = { fixed: number; variable: number; paid: number };
   const byMonth = new Map<string, M>();
-  function bucket(ym: string): M {
-    let m = byMonth.get(ym);
-    if (!m) { m = { fixed: 0, variable: 0, paid: 0 }; byMonth.set(ym, m); }
-    return m;
-  }
-
   const variableByProject = new Map<string, number>();
-  let totalAccrued = 0;
-  let totalPaid = 0;
-  for (const a of accruals ?? []) {
-    const ym = a.period_month.slice(0, 7);
-    const v = toBase(a.amount, a.currency, rates);
-    if (a.kind === "fixed") bucket(ym).fixed += v;
-    else {
-      bucket(ym).variable += v;
-      const proj = (a.project as unknown as { name: string } | null)?.name ?? "Без проекта";
-      variableByProject.set(proj, (variableByProject.get(proj) ?? 0) + v);
-    }
+
+  for (const o of rows) {
+    const v = toBase(o.amount, o.currency, rates);
     totalAccrued += v;
-  }
-  const projectRows = [...variableByProject.entries()].sort((a, b) => b[1] - a[1]);
-  for (const p of pays ?? []) {
-    const ym = p.occurred_on.slice(0, 7);
-    const v = toBase(p.amount, p.currency, rates);
-    bucket(ym).paid += v;
-    totalPaid += v;
+    totalPaid += toBase(o.paid, o.currency, rates);
+    totalOut += toBase(o.outstanding, o.currency, rates);
+    const ym = (o.period_month ?? o.due_date ?? "").slice(0, 7) || "—";
+    const m = byMonth.get(ym) ?? { fixed: 0, variable: 0, paid: 0 };
+    if (o.pay_part === "variable") {
+      m.variable += v;
+      const pn = o.project_id ? projName.get(o.project_id) ?? "Проект" : "Без проекта";
+      variableByProject.set(pn, (variableByProject.get(pn) ?? 0) + v);
+    } else {
+      m.fixed += v;
+    }
+    m.paid += toBase(o.paid, o.currency, rates);
+    byMonth.set(ym, m);
   }
 
-  const months = [...byMonth.keys()].sort().reverse();
-  const balance = totalAccrued - totalPaid;
+  const months = [...byMonth.keys()].filter((x) => x !== "—").sort().reverse();
+  const projectRows = [...variableByProject.entries()].sort((a, b) => b[1] - a[1]);
+  const manage = canEditFinance(role);
 
   return (
     <div className="p-6 sm:p-8">
@@ -92,16 +96,16 @@ export default async function EmployeePage({
         <div>
           <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">{emp.name}</h1>
           <p className="text-sm text-slate-500 dark:text-neutral-400">
-            {EMPLOYMENT_TYPE_LABELS[emp.employment_type] ?? emp.employment_type}
+            {emp.employment_type ? EMPLOYMENT_TYPE_LABELS[emp.employment_type] ?? emp.employment_type : "Сотрудник"}
             {emp.start_date && ` · с ${formatDate(emp.start_date)}`}
-            {` · выплаты в ${emp.payout_currency}`}
+            {emp.payout_currency && ` · выплаты в ${emp.payout_currency}`}
           </p>
         </div>
-        {canEditFinance(role) && (
+        {manage && (
           <AddAccrualForm
             teamId={team.id}
             employeeId={emp.id}
-            defaultCurrency={emp.payout_currency}
+            defaultCurrency={emp.payout_currency ?? base}
             projects={projects ?? []}
           />
         )}
@@ -110,15 +114,16 @@ export default async function EmployeePage({
       <div className="mb-6 grid grid-cols-3 gap-3">
         <Kpi title="Начислено" value={formatMoney(totalAccrued, base)} />
         <Kpi title="Выплачено" value={formatMoney(totalPaid, base)} />
-        <Kpi title="Остаток к выплате" value={formatMoney(balance, base)} accent={balance > 0 ? "amber" : "emerald"} />
+        <Kpi title="Остаток к выплате" value={formatMoney(totalOut, base)} accent={totalOut > 0 ? "amber" : "emerald"} />
       </div>
 
+      {/* Реквизиты */}
       <section className="mb-6 rounded-3xl bg-white p-6 ring-1 ring-slate-200/70 dark:bg-[#15171c] dark:ring-white/[0.07]">
         <div className="flex items-center justify-between">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">
             Платёжные реквизиты
           </h2>
-          {canEditFinance(role) && (
+          {manage && (
             <EditEmployeePayment
               employeeId={emp.id}
               initial={{
@@ -157,10 +162,11 @@ export default async function EmployeePage({
         </div>
       </section>
 
+      {/* Переменная по проектам */}
       {projectRows.length > 0 && (
         <section className="mb-6">
           <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">
-            Переменная оплата по проектам
+            Переменная оплата по проектам (начислено)
           </h2>
           <div className="overflow-hidden rounded-3xl bg-white ring-1 ring-slate-200/70 dark:bg-[#15171c] dark:ring-white/[0.07]">
             <table className="w-full text-sm">
@@ -168,9 +174,7 @@ export default async function EmployeePage({
                 {projectRows.map(([name, val]) => (
                   <tr key={name} className="border-b border-slate-50 last:border-0 dark:border-white/[0.05]">
                     <td className="px-5 py-2.5 text-slate-700 dark:text-neutral-300">{name}</td>
-                    <td className="px-5 py-2.5 text-right font-medium text-slate-800 dark:text-neutral-200">
-                      {formatMoney(val, base)}
-                    </td>
+                    <td className="px-5 py-2.5 text-right font-medium text-slate-800 dark:text-neutral-200">{formatMoney(val, base)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -179,11 +183,12 @@ export default async function EmployeePage({
         </section>
       )}
 
+      {/* По месяцам */}
       <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">
         По месяцам
       </h2>
       {months.length > 0 ? (
-        <div className="overflow-hidden rounded-3xl bg-white ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
+        <div className="mb-6 overflow-hidden rounded-3xl bg-white ring-1 ring-slate-200/70 dark:bg-[#15171c] dark:ring-white/[0.07]">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wider text-slate-400 dark:border-white/[0.07] dark:text-neutral-500">
@@ -191,22 +196,17 @@ export default async function EmployeePage({
                 <th className="px-5 py-3 text-right font-medium">Фикс. начислено</th>
                 <th className="px-5 py-3 text-right font-medium">Перем. начислено</th>
                 <th className="px-5 py-3 text-right font-medium">Выплачено</th>
-                <th className="px-5 py-3 text-right font-medium">Δ месяца</th>
               </tr>
             </thead>
             <tbody>
               {months.map((ym) => {
                 const m = byMonth.get(ym)!;
-                const delta = m.fixed + m.variable - m.paid;
                 return (
                   <tr key={ym} className="border-b border-slate-50 last:border-0 dark:border-white/[0.05]">
                     <td className="px-5 py-3 font-medium text-slate-800 dark:text-neutral-200">{monthLabel(ym)}</td>
                     <td className="px-5 py-3 text-right text-slate-600 dark:text-neutral-400">{formatMoney(m.fixed, base)}</td>
                     <td className="px-5 py-3 text-right text-slate-600 dark:text-neutral-400">{formatMoney(m.variable, base)}</td>
                     <td className="px-5 py-3 text-right text-slate-600 dark:text-neutral-400">{formatMoney(m.paid, base)}</td>
-                    <td className={`px-5 py-3 text-right font-semibold ${delta > 0 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400"}`}>
-                      {formatMoney(delta, base)}
-                    </td>
                   </tr>
                 );
               })}
@@ -214,10 +214,49 @@ export default async function EmployeePage({
           </table>
         </div>
       ) : (
-        <p className="rounded-3xl bg-white p-6 text-sm text-slate-500 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:text-neutral-400 dark:ring-white/[0.07]">
-          Нет начислений и выплат. Нажмите «Начислить», а выплаты отмечайте в операциях
-          (расход с привязкой к сотруднику).
+        <p className="mb-6 rounded-3xl bg-white p-6 text-sm text-slate-500 ring-1 ring-slate-200/70 dark:bg-[#15171c] dark:text-neutral-400 dark:ring-white/[0.07]">
+          Нет начислений. Нажмите «Начислить».
         </p>
+      )}
+
+      {/* Начисления и выплаты */}
+      {rows.length > 0 && (
+        <>
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">
+            Начисления (к выплате)
+          </h2>
+          <div className="overflow-hidden rounded-3xl bg-white ring-1 ring-slate-200/70 dark:bg-[#15171c] dark:ring-white/[0.07]">
+            <table className="w-full text-sm">
+              <tbody>
+                {rows.map((o) => (
+                  <tr key={o.id} className="border-b border-slate-50 last:border-0 dark:border-white/[0.05]">
+                    <td className="px-5 py-3 text-slate-700 dark:text-neutral-300">
+                      {o.period_month ? monthLabel(o.period_month.slice(0, 7)) : "—"}
+                      <span className="ml-2 text-xs text-slate-400">
+                        {o.pay_part === "variable" ? "переменная" : "фиксированная"}
+                        {o.project_id && projName.get(o.project_id) ? ` · ${projName.get(o.project_id)}` : ""}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3 text-right font-medium text-slate-800 dark:text-neutral-200">
+                      {formatMoney(o.outstanding, o.currency)}
+                      {o.outstanding !== o.amount && (
+                        <span className="ml-1 text-xs font-normal text-slate-400">из {formatMoney(o.amount, o.currency)}</span>
+                      )}
+                    </td>
+                    <td className="px-5 py-3 text-right">
+                      {manage && user && (
+                        <PayObligationButton obligationId={o.id} userId={user.id} outstanding={o.outstanding} currency={o.currency} />
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-3 text-xs text-slate-400 dark:text-neutral-600">
+            «Погасить» = выплата сотруднику (уменьшает остаток и кредиторку в отчёте по долгам).
+          </p>
+        </>
       )}
     </div>
   );
@@ -226,7 +265,7 @@ export default async function EmployeePage({
 function Kpi({ title, value, accent }: { title: string; value: string; accent?: "amber" | "emerald" }) {
   const color = accent === "amber" ? "text-amber-600 dark:text-amber-400" : accent === "emerald" ? "text-emerald-600 dark:text-emerald-400" : "text-slate-900 dark:text-white";
   return (
-    <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
+    <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200/70 dark:bg-[#15171c] dark:ring-white/[0.07]">
       <div className="text-sm text-slate-500 dark:text-neutral-400">{title}</div>
       <div className={`mt-2 text-lg font-bold ${color}`}>{value}</div>
     </div>

@@ -33,6 +33,7 @@ export const COUNTERPARTY_KINDS: { value: string; label: string }[] = [
   { value: "client", label: "Клиент" },
   { value: "supplier", label: "Поставщик" },
   { value: "partner", label: "Партнёр" },
+  { value: "employee", label: "Сотрудник" },
   { value: "other", label: "Другое" },
 ];
 

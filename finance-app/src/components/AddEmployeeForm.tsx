@@ -28,8 +28,9 @@ export default function AddEmployeeForm({ teamId }: { teamId: string }) {
     setError(null);
     setLoading(true);
     const supabase = createClient();
-    const { error } = await supabase.from("employees").insert({
+    const { error } = await supabase.from("counterparties").insert({
       team_id: teamId,
+      kind: "employee",
       name,
       start_date: startDate || null,
       employment_type: type,

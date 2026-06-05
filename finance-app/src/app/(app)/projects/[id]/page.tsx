@@ -27,14 +27,14 @@ export default async function ProjectPage({
   const [{ data: txs }, { data: obls }, { data: fxRows }] = await Promise.all([
     supabase
       .from("transactions")
-      .select("id, type, amount, currency, occurred_on, employee_id, category:categories(name), counterparty:counterparties(name), employee:employees(name)")
+      .select("id, type, amount, currency, occurred_on, category:categories(name), counterparty:counterparties(name)")
       .eq("team_id", team.id)
       .eq("project_id", id)
       .order("occurred_on", { ascending: false })
       .limit(100),
     supabase
       .from("obligation_balances")
-      .select("type, outstanding, currency")
+      .select("type, amount, outstanding, currency, pay_part, counterparty:counterparties(name)")
       .eq("team_id", team.id)
       .eq("project_id", id),
     supabase.from("fx_rates").select("currency, rate, rate_date").eq("team_id", team.id),
@@ -47,17 +47,13 @@ export default async function ProjectPage({
     amount: number;
     currency: string;
     occurred_on: string;
-    employee_id: string | null;
     category: { name: string } | null;
     counterparty: { name: string } | null;
-    employee: { name: string } | null;
   }[];
 
   let revenue = 0;
   let costs = 0;
-  let laborPaid = 0;
   const costByCat = new Map<string, number>();
-  const laborByEmployee = new Map<string, number>();
   for (const t of rows) {
     const v = toBase(t.amount, t.currency, rates);
     if (t.type === "income") revenue += v;
@@ -65,25 +61,37 @@ export default async function ProjectPage({
       costs += v;
       const c = t.category?.name ?? "Без статьи";
       costByCat.set(c, (costByCat.get(c) ?? 0) + v);
-      if (t.employee_id) {
-        laborPaid += v;
-        const en = t.employee?.name ?? "Сотрудник";
-        laborByEmployee.set(en, (laborByEmployee.get(en) ?? 0) + v);
-      }
     }
   }
   const profit = revenue - costs;
   const margin = revenue > 0 ? (profit / revenue) * 100 : 0;
-  const laborRows = [...laborByEmployee.entries()].sort((a, b) => b[1] - a[1]);
 
+  // Долги и оплата труда по проекту (из обязательств)
   let receivable = 0;
   let payable = 0;
-  for (const o of obls ?? []) {
-    if (o.outstanding <= 0) continue;
-    const v = toBase(o.outstanding, o.currency, rates);
-    if (o.type === "receivable") receivable += v;
-    else payable += v;
+  let laborAccrued = 0;
+  const laborByEmployee = new Map<string, number>();
+  for (const o of (obls ?? []) as unknown as {
+    type: "receivable" | "payable";
+    amount: number;
+    outstanding: number;
+    currency: string;
+    pay_part: string | null;
+    counterparty: { name: string } | null;
+  }[]) {
+    if (o.outstanding > 0) {
+      const ov = toBase(o.outstanding, o.currency, rates);
+      if (o.type === "receivable") receivable += ov;
+      else payable += ov;
+    }
+    if (o.type === "payable" && o.pay_part) {
+      const v = toBase(o.amount, o.currency, rates);
+      laborAccrued += v;
+      const en = o.counterparty?.name ?? "Сотрудник";
+      laborByEmployee.set(en, (laborByEmployee.get(en) ?? 0) + v);
+    }
   }
+  const laborRows = [...laborByEmployee.entries()].sort((a, b) => b[1] - a[1]);
 
   const costs2 = [...costByCat.entries()].sort((a, b) => b[1] - a[1]);
   const costMax = Math.max(1, ...costs2.map(([, v]) => v));
@@ -107,10 +115,10 @@ export default async function ProjectPage({
         <Stat title="Маржинальность" value={`${margin.toFixed(1)}%`} accent={margin < 0 ? "red" : "brand"} />
       </div>
 
-      {(receivable > 0 || payable > 0 || laborPaid > 0) && (
+      {(receivable > 0 || payable > 0 || laborAccrued > 0) && (
         <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
-          {laborPaid > 0 && (
-            <Stat title="Оплата труда (выплачено)" value={formatMoney(laborPaid, base)} accent="red" />
+          {laborAccrued > 0 && (
+            <Stat title="Оплата труда (начислено)" value={formatMoney(laborAccrued, base)} accent="red" />
           )}
           {receivable > 0 && (
             <Stat title="Нам должны по проекту" value={formatMoney(receivable, base)} accent="emerald" />
