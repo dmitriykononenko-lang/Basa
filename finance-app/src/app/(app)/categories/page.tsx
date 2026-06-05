@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import AddCategoryForm from "@/components/AddCategoryForm";
@@ -48,7 +49,10 @@ export default async function CategoriesPage() {
 
   return (
     <div className="p-6 sm:p-8">
-      <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
+      <Link href="/settings" className="text-sm text-slate-400 hover:text-brand">
+        ← Настройки
+      </Link>
+      <header className="mb-6 mt-2 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
             Статьи

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canManageTeam } from "@/lib/team";
 import { ROLE_LABELS, type AppRole } from "@/lib/types";
@@ -44,7 +45,10 @@ export default async function TeamPage() {
 
   return (
     <div className="p-6 sm:p-8">
-      <header className="mb-6">
+      <Link href="/settings" className="text-sm text-slate-400 hover:text-brand">
+        ← Настройки
+      </Link>
+      <header className="mb-6 mt-2">
         <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
           Команда
         </h1>
