@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentTeam } from "@/lib/team";
+import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import { formatMoney, formatDate } from "@/lib/format";
 import { buildRateMap, toBase } from "@/lib/fx";
 import { COUNTERPARTY_KIND_LABELS } from "@/lib/constants";
+import EditCounterpartyForm from "@/components/EditCounterpartyForm";
 
 export default async function CounterpartyPage({
   params,
@@ -14,7 +15,8 @@ export default async function CounterpartyPage({
   const { id } = await params;
   const current = await getCurrentTeam();
   if (!current) notFound();
-  const { team } = current;
+  const { team, role } = current;
+  const manage = canEditFinance(role);
   const base = team.base_currency;
   const supabase = await createClient();
 
@@ -98,6 +100,21 @@ export default async function CounterpartyPage({
             <Info label="Email" value={cp.email} />
             <Info label="Заметка" value={cp.note} />
           </dl>
+          {manage && (
+            <EditCounterpartyForm
+              initial={{
+                id: cp.id,
+                name: cp.name ?? "",
+                kind: cp.kind ?? "client",
+                inn: cp.inn ?? "",
+                kpp: cp.kpp ?? "",
+                contact_person: cp.contact_person ?? "",
+                phone: cp.phone ?? "",
+                email: cp.email ?? "",
+                note: cp.note ?? "",
+              }}
+            />
+          )}
         </div>
 
         {/* Сводка */}

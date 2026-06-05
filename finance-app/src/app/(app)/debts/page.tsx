@@ -49,7 +49,7 @@ export default async function DebtsPage({
     data: { user },
   } = await supabase.auth.getUser();
 
-  const [{ data: obligations }, { data: balances }, { data: counterparties }, { data: projects }, { data: fxRows }] =
+  const [{ data: obligations }, { data: balances }, { data: counterparties }, { data: projects }, { data: fxRows }, { data: accounts }] =
     await Promise.all([
       supabase
         .from("obligation_balances")
@@ -77,6 +77,7 @@ export default async function DebtsPage({
         .eq("archived", false)
         .order("name"),
       supabase.from("fx_rates").select("currency, rate, rate_date").eq("team_id", team.id),
+      supabase.from("accounts").select("id, name, currency").eq("team_id", team.id).eq("archived", false).order("created_at"),
     ]);
 
   const rows = (obligations ?? []) as unknown as Row[];
@@ -304,6 +305,9 @@ export default async function DebtsPage({
                           userId={user.id}
                           outstanding={o.outstanding}
                           currency={o.currency}
+                          teamId={team.id}
+                          counterpartyId={o.counterparty_id}
+                          accounts={accounts ?? []}
                         />
                       ) : null}
                     </td>

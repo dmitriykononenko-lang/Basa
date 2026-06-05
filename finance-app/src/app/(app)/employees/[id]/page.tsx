@@ -48,7 +48,7 @@ export default async function EmployeePage({
     .maybeSingle();
   if (!emp) notFound();
 
-  const [{ data: bals }, { data: projects }] = await Promise.all([
+  const [{ data: bals }, { data: projects }, { data: accounts }] = await Promise.all([
     supabase
       .from("obligation_balances")
       .select("id, amount, paid, outstanding, currency, project_id, pay_part, period_month, due_date")
@@ -56,6 +56,7 @@ export default async function EmployeePage({
       .eq("type", "payable")
       .eq("counterparty_id", id),
     supabase.from("projects").select("id, name").eq("team_id", team.id).order("name"),
+    supabase.from("accounts").select("id, name, currency").eq("team_id", team.id).eq("archived", false).order("created_at"),
   ]);
 
   const rates = buildRateMap([], base); // курсы не критичны на карточке; суммы в валюте обязательства
@@ -245,7 +246,15 @@ export default async function EmployeePage({
                     </td>
                     <td className="px-5 py-3 text-right">
                       {manage && user && (
-                        <PayObligationButton obligationId={o.id} userId={user.id} outstanding={o.outstanding} currency={o.currency} />
+                        <PayObligationButton
+                          obligationId={o.id}
+                          userId={user.id}
+                          outstanding={o.outstanding}
+                          currency={o.currency}
+                          teamId={team.id}
+                          counterpartyId={emp.id}
+                          accounts={accounts ?? []}
+                        />
                       )}
                     </td>
                   </tr>

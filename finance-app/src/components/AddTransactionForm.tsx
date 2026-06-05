@@ -39,6 +39,42 @@ export default function AddTransactionForm({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // локальные списки (чтобы можно было создавать «на лету»)
+  const [cps, setCps] = useState<Named[]>(counterparties);
+  const [projs, setProjs] = useState<Named[]>(projects);
+
+  async function quickAddCounterparty() {
+    const name = prompt("Название контрагента");
+    if (!name?.trim()) return;
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from("counterparties")
+      .insert({ team_id: teamId, name: name.trim(), kind: "other" })
+      .select("id, name")
+      .single();
+    if (error) return setError(error.message);
+    if (data) {
+      setCps((p) => [...p, data].sort((a, b) => a.name.localeCompare(b.name)));
+      setCounterpartyId(data.id);
+    }
+  }
+
+  async function quickAddProject() {
+    const name = prompt("Название проекта");
+    if (!name?.trim()) return;
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from("projects")
+      .insert({ team_id: teamId, name: name.trim() })
+      .select("id, name")
+      .single();
+    if (error) return setError(error.message);
+    if (data) {
+      setProjs((p) => [...p, data].sort((a, b) => a.name.localeCompare(b.name)));
+      setProjectId(data.id);
+    }
+  }
+
   const account = accounts.find((a) => a.id === accountId);
   const filteredCategories = useMemo(
     () => categories.filter((c) => c.kind === type),
@@ -199,34 +235,44 @@ export default function AddTransactionForm({
 
         {type !== "transfer" && (
           <Field label="Контрагент">
-            <select
-              value={counterpartyId}
-              onChange={(e) => setCounterpartyId(e.target.value)}
-              className="input"
-            >
-              <option value="">— не указан —</option>
-              {counterparties.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+            <div className="flex gap-1">
+              <select
+                value={counterpartyId}
+                onChange={(e) => setCounterpartyId(e.target.value)}
+                className="input"
+              >
+                <option value="">— не указан —</option>
+                {cps.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+              <button type="button" onClick={quickAddCounterparty} title="Новый контрагент" className="shrink-0 rounded-xl border border-slate-200 px-3 text-sm text-brand dark:border-white/10">
+                +
+              </button>
+            </div>
           </Field>
         )}
 
         <Field label="Проект">
-          <select
-            value={projectId}
-            onChange={(e) => setProjectId(e.target.value)}
-            className="input"
-          >
-            <option value="">— без проекта —</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
+          <div className="flex gap-1">
+            <select
+              value={projectId}
+              onChange={(e) => setProjectId(e.target.value)}
+              className="input"
+            >
+              <option value="">— без проекта —</option>
+              {projs.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+            <button type="button" onClick={quickAddProject} title="Новый проект" className="shrink-0 rounded-xl border border-slate-200 px-3 text-sm text-brand dark:border-white/10">
+              +
+            </button>
+          </div>
         </Field>
 
         <Field label="Дата">
