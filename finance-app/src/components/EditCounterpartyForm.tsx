@@ -17,6 +17,8 @@ export type CounterpartyEdit = {
   email: string;
   note: string;
   agent_id: string;
+  contract_number: string;
+  contract_date: string;
 };
 
 type Agent = { id: string; name: string };
@@ -54,6 +56,8 @@ export default function EditCounterpartyForm({ initial, agents = [] }: { initial
         email: c.email || null,
         note: c.note || null,
         agent_id: kinds.includes("agent") ? null : (c.agent_id || null),
+        contract_number: c.contract_number || null,
+        contract_date: c.contract_date || null,
       })
       .eq("id", c.id);
     if (error) {
@@ -101,6 +105,12 @@ export default function EditCounterpartyForm({ initial, agents = [] }: { initial
               {agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
             </select>
           </F>
+        )}
+        {kinds.includes("agent") && (
+          <>
+            <F label="Номер договора"><input value={c.contract_number} onChange={(e) => upd("contract_number", e.target.value)} placeholder="№ …" className="input" /></F>
+            <F label="Дата договора"><input type="date" value={c.contract_date} onChange={(e) => upd("contract_date", e.target.value)} className="input" /></F>
+          </>
         )}
         <div className="sm:col-span-2"><F label="Заметка"><input value={c.note} onChange={(e) => upd("note", e.target.value)} className="input" /></F></div>
       </div>

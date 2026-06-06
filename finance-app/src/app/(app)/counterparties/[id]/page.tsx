@@ -7,6 +7,7 @@ import { buildRateMap, toBase } from "@/lib/fx";
 import { COUNTERPARTY_KIND_LABELS } from "@/lib/constants";
 import EditCounterpartyForm from "@/components/EditCounterpartyForm";
 import AgentCommissionRules, { type Rule } from "@/components/AgentCommissionRules";
+import AgentPayouts, { type Payout } from "@/components/AgentPayouts";
 
 export default async function CounterpartyPage({
   params,
@@ -24,7 +25,7 @@ export default async function CounterpartyPage({
 
   const { data: cp } = await supabase
     .from("counterparties")
-    .select("id, name, kind, kinds, inn, kpp, contact_person, phone, email, note, agent_id")
+    .select("id, name, kind, kinds, inn, kpp, contact_person, phone, email, note, agent_id, contract_number, contract_date")
     .eq("id", id)
     .maybeSingle();
 
@@ -42,6 +43,43 @@ export default async function CounterpartyPage({
     cp.agent_id ? supabase.from("counterparties").select("id, name").eq("id", cp.agent_id).maybeSingle() : Promise.resolve({ data: null }),
   ]);
   const agentName = (agentCp as { name: string } | null)?.name ?? null;
+
+  // Агентские выплаты (комиссии с привязкой к приходу)
+  let payouts: Payout[] = [];
+  let payoutAccounts: { id: string; name: string; currency: string }[] = [];
+  if (isAgent) {
+    const [{ data: comm }, { data: accs }] = await Promise.all([
+      supabase
+        .from("obligations")
+        .select("id, amount, currency, source_transaction_id, source:transactions!obligations_source_transaction_id_fkey(occurred_on, amount, counterparty:counterparties(name))")
+        .eq("team_id", team.id).eq("counterparty_id", id).eq("type", "payable").not("source_transaction_id", "is", null)
+        .order("created_at", { ascending: false }),
+      supabase.from("accounts").select("id, name, currency").eq("team_id", team.id).eq("archived", false).order("created_at"),
+    ]);
+    payoutAccounts = accs ?? [];
+    const commRows = (comm ?? []) as unknown as {
+      id: string; amount: number; currency: string;
+      source: { occurred_on: string; amount: number; counterparty: { name: string } | null } | null;
+    }[];
+    const oblIds = commRows.map((o) => o.id);
+    const { data: pays } = oblIds.length
+      ? await supabase.from("obligation_payments").select("obligation_id, amount").in("obligation_id", oblIds)
+      : { data: [] as { obligation_id: string; amount: number }[] };
+    const paidBy = new Map<string, number>();
+    for (const p of pays ?? []) paidBy.set(p.obligation_id, (paidBy.get(p.obligation_id) ?? 0) + p.amount);
+    payouts = commRows.map((o) => {
+      const base = o.source?.amount ?? 0;
+      const paid = paidBy.get(o.id) ?? 0;
+      return {
+        id: o.id,
+        clientName: o.source?.counterparty?.name ?? "—",
+        sourceDate: o.source?.occurred_on ?? null,
+        base, commission: o.amount, currency: o.currency,
+        percent: base > 0 ? Math.round((o.amount / base) * 1000) / 10 : 0,
+        paid, outstanding: o.amount - paid,
+      };
+    });
+  }
 
   const [{ data: txs }, { data: obls }, { data: fxRows }] = await Promise.all([
     supabase
@@ -100,6 +138,7 @@ export default async function CounterpartyPage({
         <p className="text-sm text-slate-500 dark:text-neutral-400">
           {cpKinds.map((k) => COUNTERPARTY_KIND_LABELS[k] ?? k).join(" · ") || "—"}
           {agentName && <> · агент: <b>{agentName}</b></>}
+          {cp.contract_number && <> · договор № {cp.contract_number}{cp.contract_date && ` от ${formatDate(cp.contract_date)}`}</>}
         </p>
       </header>
 
@@ -132,6 +171,8 @@ export default async function CounterpartyPage({
                 email: cp.email ?? "",
                 note: cp.note ?? "",
                 agent_id: cp.agent_id ?? "",
+                contract_number: cp.contract_number ?? "",
+                contract_date: cp.contract_date ?? "",
               }}
             />
           )}
@@ -146,9 +187,14 @@ export default async function CounterpartyPage({
         </div>
       </div>
 
-      {/* Агент: ставки комиссии и клиенты */}
+      {/* Агент: выплаты, ставки комиссии и клиенты */}
+      {isAgent && user && (
+        <div className="mt-6">
+          <AgentPayouts teamId={team.id} userId={user.id} agentId={cp.id} accounts={payoutAccounts} payouts={payouts} />
+        </div>
+      )}
       {isAgent && (
-        <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
           {manage && user ? (
             <AgentCommissionRules
               teamId={team.id}
