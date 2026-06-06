@@ -1,7 +1,7 @@
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canWriteTx, canEditFinance } from "@/lib/team";
 import AddTransactionForm from "@/components/AddTransactionForm";
-import ImportTransactions from "@/components/ImportTransactions";
 import TransactionsFilter from "@/components/TransactionsFilter";
 import ExportButton from "@/components/ExportButton";
 import OperationsTable from "@/components/OperationsTable";
@@ -142,7 +142,12 @@ export default async function TransactionsPage({
             filename={`operations-${period}.csv`}
           />
           {writable && user && (
-            <ImportTransactions teamId={team.id} userId={user.id} accounts={accounts ?? []} categories={cats} counterparties={counterparties ?? []} projects={projects ?? []} />
+            <Link
+              href="/transactions/import"
+              className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-200 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700"
+            >
+              ⬆ Импорт выписки
+            </Link>
           )}
         </div>
       </header>
