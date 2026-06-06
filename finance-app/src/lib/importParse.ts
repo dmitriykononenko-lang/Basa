@@ -67,27 +67,42 @@ export function parseDate(s: string): string | null {
 // Тип операции по тексту колонки
 export function classifyType(raw: string): "income" | "expense" | null {
   const s = (raw ?? "").toLowerCase();
+  // «входящий/исходящий» (Точка, 1С) — проверяем раньше остальных
+  if (/входящ/.test(s)) return "income";
+  if (/исходящ/.test(s)) return "expense";
   if (/дох|income|credit|кредит|приход|поступл|пополн|зачислен|\+/.test(s)) return "income";
   if (/рас|expense|debit|дебет|списан|выплат|оплат|снятие|-/.test(s)) return "expense";
   return null;
 }
 
+const isDateHeader = (x: string) => x.includes("дата") || x.includes("date");
+
 // ── Автоподбор колонок по заголовку ──
 export function autoMap(header: string[]): { map: Mapping; mode: TypeMode } {
   const h = header.map((x) => x.toLowerCase());
   const find = (...keys: string[]) => h.findIndex((x) => keys.some((k) => x.includes(k)));
+  // Поиск денежных колонок: НЕ берём колонки с датами («Дата зачисления/списания» и т.п.)
+  const findAmt = (...keys: string[]) =>
+    h.findIndex((x) => !isDateHeader(x) && keys.some((k) => x.includes(k)));
+  // Колонки прихода/расхода: только настоящие суммовые («Приход», «Сумма расхода»,
+  // «дебетовый оборот»), а не описательные («Основание списания», «Назначение»).
+  const findInOut = (...keys: string[]) =>
+    h.findIndex((x) => !isDateHeader(x) && keys.some((k) =>
+      x === k || x.startsWith(k) || x.includes("сумма " + k) || x.includes(k + " оборот") || x.includes(k + "овый оборот")
+    ));
   const map: Mapping = {
-    date: find("дата операции", "дата проводки", "дата", "date"),
-    amount: find("сумма операции", "сумма платежа", "сумма", "amount"),
-    amountIn: find("приход", "поступлен", "кредит", "credit", "зачислен"),
-    amountOut: find("расход", "списан", "дебет", "debit", "выплат", "снятие"),
+    date: find("дата проводки", "дата операции", "дата платеж", "дата", "date"),
+    amount: findAmt("сумма операции в рубл", "сумма операции", "сумма платеж", "сумма в валюте", "сумма", "amount"),
+    amountIn: findInOut("приход", "кредит", "зачислен", "поступлен"),
+    amountOut: findInOut("расход", "дебет", "списан", "выплат"),
     currency: find("валюта", "currency"),
     account: find("счёт", "счет", "account", "номер карты", "карт"),
     category: find("категори", "статья", "category"),
-    counterparty: find("контрагент", "получател", "плательщик", "корреспондент"),
+    counterparty: find("контрагент", "корреспондент"),
     project: find("проект", "project"),
     note: find("назначение платеж", "коммент", "описан", "note", "purpose", "назначение"),
-    typeCol: find("тип операции", "тип", "type", "дебет/кредит"),
+    // «направление» (Точка/1С) приоритетнее; «тип» в одиночку не берём (ловит «Тип документа»)
+    typeCol: find("направлен", "дебет/кредит", "тип операции", "приход/расход"),
   };
   let mode: TypeMode = "sign";
   if (map.amountIn >= 0 && map.amountOut >= 0) mode = "split";
@@ -105,9 +120,25 @@ export type BankPreset = {
 
 export const BANK_PRESETS: BankPreset[] = [
   {
+    // Точка / 1С с колонкой «Направление» (Входящий/Исходящий)
+    id: "tochka",
+    label: "Точка / 1С (направление)",
+    signature: (h) => h.some((x) => x.includes("направлен")) && h.some((x) => x.includes("назначение платеж")),
+    typeMode: "column",
+  },
+  {
+    id: "alfa",
+    label: "Альфа-Банк (приход/расход)",
+    // настоящие денежные колонки прихода/расхода, не даты
+    signature: (h) =>
+      h.some((x) => x.includes("приход") && !isDateHeader(x)) &&
+      h.some((x) => x.includes("расход") && !isDateHeader(x)),
+    typeMode: "split",
+  },
+  {
     id: "tinkoff",
     label: "Тинькофф",
-    signature: (h) => h.some((x) => x.includes("дата операции")) && h.some((x) => x.includes("сумма операции")),
+    signature: (h) => h.some((x) => x.includes("дата операции")) && h.some((x) => x.includes("сумма операции")) && !h.some((x) => x.includes("направлен")),
     typeMode: "sign",
   },
   {
@@ -117,16 +148,10 @@ export const BANK_PRESETS: BankPreset[] = [
     typeMode: "sign",
   },
   {
-    id: "alfa",
-    label: "Альфа-Банк",
-    signature: (h) => h.some((x) => x.includes("приход")) && h.some((x) => x.includes("расход")) && h.some((x) => x.includes("дата")),
-    typeMode: "split",
-  },
-  {
     id: "1c",
     label: "1С / клиент-банк",
     signature: (h) => h.some((x) => x.includes("номер документа")) && h.some((x) => x.includes("назначение платеж")),
-    typeMode: "split",
+    // typeMode не задаём — пусть определит autoMap (приход/расход или направление)
   },
 ];
 
