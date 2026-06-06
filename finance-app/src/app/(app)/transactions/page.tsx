@@ -4,6 +4,7 @@ import { getCurrentTeam, canWriteTx, canEditFinance } from "@/lib/team";
 import AddTransactionForm from "@/components/AddTransactionForm";
 import TransactionsFilter from "@/components/TransactionsFilter";
 import EmptyState from "@/components/EmptyState";
+import PlannedReview from "@/components/PlannedReview";
 import ExportButton from "@/components/ExportButton";
 import OperationsTable from "@/components/OperationsTable";
 
@@ -104,6 +105,9 @@ export default async function TransactionsPage({
   query = query.order("occurred_on", { ascending: false }).order("created_at", { ascending: false }).limit(300);
 
   const { data: txs } = await query;
+  const { count: plannedCount } = await supabase
+    .from("transactions").select("id", { count: "exact", head: true })
+    .eq("team_id", team.id).eq("status", "planned");
   const rows = (txs ?? []) as unknown as TxRow[];
   const writable = canWriteTx(role) && (accounts?.length ?? 0) > 0;
   const cats = (categories ?? []) as { id: string; name: string; kind: "income" | "expense" }[];
@@ -143,6 +147,9 @@ export default async function TransactionsPage({
             rows={exportRows}
             filename={`operations-${period}.csv`}
           />
+          {writable && user && (plannedCount ?? 0) > 0 && (
+            <PlannedReview teamId={team.id} userId={user.id} count={plannedCount ?? 0} variant="button" />
+          )}
           {writable && user && (
             <Link
               href="/transactions/import"

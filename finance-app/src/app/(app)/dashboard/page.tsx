@@ -8,6 +8,7 @@ import { buildRateMap, toBase } from "@/lib/fx";
 import AcceptInviteButton from "@/components/AcceptInviteButton";
 import { IconTransactions, IconAccounts, IconReports } from "@/components/icons";
 import TrendChart, { type TrendPoint } from "@/components/TrendChart";
+import PlannedReview from "@/components/PlannedReview";
 
 const MONTHS_SHORT = [
   "Янв", "Фев", "Мар", "Апр", "Май", "Июн",
@@ -80,9 +81,10 @@ export default async function DashboardPage() {
     .eq("team_id", team.id);
 
   // Онбординг: сколько шагов пройдено
-  const [{ count: txCount }, { count: importCount }] = await Promise.all([
+  const [{ count: txCount }, { count: importCount }, { count: plannedCount }] = await Promise.all([
     supabase.from("transactions").select("id", { count: "exact", head: true }).eq("team_id", team.id),
     supabase.from("import_batches").select("id", { count: "exact", head: true }).eq("team_id", team.id),
+    supabase.from("transactions").select("id", { count: "exact", head: true }).eq("team_id", team.id).eq("status", "planned"),
   ]);
   const onboarding = [
     { done: (accounts?.length ?? 0) > 0, label: "Создайте счёт", href: "/accounts" },
@@ -321,6 +323,9 @@ export default async function DashboardPage() {
   return (
     <div className="p-6 sm:p-8">
       {InvitesBlock}
+      {user && (plannedCount ?? 0) > 0 && (
+        <PlannedReview teamId={team.id} userId={user.id} count={plannedCount ?? 0} variant="card" />
+      )}
       {!onboardingDone && (
         <div className="mb-6 rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
           <div className="mb-3 flex items-center justify-between">
