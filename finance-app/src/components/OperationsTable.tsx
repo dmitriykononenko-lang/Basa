@@ -3,10 +3,14 @@
 import { Fragment, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatMoney } from "@/lib/format";
 import Combobox, { type ComboOption } from "@/components/Combobox";
 import EditableTransactionRow, { type TxData } from "@/components/EditableTransactionRow";
 import type { Attachment } from "@/components/Attachments";
+
+function daysApart(a: string, b: string) {
+  return Math.abs((new Date(a).getTime() - new Date(b).getTime()) / 86400000);
+}
 
 type Account = { id: string; name: string; currency: string };
 type Named = { id: string; name: string; inn?: string | null };
@@ -35,6 +39,8 @@ export default function OperationsTable({
   const [busy, setBusy] = useState(false);
   const [panel, setPanel] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const [mergeBusy, setMergeBusy] = useState(false);
 
   // bulk-edit значения
   const [bCat, setBCat] = useState("");
@@ -55,6 +61,71 @@ export default function OperationsTable({
     }
     return g;
   }, [items]);
+
+  // Авто-детекция переводов: расход с одного счёта ↔ приход на другой (та же сумма/валюта, близкие даты)
+  const transferCandidates = useMemo(() => {
+    const incomes = items.filter((i) => i.editable && i.tx.type === "income" && i.tx.account_id);
+    const expenses = items.filter((i) => i.editable && i.tx.type === "expense" && i.tx.account_id);
+    const usedInc = new Set<string>();
+    const pairs: { exp: TxData; inc: TxData; key: string }[] = [];
+    for (const e of expenses) {
+      const et = e.tx;
+      const m = incomes.find((i) =>
+        !usedInc.has(i.tx.id) &&
+        i.tx.amount === et.amount &&
+        i.tx.currency === et.currency &&
+        i.tx.account_id !== et.account_id &&
+        i.tx.status === et.status &&
+        daysApart(i.tx.occurred_on, et.occurred_on) <= 3
+      );
+      if (m) {
+        usedInc.add(m.tx.id);
+        pairs.push({ exp: et, inc: m.tx, key: `${et.id}|${m.tx.id}` });
+      }
+    }
+    return pairs.filter((p) => !dismissed.has(p.key));
+  }, [items, dismissed]);
+
+  async function mergePair(exp: TxData, inc: TxData) {
+    setMergeBusy(true);
+    setErr(null);
+    const supabase = createClient();
+    const { error: insErr } = await supabase.from("transactions").insert({
+      team_id: teamId,
+      type: "transfer",
+      amount: exp.amount,
+      currency: exp.currency,
+      account_id: exp.account_id,
+      transfer_account_id: inc.account_id,
+      occurred_on: exp.occurred_on,
+      status: exp.status,
+      created_by: userId,
+    });
+    if (insErr) { setMergeBusy(false); return setErr(insErr.message); }
+    const { error: delErr } = await supabase.from("transactions").delete().in("id", [exp.id, inc.id]);
+    setMergeBusy(false);
+    if (delErr) return setErr(delErr.message);
+    router.refresh();
+  }
+
+  async function mergeAll() {
+    if (!confirm(`Объединить найденные пары в переводы (${transferCandidates.length})?`)) return;
+    setMergeBusy(true);
+    setErr(null);
+    const supabase = createClient();
+    for (const p of transferCandidates) {
+      const { error: insErr } = await supabase.from("transactions").insert({
+        team_id: teamId, type: "transfer", amount: p.exp.amount, currency: p.exp.currency,
+        account_id: p.exp.account_id, transfer_account_id: p.inc.account_id,
+        occurred_on: p.exp.occurred_on, status: p.exp.status, created_by: userId,
+      });
+      if (insErr) { setMergeBusy(false); return setErr(insErr.message); }
+      const { error: delErr } = await supabase.from("transactions").delete().in("id", [p.exp.id, p.inc.id]);
+      if (delErr) { setMergeBusy(false); return setErr(delErr.message); }
+    }
+    setMergeBusy(false);
+    router.refresh();
+  }
 
   function toggle(id: string) {
     setSel((p) => {
@@ -138,6 +209,39 @@ export default function OperationsTable({
 
   return (
     <div>
+      {transferCandidates.length > 0 && (
+        <div className="mb-3 rounded-2xl bg-violet-50 p-4 ring-1 ring-violet-200 dark:bg-violet-950/20 dark:ring-violet-900/40">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <span className="text-sm font-medium text-violet-800 dark:text-violet-200">
+              ⇄ Похоже на переводы между счетами: {transferCandidates.length}
+            </span>
+            <button onClick={mergeAll} disabled={mergeBusy} className="rounded-full bg-violet-600 px-3 py-1 text-sm font-medium text-white disabled:opacity-50">
+              Объединить все
+            </button>
+          </div>
+          <div className="space-y-1.5">
+            {transferCandidates.slice(0, 6).map((p) => (
+              <div key={p.key} className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                <span className="text-slate-600 dark:text-neutral-300">
+                  {formatMoney(p.exp.amount, p.exp.currency)} · «{p.exp.accountName}» → «{p.inc.accountName}» · {formatDate(p.exp.occurred_on)}
+                </span>
+                <span className="flex gap-2">
+                  <button onClick={() => mergePair(p.exp, p.inc)} disabled={mergeBusy} className="rounded-full bg-white px-3 py-1 text-xs font-medium text-violet-700 ring-1 ring-violet-300 disabled:opacity-50 dark:bg-white/[0.06] dark:text-violet-300">
+                    Объединить
+                  </button>
+                  <button onClick={() => setDismissed((d) => new Set(d).add(p.key))} className="rounded-full px-2 py-1 text-xs text-slate-400 hover:text-slate-600">
+                    Скрыть
+                  </button>
+                </span>
+              </div>
+            ))}
+            {transferCandidates.length > 6 && (
+              <p className="text-xs text-violet-600/70 dark:text-violet-300/60">…и ещё {transferCandidates.length - 6}. «Объединить все» обработает их все.</p>
+            )}
+          </div>
+        </div>
+      )}
+
       {sel.size > 0 && (
         <div className="mb-3 flex flex-wrap items-center gap-2 rounded-2xl bg-brand/5 px-4 py-2 ring-1 ring-brand/20">
           <span className="text-sm font-medium text-slate-700 dark:text-neutral-200">Выбрано: {sel.size}</span>
