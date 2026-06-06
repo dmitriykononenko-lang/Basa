@@ -4,6 +4,7 @@ import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import { formatMoney } from "@/lib/format";
 import { ACCOUNT_KIND_LABELS } from "@/lib/constants";
 import AddAccountForm from "@/components/AddAccountForm";
+import EditAccountForm from "@/components/EditAccountForm";
 import ArchiveAccountButton from "@/components/ArchiveAccountButton";
 
 export default async function AccountsPage() {
@@ -77,7 +78,10 @@ export default async function AccountsPage() {
                     </div>
                   </div>
                   {manage && (
-                    <ArchiveAccountButton accountId={a.id} archived={false} />
+                    <div className="flex items-center gap-1">
+                      <EditAccountForm accountId={a.id} name={a.name} kind={a.kind} />
+                      <ArchiveAccountButton accountId={a.id} archived={false} />
+                    </div>
                   )}
                 </div>
                 <div className="mt-3 text-xl font-bold text-slate-900 dark:text-white">
