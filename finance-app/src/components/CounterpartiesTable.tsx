@@ -23,6 +23,8 @@ export default function CounterpartiesTable({ items, canManage }: { items: Item[
   const [q, setQ] = useState("");
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [bulkKind, setBulkKind] = useState("");
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [mergeTarget, setMergeTarget] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -54,6 +56,22 @@ export default function CounterpartiesTable({ items, canManage }: { items: Item[
     setBusy(false);
     if (error) { setError(error.message); return; }
     setSel(new Set()); setBulkKind("");
+    router.refresh();
+  }
+
+  async function mergeInto(targetId: string) {
+    const dups = [...sel].filter((id) => id !== targetId);
+    if (dups.length === 0) return;
+    const targetName = items.find((c) => c.id === targetId)?.name ?? "";
+    if (!confirm(`Объединить ${dups.length} карточек в «${targetName}»? Все операции и связи перейдут к ней, дубли удалятся.`)) return;
+    setBusy(true); setError(null);
+    const supabase = createClient();
+    for (const dup of dups) {
+      const { error } = await supabase.rpc("merge_counterparties", { p_target: targetId, p_dup: dup });
+      if (error) { setBusy(false); setError(error.message); return; }
+    }
+    setBusy(false);
+    setSel(new Set()); setMergeOpen(false);
     router.refresh();
   }
 
@@ -98,8 +116,36 @@ export default function CounterpartiesTable({ items, canManage }: { items: Item[
             {COUNTERPARTY_KINDS.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
           </select>
           <button onClick={applyKind} disabled={busy || !bulkKind} className="rounded-full bg-brand px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50">Применить</button>
+          {sel.size >= 2 && (
+            <button onClick={() => { setMergeTarget([...sel][0]); setMergeOpen((o) => !o); }} disabled={busy} className="rounded-full bg-white px-3 py-1.5 text-sm font-medium text-brand ring-1 ring-brand/30 disabled:opacity-50 dark:bg-white/[0.06]">Объединить</button>
+          )}
           <button onClick={bulkDelete} disabled={busy} className="rounded-full bg-red-50 px-3 py-1.5 text-sm font-medium text-red-700 ring-1 ring-red-200 disabled:opacity-50 dark:bg-red-950/30 dark:text-red-300 dark:ring-red-900/40">Удалить</button>
           <button onClick={() => setSel(new Set())} className="rounded-full px-3 py-1.5 text-sm text-slate-500">Снять выделение</button>
+        </div>
+      )}
+
+      {/* Панель объединения: выбрать основную карточку */}
+      {canManage && mergeOpen && sel.size >= 2 && (
+        <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
+          <div className="mb-2 text-sm font-medium text-slate-700 dark:text-neutral-200">Какую карточку оставить (основная)?</div>
+          <div className="mb-3 space-y-1.5">
+            {[...sel].map((id) => {
+              const c = items.find((x) => x.id === id);
+              if (!c) return null;
+              return (
+                <label key={id} className="flex items-center gap-2 text-sm">
+                  <input type="radio" name="mergeTarget" checked={mergeTarget === id} onChange={() => setMergeTarget(id)} />
+                  <span className="text-slate-700 dark:text-neutral-300">{c.name}{c.inn ? ` · ИНН ${c.inn}` : ""}</span>
+                </label>
+              );
+            })}
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => mergeInto(mergeTarget)} disabled={busy || !mergeTarget} className="rounded-full bg-brand px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-50">
+              {busy ? "Объединяем…" : `Объединить ${sel.size} → основную`}
+            </button>
+            <button onClick={() => setMergeOpen(false)} className="rounded-full px-3 py-1.5 text-sm text-slate-500">Отмена</button>
+          </div>
         </div>
       )}
       {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950/40">{error}</p>}
