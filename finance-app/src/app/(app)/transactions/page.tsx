@@ -29,12 +29,17 @@ type TxRow = {
   project: { name: string } | null;
 };
 
-function periodStart(period: string): string | null {
+function periodRange(period: string, from?: string, to?: string): { gte: string | null; lte: string | null } {
   const now = new Date();
-  if (period === "quarter") return new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1).toISOString().slice(0, 10);
-  if (period === "year") return new Date(now.getFullYear(), 0, 1).toISOString().slice(0, 10);
-  if (period === "all") return null;
-  return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10); // month
+  const fmt = (d: Date) => d.toISOString().slice(0, 10);
+  if (period === "custom") return { gte: from || null, lte: to || null };
+  if (period === "last_month") {
+    return { gte: fmt(new Date(now.getFullYear(), now.getMonth() - 1, 1)), lte: fmt(new Date(now.getFullYear(), now.getMonth(), 0)) };
+  }
+  if (period === "quarter") return { gte: fmt(new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1)), lte: null };
+  if (period === "year") return { gte: fmt(new Date(now.getFullYear(), 0, 1)), lte: null };
+  if (period === "all") return { gte: null, lte: null };
+  return { gte: fmt(new Date(now.getFullYear(), now.getMonth(), 1)), lte: null }; // month
 }
 
 export default async function TransactionsPage({
@@ -69,7 +74,7 @@ export default async function TransactionsPage({
   const [{ data: accounts }, { data: categories }, { data: counterparties }, { data: projects }] = await Promise.all([
     supabase.from("accounts").select("id, name, currency").eq("team_id", team.id).eq("archived", false).order("created_at"),
     supabase.from("categories").select("id, name, kind").eq("team_id", team.id).eq("archived", false).order("name"),
-    supabase.from("counterparties").select("id, name").eq("team_id", team.id).eq("archived", false).order("name"),
+    supabase.from("counterparties").select("id, name, inn").eq("team_id", team.id).eq("archived", false).order("name"),
     supabase.from("projects").select("id, name").eq("team_id", team.id).eq("archived", false).order("name"),
   ]);
 
@@ -86,8 +91,9 @@ export default async function TransactionsPage({
     )
     .eq("team_id", team.id);
 
-  const start = periodStart(period);
-  if (start) query = query.gte("occurred_on", start);
+  const { gte, lte } = periodRange(period, sp.from, sp.to);
+  if (gte) query = query.gte("occurred_on", gte);
+  if (lte) query = query.lte("occurred_on", lte);
   if (fType !== "all") query = query.eq("type", fType);
   if (fStatus !== "all") query = query.eq("status", fStatus);
   if (fAccount !== "all") query = query.or(`account_id.eq.${fAccount},transfer_account_id.eq.${fAccount}`);

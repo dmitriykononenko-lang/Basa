@@ -2,8 +2,9 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
+import Combobox, { type ComboOption } from "@/components/Combobox";
 
-type Opt = { id: string; name: string };
+type Opt = { id: string; name: string; inn?: string | null };
 
 export default function TransactionsFilter({
   accounts,
@@ -20,24 +21,41 @@ export default function TransactionsFilter({
   const sp = useSearchParams();
   const [q, setQ] = useState(sp.get("q") ?? "");
 
-  function setParam(key: string, value: string) {
+  function setParams(patch: Record<string, string>) {
     const params = new URLSearchParams(sp.toString());
-    if (value && value !== "all") params.set(key, value);
-    else params.delete(key);
+    for (const [key, value] of Object.entries(patch)) {
+      if (value && value !== "all") params.set(key, value);
+      else params.delete(key);
+    }
     router.push(`/transactions?${params.toString()}`);
   }
+  const setParam = (k: string, v: string) => setParams({ [k]: v });
 
   const cls =
     "rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-600 outline-none focus:border-brand dark:border-white/10 dark:bg-white/[0.04] dark:text-neutral-300";
 
+  const period = sp.get("period") ?? "month";
+  const toOpts = (items: Opt[]): ComboOption[] =>
+    items.map((x) => ({ value: x.id, label: x.name, search: `${x.name} ${x.inn ?? ""}` }));
+
   return (
     <div className="mb-5 flex flex-wrap items-center gap-2">
-      <select value={sp.get("period") ?? "month"} onChange={(e) => setParam("period", e.target.value)} className={cls}>
+      <select value={period} onChange={(e) => setParams({ period: e.target.value, from: "", to: "" })} className={cls}>
         <option value="month">Текущий месяц</option>
+        <option value="last_month">Прошлый месяц</option>
         <option value="quarter">Квартал</option>
         <option value="year">Год</option>
         <option value="all">Всё время</option>
+        <option value="custom">Произвольный период</option>
       </select>
+
+      {period === "custom" && (
+        <>
+          <input type="date" value={sp.get("from") ?? ""} onChange={(e) => setParam("from", e.target.value)} className={cls} />
+          <span className="text-slate-400">—</span>
+          <input type="date" value={sp.get("to") ?? ""} onChange={(e) => setParam("to", e.target.value)} className={cls} />
+        </>
+      )}
 
       <select value={sp.get("type") ?? "all"} onChange={(e) => setParam("type", e.target.value)} className={cls}>
         <option value="all">Все типы</option>
@@ -52,25 +70,10 @@ export default function TransactionsFilter({
         <option value="planned">Только план</option>
       </select>
 
-      <select value={sp.get("account") ?? "all"} onChange={(e) => setParam("account", e.target.value)} className={cls}>
-        <option value="all">Все счета</option>
-        {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-      </select>
-
-      <select value={sp.get("project") ?? "all"} onChange={(e) => setParam("project", e.target.value)} className={cls}>
-        <option value="all">Все проекты</option>
-        {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-      </select>
-
-      <select value={sp.get("counterparty") ?? "all"} onChange={(e) => setParam("counterparty", e.target.value)} className={cls}>
-        <option value="all">Все контрагенты</option>
-        {counterparties.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-      </select>
-
-      <select value={sp.get("category") ?? "all"} onChange={(e) => setParam("category", e.target.value)} className={cls}>
-        <option value="all">Все статьи</option>
-        {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-      </select>
+      <Combobox className="min-w-[150px]" value={sp.get("account") ?? ""} onChange={(v) => setParam("account", v)} options={toOpts(accounts)} placeholder="Все счета" emptyLabel="Все счета" />
+      <Combobox className="min-w-[150px]" value={sp.get("project") ?? ""} onChange={(v) => setParam("project", v)} options={toOpts(projects)} placeholder="Все проекты" emptyLabel="Все проекты" />
+      <Combobox className="min-w-[160px]" value={sp.get("counterparty") ?? ""} onChange={(v) => setParam("counterparty", v)} options={toOpts(counterparties)} placeholder="Все контрагенты" emptyLabel="Все контрагенты" />
+      <Combobox className="min-w-[150px]" value={sp.get("category") ?? ""} onChange={(v) => setParam("category", v)} options={toOpts(categories)} placeholder="Все статьи" emptyLabel="Все статьи" />
 
       <input
         value={q}
@@ -78,10 +81,10 @@ export default function TransactionsFilter({
         onKeyDown={(e) => { if (e.key === "Enter") setParam("q", q); }}
         onBlur={() => setParam("q", q)}
         placeholder="Поиск по описанию"
-        className={cls + " min-w-[180px]"}
+        className={cls + " min-w-[160px]"}
       />
 
-      {[...sp.keys()].some((k) => ["type", "status", "account", "project", "counterparty", "category", "q"].includes(k) && sp.get(k)) && (
+      {[...sp.keys()].some((k) => ["type", "status", "account", "project", "counterparty", "category", "q", "from", "to"].includes(k) && sp.get(k)) && (
         <button onClick={() => router.push("/transactions")} className="rounded-full px-3 py-1.5 text-sm text-slate-400 hover:text-brand">
           Сбросить
         </button>
