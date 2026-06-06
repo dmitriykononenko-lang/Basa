@@ -4,6 +4,7 @@ import { Fragment, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { formatDate, formatMoney } from "@/lib/format";
+import { toast } from "@/lib/toast";
 import Combobox, { type ComboOption } from "@/components/Combobox";
 import EditableTransactionRow, { type TxData } from "@/components/EditableTransactionRow";
 import type { Attachment } from "@/components/Attachments";
@@ -105,6 +106,7 @@ export default function OperationsTable({
     const { error: delErr } = await supabase.from("transactions").delete().in("id", [exp.id, inc.id]);
     setMergeBusy(false);
     if (delErr) return setErr(delErr.message);
+    toast.success("Объединено в перевод");
     router.refresh();
   }
 
@@ -124,6 +126,7 @@ export default function OperationsTable({
       if (delErr) { setMergeBusy(false); return setErr(delErr.message); }
     }
     setMergeBusy(false);
+    toast.success(`Создано переводов: ${transferCandidates.length}`);
     router.refresh();
   }
 
@@ -161,9 +164,10 @@ export default function OperationsTable({
     const supabase = createClient();
     const { error } = await supabase.from("transactions").update(patch).in("id", selected);
     setBusy(false);
-    if (error) return setErr(error.message);
+    if (error) { toast.error(error.message); return setErr(error.message); }
     setBCat(""); setBProj(""); setBCp(""); setBAcc(""); setBStatus("keep");
     clear();
+    toast.success(`Обновлено операций: ${selected.length}`);
     router.refresh();
   }
 
@@ -173,8 +177,9 @@ export default function OperationsTable({
     const supabase = createClient();
     const { error } = await supabase.from("transactions").delete().in("id", selected);
     setBusy(false);
-    if (error) return setErr(error.message);
+    if (error) { toast.error(error.message); return setErr(error.message); }
     clear();
+    toast.success("Операции удалены");
     router.refresh();
   }
 
@@ -202,6 +207,7 @@ export default function OperationsTable({
     setBusy(false);
     if (delErr) return setErr(delErr.message);
     clear();
+    toast.success("Создан перевод между счетами");
     router.refresh();
   }
 

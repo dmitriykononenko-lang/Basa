@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import OperationsTable from "@/components/OperationsTable";
+import Modal from "@/components/Modal";
 import type { TxData } from "@/components/EditableTransactionRow";
 
 export type DrillFilter = {
@@ -102,34 +103,25 @@ export default function DrilldownModal({
     return () => { cancelled = true; };
   }, [open, teamId, canEdit, JSON.stringify(filter)]);
 
-  if (!open) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 sm:p-8" onClick={onClose}>
-      <div
-        className="w-full max-w-5xl rounded-3xl bg-slate-50 p-5 shadow-2xl dark:bg-[#101116] sm:p-6"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="mb-4 flex items-start justify-between gap-3">
-          <h2 className="text-lg font-bold text-slate-900 dark:text-white">{title}</h2>
-          <button onClick={onClose} className="rounded-full px-2 text-xl text-slate-400 hover:text-slate-700 dark:hover:text-neutral-200">✕</button>
+    <Modal open={open} onClose={onClose} title={title} wide>
+      {loading ? (
+        <div className="flex items-center justify-center gap-2 py-10 text-sm text-slate-400">
+          <span className="spinner spinner-brand" /> Загружаем операции…
         </div>
-        {loading ? (
-          <p className="py-10 text-center text-sm text-slate-400">Загружаем операции…</p>
-        ) : items.length > 0 ? (
-          <OperationsTable
-            items={items}
-            accounts={refs.accounts}
-            categories={refs.categories}
-            counterparties={refs.counterparties}
-            projects={refs.projects}
-            teamId={teamId}
-            userId={userId}
-          />
-        ) : (
-          <p className="py-10 text-center text-sm text-slate-400">Операций нет.</p>
-        )}
-      </div>
-    </div>
+      ) : items.length > 0 ? (
+        <OperationsTable
+          items={items}
+          accounts={refs.accounts}
+          categories={refs.categories}
+          counterparties={refs.counterparties}
+          projects={refs.projects}
+          teamId={teamId}
+          userId={userId}
+        />
+      ) : (
+        <p className="py-10 text-center text-sm text-slate-400">Операций нет.</p>
+      )}
+    </Modal>
   );
 }

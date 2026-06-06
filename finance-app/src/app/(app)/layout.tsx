@@ -6,6 +6,9 @@ import SignOutButton from "@/components/SignOutButton";
 import Brand from "@/components/Brand";
 import ThemeToggle from "@/components/ThemeToggle";
 import NavProgress from "@/components/NavProgress";
+import Toaster from "@/components/Toaster";
+import CommandPalette from "@/components/CommandPalette";
+import CommandPaletteButton from "@/components/CommandPaletteButton";
 import { IconBell, IconChevronDown } from "@/components/icons";
 
 function initials(name: string) {
@@ -81,8 +84,13 @@ export default async function AppLayout({
             <Brand />
           </div>
 
-          <ThemeToggle />
+          <div className="flex items-center gap-2">
+            <CommandPaletteButton />
+            <ThemeToggle />
+          </div>
         </header>
+        <Toaster />
+        <CommandPalette />
 
         {/* Тело */}
         <div className="flex flex-1">

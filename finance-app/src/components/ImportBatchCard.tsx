@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { formatDate } from "@/lib/format";
+import { toast } from "@/lib/toast";
 
 export type Batch = {
   id: string;
@@ -26,7 +27,8 @@ export default function ImportBatchCard({ batch }: { batch: Batch }) {
     setError(null);
     const supabase = createClient();
     const { error } = await supabase.from("import_batches").delete().eq("id", batch.id);
-    if (error) { setError(error.message); setBusy(false); return; }
+    if (error) { setError(error.message); setBusy(false); toast.error(error.message); return; }
+    toast.success("Импорт отменён, операции удалены");
     router.refresh();
   }
 

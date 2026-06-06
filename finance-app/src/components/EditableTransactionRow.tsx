@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { formatMoney, formatDate, parseMoney } from "@/lib/format";
+import { toast } from "@/lib/toast";
 import Attachments, { type Attachment } from "@/components/Attachments";
 import Combobox, { type ComboOption } from "@/components/Combobox";
 
@@ -104,6 +105,7 @@ export default function EditableTransactionRow({
     }
     setEditing(false);
     setBusy(false);
+    toast.success("Изменения сохранены");
     router.refresh();
   }
 
@@ -120,6 +122,7 @@ export default function EditableTransactionRow({
       return;
     }
     setBusy(false);
+    toast.success("Операция проведена");
     router.refresh();
   }
 
@@ -134,6 +137,7 @@ export default function EditableTransactionRow({
       return;
     }
     setBusy(false);
+    toast.success("Операция удалена");
     router.refresh();
   }
 

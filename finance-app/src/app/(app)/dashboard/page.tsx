@@ -79,6 +79,18 @@ export default async function DashboardPage() {
     .select("account_id, currency, balance")
     .eq("team_id", team.id);
 
+  // Онбординг: сколько шагов пройдено
+  const [{ count: txCount }, { count: importCount }] = await Promise.all([
+    supabase.from("transactions").select("id", { count: "exact", head: true }).eq("team_id", team.id),
+    supabase.from("import_batches").select("id", { count: "exact", head: true }).eq("team_id", team.id),
+  ]);
+  const onboarding = [
+    { done: (accounts?.length ?? 0) > 0, label: "Создайте счёт", href: "/accounts" },
+    { done: (txCount ?? 0) > 0, label: "Добавьте первую операцию", href: "/transactions" },
+    { done: (importCount ?? 0) > 0, label: "Импортируйте банковскую выписку", href: "/transactions/import" },
+  ];
+  const onboardingDone = onboarding.every((s) => s.done);
+
   const balanceMap = new Map(
     (balances ?? []).map((b) => [b.account_id, b.balance])
   );
@@ -297,6 +309,37 @@ export default async function DashboardPage() {
   return (
     <div className="p-6 sm:p-8">
       {InvitesBlock}
+      {!onboardingDone && (
+        <div className="mb-6 rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-slate-800 dark:text-neutral-100">Быстрый старт</h2>
+            <span className="text-xs text-slate-400">
+              {onboarding.filter((s) => s.done).length} из {onboarding.length}
+            </span>
+          </div>
+          <div className="space-y-2">
+            {onboarding.map((s) => (
+              <Link
+                key={s.href}
+                href={s.href}
+                className={`flex items-center gap-3 rounded-2xl px-3 py-2.5 text-sm transition ${
+                  s.done
+                    ? "text-slate-400 dark:text-neutral-500"
+                    : "bg-slate-50 text-slate-700 hover:bg-slate-100 dark:bg-white/[0.03] dark:text-neutral-200 dark:hover:bg-white/[0.06]"
+                }`}
+              >
+                <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] ${
+                  s.done ? "bg-emerald-500 text-white" : "ring-1 ring-slate-300 dark:ring-white/20"
+                }`}>
+                  {s.done ? "✓" : ""}
+                </span>
+                <span className={s.done ? "line-through" : "font-medium"}>{s.label}</span>
+                {!s.done && <span className="ml-auto text-brand">→</span>}
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
       {transferWarnings.length > 0 && (
         <div className="mb-6 space-y-2">
           {transferWarnings.map((w) => (

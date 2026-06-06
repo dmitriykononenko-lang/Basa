@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canWriteTx, canEditFinance } from "@/lib/team";
 import AddTransactionForm from "@/components/AddTransactionForm";
 import TransactionsFilter from "@/components/TransactionsFilter";
+import EmptyState from "@/components/EmptyState";
 import ExportButton from "@/components/ExportButton";
 import OperationsTable from "@/components/OperationsTable";
 
@@ -194,9 +195,13 @@ export default async function TransactionsPage({
           userId={user?.id ?? ""}
         />
       ) : (
-        <p className="rounded-3xl bg-white p-6 text-sm text-slate-500 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:text-neutral-400 dark:ring-white/[0.07]">
-          Операций по фильтру нет.
-        </p>
+        <EmptyState
+          icon="🧾"
+          title="Операций пока нет"
+          description="Добавьте первую операцию кнопками выше или загрузите банковскую выписку — суммы и статьи подставятся автоматически."
+          ctaLabel="Импорт выписки"
+          ctaHref="/transactions/import"
+        />
       )}
     </div>
   );

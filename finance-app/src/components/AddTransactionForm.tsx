@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { parseMoney } from "@/lib/format";
+import { toast } from "@/lib/toast";
 import type { TxType } from "@/lib/types";
 
 type Account = { id: string; name: string; currency: string };
@@ -44,36 +45,45 @@ export default function AddTransactionForm({
   // локальные списки (чтобы можно было создавать «на лету»)
   const [cps, setCps] = useState<Named[]>(counterparties);
   const [projs, setProjs] = useState<Named[]>(projects);
+  // инлайн-добавление (без нативного prompt)
+  const [cpAdd, setCpAdd] = useState(false);
+  const [cpNew, setCpNew] = useState("");
+  const [prAdd, setPrAdd] = useState(false);
+  const [prNew, setPrNew] = useState("");
 
-  async function quickAddCounterparty() {
-    const name = prompt("Название контрагента");
-    if (!name?.trim()) return;
+  async function saveCounterparty() {
+    const name = cpNew.trim();
+    if (!name) return;
     const supabase = createClient();
     const { data, error } = await supabase
       .from("counterparties")
-      .insert({ team_id: teamId, name: name.trim(), kind: "other" })
+      .insert({ team_id: teamId, name, kind: "other" })
       .select("id, name")
       .single();
-    if (error) return setError(error.message);
+    if (error) return toast.error(error.message);
     if (data) {
       setCps((p) => [...p, data].sort((a, b) => a.name.localeCompare(b.name)));
       setCounterpartyId(data.id);
+      setCpAdd(false); setCpNew("");
+      toast.success("Контрагент добавлен");
     }
   }
 
-  async function quickAddProject() {
-    const name = prompt("Название проекта");
-    if (!name?.trim()) return;
+  async function saveProject() {
+    const name = prNew.trim();
+    if (!name) return;
     const supabase = createClient();
     const { data, error } = await supabase
       .from("projects")
-      .insert({ team_id: teamId, name: name.trim() })
+      .insert({ team_id: teamId, name })
       .select("id, name")
       .single();
-    if (error) return setError(error.message);
+    if (error) return toast.error(error.message);
     if (data) {
       setProjs((p) => [...p, data].sort((a, b) => a.name.localeCompare(b.name)));
       setProjectId(data.id);
+      setPrAdd(false); setPrNew("");
+      toast.success("Проект добавлен");
     }
   }
 
@@ -135,6 +145,7 @@ export default function AddTransactionForm({
     setAccrualDate("");
     setOpen(false);
     setLoading(false);
+    toast.success(planned ? "Плановая операция добавлена" : "Операция добавлена");
     router.refresh();
   }
 
@@ -263,44 +274,48 @@ export default function AddTransactionForm({
 
         {type !== "transfer" && (
           <Field label="Контрагент">
-            <div className="flex gap-1">
-              <select
-                value={counterpartyId}
-                onChange={(e) => setCounterpartyId(e.target.value)}
-                className="input"
-              >
-                <option value="">— не указан —</option>
-                {cps.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-              <button type="button" onClick={quickAddCounterparty} title="Новый контрагент" className="shrink-0 rounded-xl border border-slate-200 px-3 text-sm text-brand dark:border-white/10">
-                +
-              </button>
-            </div>
+            {cpAdd ? (
+              <div className="flex gap-1">
+                <input autoFocus value={cpNew} onChange={(e) => setCpNew(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); saveCounterparty(); } if (e.key === "Escape") setCpAdd(false); }}
+                  placeholder="Название контрагента" className="input" />
+                <button type="button" onClick={saveCounterparty} className="shrink-0 rounded-xl bg-brand px-3 text-sm font-medium text-white">OK</button>
+                <button type="button" onClick={() => setCpAdd(false)} className="shrink-0 rounded-xl px-2 text-sm text-slate-400">✕</button>
+              </div>
+            ) : (
+              <div className="flex gap-1">
+                <select value={counterpartyId} onChange={(e) => setCounterpartyId(e.target.value)} className="input">
+                  <option value="">— не указан —</option>
+                  {cps.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+                <button type="button" onClick={() => setCpAdd(true)} title="Новый контрагент" className="shrink-0 rounded-xl border border-slate-200 px-3 text-sm text-brand transition hover:bg-brand/5 dark:border-white/10">
+                  +
+                </button>
+              </div>
+            )}
           </Field>
         )}
 
         <Field label="Проект">
-          <div className="flex gap-1">
-            <select
-              value={projectId}
-              onChange={(e) => setProjectId(e.target.value)}
-              className="input"
-            >
-              <option value="">— без проекта —</option>
-              {projs.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-            <button type="button" onClick={quickAddProject} title="Новый проект" className="shrink-0 rounded-xl border border-slate-200 px-3 text-sm text-brand dark:border-white/10">
-              +
-            </button>
-          </div>
+          {prAdd ? (
+            <div className="flex gap-1">
+              <input autoFocus value={prNew} onChange={(e) => setPrNew(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); saveProject(); } if (e.key === "Escape") setPrAdd(false); }}
+                placeholder="Название проекта" className="input" />
+              <button type="button" onClick={saveProject} className="shrink-0 rounded-xl bg-brand px-3 text-sm font-medium text-white">OK</button>
+              <button type="button" onClick={() => setPrAdd(false)} className="shrink-0 rounded-xl px-2 text-sm text-slate-400">✕</button>
+            </div>
+          ) : (
+            <div className="flex gap-1">
+              <select value={projectId} onChange={(e) => setProjectId(e.target.value)} className="input">
+                <option value="">— без проекта —</option>
+                {projs.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+              <button type="button" onClick={() => setPrAdd(true)} title="Новый проект" className="shrink-0 rounded-xl border border-slate-200 px-3 text-sm text-brand transition hover:bg-brand/5 dark:border-white/10">
+                +
+              </button>
+            </div>
+          )}
         </Field>
 
         <Field label={type === "transfer" ? "Дата" : "Дата (платёж)"}>

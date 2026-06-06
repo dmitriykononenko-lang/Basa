@@ -15,6 +15,8 @@ import {
   IconCalendar,
   IconSettings,
   IconChevronDown,
+  IconWallet,
+  IconRepeat,
 } from "./icons";
 
 type Item = {
@@ -31,7 +33,7 @@ const NAV: Item[] = [
   { href: "/counterparties", label: "Контрагенты", Icon: IconCounterparties },
   { href: "/projects", label: "Проекты", Icon: IconProjects },
   { href: "/employees", label: "Сотрудники", Icon: IconEmployees },
-  { href: "/payroll", label: "Зарплата", Icon: IconEmployees },
+  { href: "/payroll", label: "Зарплата", Icon: IconWallet },
   { href: "/budgets", label: "Бюджеты", Icon: IconBudgets },
 ];
 
@@ -41,7 +43,7 @@ const ANALYTICS: Item[] = [
   { href: "/reports", label: "Анализ расходов", Icon: IconReports, exact: true },
   { href: "/debts", label: "Задолженности", Icon: IconDebts },
   { href: "/calendar", label: "Платёжный календарь", Icon: IconCalendar },
-  { href: "/recurring", label: "Регулярные операции", Icon: IconCalendar },
+  { href: "/recurring", label: "Регулярные операции", Icon: IconRepeat },
 ];
 
 const SETTINGS: Item = {

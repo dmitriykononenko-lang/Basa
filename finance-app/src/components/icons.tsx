@@ -148,3 +148,35 @@ export const IconLogout = (p: P) => (
     <path d="M10 4H6a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h4" />
   </svg>
 );
+
+export const IconWallet = (p: P) => (
+  <svg {...base} className={p.className}>
+    <path d="M3 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2H5a2 2 0 0 1-2-2z" />
+    <path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7H7" />
+    <circle cx="16.5" cy="13.5" r="1" />
+  </svg>
+);
+
+export const IconRepeat = (p: P) => (
+  <svg {...base} className={p.className}>
+    <path d="M17 2l3 3-3 3" />
+    <path d="M3 11V9a4 4 0 0 1 4-4h13" />
+    <path d="M7 22l-3-3 3-3" />
+    <path d="M21 13v2a4 4 0 0 1-4 4H4" />
+  </svg>
+);
+
+export const IconImport = (p: P) => (
+  <svg {...base} className={p.className}>
+    <path d="M12 3v12" />
+    <path d="m7 10 5 5 5-5" />
+    <path d="M5 21h14" />
+  </svg>
+);
+
+export const IconSearch = (p: P) => (
+  <svg {...base} className={p.className}>
+    <circle cx="11" cy="11" r="7" />
+    <path d="m21 21-3.5-3.5" />
+  </svg>
+);

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { parseMoney, formatMoney } from "@/lib/format";
+import { toast } from "@/lib/toast";
 
 type Account = { id: string; name: string; currency: string };
 type Named = { id: string; name: string };
@@ -158,6 +159,7 @@ export default function RecurringManager({
     }
     setBusy(false);
     setMsg(`Создано плановых операций: ${inserts.length}`);
+    toast.success(inserts.length ? `Создано плановых операций: ${inserts.length}` : "Новых операций нет — всё уже создано");
     router.refresh();
   }
 
