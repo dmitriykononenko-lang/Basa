@@ -60,7 +60,12 @@ export default async function EmployeePage({
     supabase.from("accounts").select("id, name, currency").eq("team_id", team.id).eq("archived", false).order("created_at"),
     supabase.from("employee_salaries").select("id, effective_from, amount, currency").eq("counterparty_id", id).order("effective_from", { ascending: false }),
   ]);
+  const { data: positions } = await supabase
+    .from("employee_positions").select("id, effective_from, position").eq("counterparty_id", id).order("effective_from", { ascending: false });
   const salaryRows = (salaries ?? []) as { id: string; effective_from: string; amount: number; currency: string }[];
+  const positionRows = (positions ?? []) as { id: string; effective_from: string; position: string }[];
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const currentPosition = positionRows.find((p) => p.effective_from <= todayStr)?.position ?? null;
 
   const rates = buildRateMap([], base); // курсы не критичны на карточке; суммы в валюте обязательства
   const projName = new Map((projects ?? []).map((p) => [p.id, p.name]));
@@ -100,7 +105,7 @@ export default async function EmployeePage({
         <div>
           <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">{emp.name}</h1>
           <p className="text-sm text-slate-500 dark:text-neutral-400">
-            {emp.employment_type ? EMPLOYMENT_TYPE_LABELS[emp.employment_type] ?? emp.employment_type : "Сотрудник"}
+            {currentPosition ?? (emp.employment_type ? EMPLOYMENT_TYPE_LABELS[emp.employment_type] ?? emp.employment_type : "Сотрудник")}
             {emp.department && ` · ${emp.department}`}
             {emp.start_date && ` · с ${formatDate(emp.start_date)}`}
             {emp.end_date && ` · уволен ${formatDate(emp.end_date)}`}
@@ -132,6 +137,7 @@ export default async function EmployeePage({
             counterpartyId={emp.id}
             defaultCurrency={emp.payout_currency ?? base}
             salaries={salaryRows}
+            positions={positionRows}
             endDate={emp.end_date ?? null}
             department={emp.department ?? null}
           />

@@ -74,10 +74,10 @@ export default async function CashflowPage() {
     const v = toBase(t.amount, t.currency, rates);
     if (t.type === "income") {
       incomeM[mi] += v;
-      bump(incomeCat, t.category?.id ?? null, t.category?.name ?? "Без статьи", mi, v);
+      bump(incomeCat, t.category?.id ?? null, t.category?.name ?? "Нераспределённые", mi, v);
     } else if (t.type === "expense") {
       expenseM[mi] += v;
-      bump(expenseCat, t.category?.id ?? null, t.category?.name ?? "Без статьи", mi, v);
+      bump(expenseCat, t.category?.id ?? null, t.category?.name ?? "Нераспределённые", mi, v);
     }
   }
 
@@ -125,6 +125,11 @@ export default async function CashflowPage() {
         userId={user?.id ?? ""}
         canEdit={canEditFinance(role)}
       />
+
+      <p className="mt-4 text-xs text-slate-400 dark:text-neutral-600">
+        Клик по сумме открывает операции этого месяца. Строка «Нераспределённые» —
+        операции без статьи: провалитесь в неё и проставьте статью прямо в списке.
+      </p>
     </div>
   );
 }

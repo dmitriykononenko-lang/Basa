@@ -9,6 +9,7 @@ export type DrillFilter = {
   dateFrom?: string;
   dateTo?: string;
   categoryId?: string;
+  uncategorized?: boolean; // операции без статьи (category_id IS NULL)
   projectId?: string;
   counterpartyId?: string;
   type?: "income" | "expense" | "transfer";
@@ -62,6 +63,7 @@ export default function DrilldownModal({
       if (filter.dateFrom) q = q.gte("occurred_on", filter.dateFrom);
       if (filter.dateTo) q = q.lte("occurred_on", filter.dateTo);
       if (filter.categoryId) q = q.eq("category_id", filter.categoryId);
+      if (filter.uncategorized) q = q.is("category_id", null);
       if (filter.projectId) q = q.eq("project_id", filter.projectId);
       if (filter.counterpartyId) q = q.eq("counterparty_id", filter.counterpartyId);
       if (filter.type) q = q.eq("type", filter.type);

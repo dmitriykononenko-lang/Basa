@@ -24,8 +24,12 @@ export default function PnlTable({
   const t = (k: string) => setOpen((o) => ({ ...o, [k]: !o[k] }));
 
   function openCat(cat: Cat, type: "income" | "expense") {
-    if (!cat.id) return;
-    setDrill({ title: cat.name, filter: { categoryId: cat.id, type, dateFrom, dateTo, status: "actual" } });
+    setDrill({
+      title: cat.name,
+      filter: cat.id
+        ? { categoryId: cat.id, type, dateFrom, dateTo, status: "actual" }
+        : { uncategorized: true, type, dateFrom, dateTo, status: "actual" },
+    });
   }
 
   return (
@@ -89,12 +93,11 @@ function Section({ label, value, bold, subtotal, accent, open, onClick, has }: {
 }
 
 function Item({ cat, value, onClick }: { cat: Cat; value: string; onClick: () => void }) {
-  const clickable = !!cat.id;
   return (
     <tr className="border-b border-slate-50 dark:border-white/[0.04]">
       <td
-        className={`px-5 py-2 pl-10 text-slate-500 dark:text-neutral-400 ${clickable ? "cursor-pointer hover:text-brand hover:underline" : ""}`}
-        onClick={clickable ? onClick : undefined}
+        className="cursor-pointer px-5 py-2 pl-10 text-slate-500 hover:text-brand hover:underline dark:text-neutral-400"
+        onClick={onClick}
       >
         {cat.name}
       </td>

@@ -37,11 +37,12 @@ export default function CashflowTable({
     return { from, to };
   }
   function openCat(cat: Cat, type: "income" | "expense", mi: number) {
-    if (!cat.id) return;
     const { from, to } = monthRange(mi);
     setDrill({
       title: `${cat.name} · ${monthLabels[mi]}`,
-      filter: { categoryId: cat.id, dateFrom: from, dateTo: to, type, status: "actual" },
+      filter: cat.id
+        ? { categoryId: cat.id, dateFrom: from, dateTo: to, type, status: "actual" }
+        : { uncategorized: true, dateFrom: from, dateTo: to, type, status: "actual" },
     });
   }
 
@@ -61,13 +62,13 @@ export default function CashflowTable({
               toggle={{ open: incOpen, onClick: () => setIncOpen((o) => !o), has: incomeCats.length > 0 }} />
             {incOpen && incomeCats.map((c) => (
               <CatRow key={"i" + (c.id ?? c.name)} cat={c} cell={cell} base={base}
-                onCell={c.id ? (mi) => openCat(c, "income", mi) : undefined} />
+                onCell={(mi) => openCat(c, "income", mi)} />
             ))}
             <Row label="Выплаты" values={expenseM.map((x) => -x)} bold accent="red" cell={cell} base={base}
               toggle={{ open: expOpen, onClick: () => setExpOpen((o) => !o), has: expenseCats.length > 0 }} />
             {expOpen && expenseCats.map((c) => (
               <CatRow key={"e" + (c.id ?? c.name)} cat={c} cell={cell} base={base} negate
-                onCell={c.id ? (mi) => openCat(c, "expense", mi) : undefined} />
+                onCell={(mi) => openCat(c, "expense", mi)} />
             ))}
             <Row label="Сальдо" values={saldoM} bold signed cell={cell} base={base} />
             <Row label="Деньги на конец периода" values={closing} bold muted cell={cell} base={base} />
