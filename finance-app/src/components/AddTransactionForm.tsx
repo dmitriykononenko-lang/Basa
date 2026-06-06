@@ -57,7 +57,7 @@ export default function AddTransactionForm({
     const supabase = createClient();
     const { data, error } = await supabase
       .from("counterparties")
-      .insert({ team_id: teamId, name, kind: "other" })
+      .insert({ team_id: teamId, name, kind: "other", kinds: ["other"] })
       .select("id, name")
       .single();
     if (error) return toast.error(error.message);

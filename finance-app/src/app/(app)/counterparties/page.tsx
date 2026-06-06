@@ -23,7 +23,7 @@ export default async function CounterpartiesPage() {
 
   const { data: items } = await supabase
     .from("counterparties")
-    .select("id, name, kind, inn, contact_person")
+    .select("id, name, kind, kinds, inn, contact_person")
     .eq("team_id", team.id)
     .eq("archived", false)
     .order("name");

@@ -10,9 +10,12 @@ type Item = {
   id: string;
   name: string;
   kind: string;
+  kinds: string[] | null;
   inn: string | null;
   contact_person: string | null;
 };
+
+const itemKinds = (c: Item): string[] => (c.kinds && c.kinds.length ? c.kinds : (c.kind ? [c.kind] : []));
 
 export default function CounterpartiesTable({ items, canManage }: { items: Item[]; canManage: boolean }) {
   const router = useRouter();
@@ -26,7 +29,7 @@ export default function CounterpartiesTable({ items, canManage }: { items: Item[
   const filtered = useMemo(() => {
     const ql = q.trim().toLowerCase();
     return items.filter((c) => {
-      if (kindFilter !== "all" && c.kind !== kindFilter) return false;
+      if (kindFilter !== "all" && !itemKinds(c).includes(kindFilter)) return false;
       if (ql && !(`${c.name} ${c.inn ?? ""}`.toLowerCase().includes(ql))) return false;
       return true;
     });
@@ -47,7 +50,7 @@ export default function CounterpartiesTable({ items, canManage }: { items: Item[
     if (!bulkKind || sel.size === 0) return;
     setBusy(true); setError(null);
     const supabase = createClient();
-    const { error } = await supabase.from("counterparties").update({ kind: bulkKind }).in("id", [...sel]);
+    const { error } = await supabase.from("counterparties").update({ kind: bulkKind, kinds: [bulkKind] }).in("id", [...sel]);
     setBusy(false);
     if (error) { setError(error.message); return; }
     setSel(new Set()); setBulkKind("");
@@ -129,8 +132,12 @@ export default function CounterpartiesTable({ items, canManage }: { items: Item[
                     <Link href={`/counterparties/${c.id}`} className="break-words text-slate-800 hover:text-brand dark:text-neutral-200">{c.name}</Link>
                   </td>
                   <td className="px-5 py-3">
-                    <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600 dark:bg-neutral-800 dark:text-neutral-300">
-                      {COUNTERPARTY_KIND_LABELS[c.kind] ?? c.kind}
+                    <span className="flex flex-wrap gap-1">
+                      {itemKinds(c).map((k) => (
+                        <span key={k} className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600 dark:bg-neutral-800 dark:text-neutral-300">
+                          {COUNTERPARTY_KIND_LABELS[k] ?? k}
+                        </span>
+                      ))}
                     </span>
                   </td>
                   <td className="px-5 py-3 text-slate-500 dark:text-neutral-400">{c.inn ?? "—"}</td>

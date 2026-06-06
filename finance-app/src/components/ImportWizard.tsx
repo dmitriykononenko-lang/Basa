@@ -386,7 +386,7 @@ export default function ImportWizard({
           }
         }
         if (uniq.size > 0) {
-          const payload = [...uniq.values()].map((c) => ({ team_id: teamId, name: c.name, inn: c.inn || null, kind: c.kind }));
+          const payload = [...uniq.values()].map((c) => ({ team_id: teamId, name: c.name, inn: c.inn || null, kind: c.kind, kinds: [c.kind] }));
           const { data: created, error: cErr } = await supabase.from("counterparties").insert(payload).select("id, name");
           if (cErr) { await supabase.from("import_batches").delete().eq("id", batchId); throw cErr; }
           createdCps = created?.length ?? 0;

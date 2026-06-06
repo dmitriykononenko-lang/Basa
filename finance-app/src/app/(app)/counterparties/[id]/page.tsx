@@ -24,16 +24,18 @@ export default async function CounterpartyPage({
 
   const { data: cp } = await supabase
     .from("counterparties")
-    .select("id, name, kind, inn, kpp, contact_person, phone, email, note, agent_id")
+    .select("id, name, kind, kinds, inn, kpp, contact_person, phone, email, note, agent_id")
     .eq("id", id)
     .maybeSingle();
 
   if (!cp) notFound();
 
+  const cpKinds: string[] = (cp.kinds && cp.kinds.length ? cp.kinds : (cp.kind ? [cp.kind] : [])) as string[];
+
   // Агенты (для выбора у клиента) и доходные статьи + правила/клиенты (для карточки агента)
-  const isAgent = cp.kind === "agent";
+  const isAgent = cpKinds.includes("agent");
   const [{ data: agents }, { data: incomeCats }, { data: rules }, { data: referredClients }, { data: agentCp }] = await Promise.all([
-    supabase.from("counterparties").select("id, name").eq("team_id", team.id).eq("kind", "agent").eq("archived", false).neq("id", id).order("name"),
+    supabase.from("counterparties").select("id, name").eq("team_id", team.id).contains("kinds", ["agent"]).eq("archived", false).neq("id", id).order("name"),
     isAgent ? supabase.from("categories").select("id, name").eq("team_id", team.id).eq("kind", "income").eq("archived", false).order("name") : Promise.resolve({ data: [] }),
     isAgent ? supabase.from("agent_commission_rules").select("id, category_id, percent").eq("agent_id", id) : Promise.resolve({ data: [] }),
     isAgent ? supabase.from("counterparties").select("id, name").eq("team_id", team.id).eq("agent_id", id).eq("archived", false).order("name") : Promise.resolve({ data: [] }),
@@ -96,7 +98,7 @@ export default async function CounterpartyPage({
           {cp.name}
         </h1>
         <p className="text-sm text-slate-500 dark:text-neutral-400">
-          {COUNTERPARTY_KIND_LABELS[cp.kind] ?? cp.kind}
+          {cpKinds.map((k) => COUNTERPARTY_KIND_LABELS[k] ?? k).join(" · ") || "—"}
           {agentName && <> · агент: <b>{agentName}</b></>}
         </p>
       </header>
@@ -122,6 +124,7 @@ export default async function CounterpartyPage({
                 id: cp.id,
                 name: cp.name ?? "",
                 kind: cp.kind ?? "client",
+                kinds: cpKinds,
                 inn: cp.inn ?? "",
                 kpp: cp.kpp ?? "",
                 contact_person: cp.contact_person ?? "",

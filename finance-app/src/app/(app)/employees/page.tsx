@@ -30,7 +30,7 @@ export default async function EmployeesPage() {
       .from("counterparties")
       .select("id, name, employment_type, payout_currency, department, end_date")
       .eq("team_id", team.id)
-      .eq("kind", "employee")
+      .contains("kinds", ["employee"])
       .eq("archived", false)
       .order("name"),
     supabase

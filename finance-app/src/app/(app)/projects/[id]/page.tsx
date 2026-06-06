@@ -29,7 +29,7 @@ export default async function ProjectPage({
     .from("counterparties")
     .select("id, name")
     .eq("team_id", team.id)
-    .eq("kind", "employee")
+    .contains("kinds", ["employee"])
     .eq("archived", false)
     .order("name");
   const responsibleName =

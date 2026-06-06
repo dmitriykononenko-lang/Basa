@@ -8,9 +8,9 @@ import { COUNTERPARTY_KINDS } from "@/lib/constants";
 export default function AddCounterpartyForm({ teamId, defaultKind = "client" }: { teamId: string; defaultKind?: string }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [kinds, setKinds] = useState<string[]>([defaultKind]);
   const [form, setForm] = useState({
     name: "",
-    kind: defaultKind,
     inn: "",
     kpp: "",
     contact_person: "",
@@ -24,9 +24,13 @@ export default function AddCounterpartyForm({ teamId, defaultKind = "client" }: 
   function upd(k: string, v: string) {
     setForm((f) => ({ ...f, [k]: v }));
   }
+  function toggleKind(k: string) {
+    setKinds((prev) => (prev.includes(k) ? prev.filter((x) => x !== k) : [...prev, k]));
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (kinds.length === 0) return setError("Выберите хотя бы один статус");
     setLoading(true);
     setError(null);
 
@@ -34,7 +38,8 @@ export default function AddCounterpartyForm({ teamId, defaultKind = "client" }: 
     const { error } = await supabase.from("counterparties").insert({
       team_id: teamId,
       name: form.name,
-      kind: form.kind,
+      kind: kinds[0],
+      kinds,
       inn: form.inn || null,
       kpp: form.kpp || null,
       contact_person: form.contact_person || null,
@@ -48,7 +53,8 @@ export default function AddCounterpartyForm({ teamId, defaultKind = "client" }: 
       setLoading(false);
       return;
     }
-    setForm({ name: "", kind: defaultKind, inn: "", kpp: "", contact_person: "", phone: "", email: "", note: "" });
+    setForm({ name: "", inn: "", kpp: "", contact_person: "", phone: "", email: "", note: "" });
+    setKinds([defaultKind]);
     setOpen(false);
     setLoading(false);
     router.refresh();
@@ -71,13 +77,17 @@ export default function AddCounterpartyForm({ teamId, defaultKind = "client" }: 
         <F label="Название">
           <input required autoFocus value={form.name} onChange={(e) => upd("name", e.target.value)} placeholder="ООО «Ромашка»" className="input" />
         </F>
-        <F label="Тип">
-          <select value={form.kind} onChange={(e) => upd("kind", e.target.value)} className="input">
+        <div className="sm:col-span-2 lg:col-span-3">
+          <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Статусы (можно несколько)</label>
+          <div className="flex flex-wrap gap-2">
             {COUNTERPARTY_KINDS.map((k) => (
-              <option key={k.value} value={k.value}>{k.label}</option>
+              <button key={k.value} type="button" onClick={() => toggleKind(k.value)}
+                className={`rounded-full px-3 py-1.5 text-sm ${kinds.includes(k.value) ? "bg-brand text-white" : "bg-slate-100 text-slate-600 dark:bg-neutral-800 dark:text-neutral-300"}`}>
+                {k.label}
+              </button>
             ))}
-          </select>
-        </F>
+          </div>
+        </div>
         <F label="ИНН">
           <input value={form.inn} onChange={(e) => upd("inn", e.target.value)} placeholder="7700000000" className="input" />
         </F>

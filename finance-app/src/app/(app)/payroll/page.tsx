@@ -49,7 +49,7 @@ export default async function PayrollPage({
   const startStr = `${start.y}-${String(start.m + 1).padStart(2, "0")}-01`;
 
   const [{ data: employees }, { data: obls }, { data: fxRows }] = await Promise.all([
-    supabase.from("counterparties").select("id, name, department").eq("team_id", team.id).eq("kind", "employee").eq("archived", false).order("name"),
+    supabase.from("counterparties").select("id, name, department").eq("team_id", team.id).contains("kinds", ["employee"]).eq("archived", false).order("name"),
     supabase.from("obligation_balances").select("counterparty_id, amount, paid, outstanding, currency, pay_part, period_month").eq("team_id", team.id).eq("type", "payable").gte("period_month", startStr),
     supabase.from("fx_rates").select("currency, rate, rate_date").eq("team_id", team.id),
   ]);

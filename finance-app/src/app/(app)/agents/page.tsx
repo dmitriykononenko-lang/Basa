@@ -21,7 +21,7 @@ export default async function AgentsPage() {
   const supabase = await createClient();
 
   const [{ data: agents }, { data: bals }, { data: clients }, { data: fxRows }] = await Promise.all([
-    supabase.from("counterparties").select("id, name").eq("team_id", team.id).eq("kind", "agent").eq("archived", false).order("name"),
+    supabase.from("counterparties").select("id, name").eq("team_id", team.id).contains("kinds", ["agent"]).eq("archived", false).order("name"),
     supabase.from("obligation_balances").select("counterparty_id, amount, paid, outstanding, currency").eq("team_id", team.id).eq("type", "payable"),
     supabase.from("counterparties").select("agent_id").eq("team_id", team.id).eq("archived", false).not("agent_id", "is", null),
     supabase.from("fx_rates").select("currency, rate, rate_date").eq("team_id", team.id),
