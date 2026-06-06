@@ -15,9 +15,12 @@ export type CounterpartyEdit = {
   phone: string;
   email: string;
   note: string;
+  agent_id: string;
 };
 
-export default function EditCounterpartyForm({ initial }: { initial: CounterpartyEdit }) {
+type Agent = { id: string; name: string };
+
+export default function EditCounterpartyForm({ initial, agents = [] }: { initial: CounterpartyEdit; agents?: Agent[] }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [c, setC] = useState<CounterpartyEdit>(initial);
@@ -43,6 +46,7 @@ export default function EditCounterpartyForm({ initial }: { initial: Counterpart
         phone: c.phone || null,
         email: c.email || null,
         note: c.note || null,
+        agent_id: c.kind === "agent" ? null : (c.agent_id || null),
       })
       .eq("id", c.id);
     if (error) {
@@ -77,6 +81,14 @@ export default function EditCounterpartyForm({ initial }: { initial: Counterpart
         <F label="Контактное лицо"><input value={c.contact_person} onChange={(e) => upd("contact_person", e.target.value)} className="input" /></F>
         <F label="Телефон"><input value={c.phone} onChange={(e) => upd("phone", e.target.value)} className="input" /></F>
         <F label="Email"><input value={c.email} onChange={(e) => upd("email", e.target.value)} className="input" /></F>
+        {c.kind !== "agent" && c.kind !== "employee" && (
+          <F label="Пришёл от агента">
+            <select value={c.agent_id} onChange={(e) => upd("agent_id", e.target.value)} className="input">
+              <option value="">— нет —</option>
+              {agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+          </F>
+        )}
         <div className="sm:col-span-2"><F label="Заметка"><input value={c.note} onChange={(e) => upd("note", e.target.value)} className="input" /></F></div>
       </div>
       {error && <p className="text-sm text-red-600">{error}</p>}

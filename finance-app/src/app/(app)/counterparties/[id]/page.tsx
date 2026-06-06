@@ -6,6 +6,7 @@ import { formatMoney, formatDate } from "@/lib/format";
 import { buildRateMap, toBase } from "@/lib/fx";
 import { COUNTERPARTY_KIND_LABELS } from "@/lib/constants";
 import EditCounterpartyForm from "@/components/EditCounterpartyForm";
+import AgentCommissionRules, { type Rule } from "@/components/AgentCommissionRules";
 
 export default async function CounterpartyPage({
   params,
@@ -19,14 +20,26 @@ export default async function CounterpartyPage({
   const manage = canEditFinance(role);
   const base = team.base_currency;
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
 
   const { data: cp } = await supabase
     .from("counterparties")
-    .select("id, name, kind, inn, kpp, contact_person, phone, email, note")
+    .select("id, name, kind, inn, kpp, contact_person, phone, email, note, agent_id")
     .eq("id", id)
     .maybeSingle();
 
   if (!cp) notFound();
+
+  // Агенты (для выбора у клиента) и доходные статьи + правила/клиенты (для карточки агента)
+  const isAgent = cp.kind === "agent";
+  const [{ data: agents }, { data: incomeCats }, { data: rules }, { data: referredClients }, { data: agentCp }] = await Promise.all([
+    supabase.from("counterparties").select("id, name").eq("team_id", team.id).eq("kind", "agent").eq("archived", false).neq("id", id).order("name"),
+    isAgent ? supabase.from("categories").select("id, name").eq("team_id", team.id).eq("kind", "income").eq("archived", false).order("name") : Promise.resolve({ data: [] }),
+    isAgent ? supabase.from("agent_commission_rules").select("id, category_id, percent").eq("agent_id", id) : Promise.resolve({ data: [] }),
+    isAgent ? supabase.from("counterparties").select("id, name").eq("team_id", team.id).eq("agent_id", id).eq("archived", false).order("name") : Promise.resolve({ data: [] }),
+    cp.agent_id ? supabase.from("counterparties").select("id, name").eq("id", cp.agent_id).maybeSingle() : Promise.resolve({ data: null }),
+  ]);
+  const agentName = (agentCp as { name: string } | null)?.name ?? null;
 
   const [{ data: txs }, { data: obls }, { data: fxRows }] = await Promise.all([
     supabase
@@ -84,6 +97,7 @@ export default async function CounterpartyPage({
         </h1>
         <p className="text-sm text-slate-500 dark:text-neutral-400">
           {COUNTERPARTY_KIND_LABELS[cp.kind] ?? cp.kind}
+          {agentName && <> · агент: <b>{agentName}</b></>}
         </p>
       </header>
 
@@ -103,6 +117,7 @@ export default async function CounterpartyPage({
           </dl>
           {manage && (
             <EditCounterpartyForm
+              agents={agents ?? []}
               initial={{
                 id: cp.id,
                 name: cp.name ?? "",
@@ -113,6 +128,7 @@ export default async function CounterpartyPage({
                 phone: cp.phone ?? "",
                 email: cp.email ?? "",
                 note: cp.note ?? "",
+                agent_id: cp.agent_id ?? "",
               }}
             />
           )}
@@ -126,6 +142,37 @@ export default async function CounterpartyPage({
           <Stat title="Мы должны" value={formatMoney(payable, base)} accent="red" />
         </div>
       </div>
+
+      {/* Агент: ставки комиссии и клиенты */}
+      {isAgent && (
+        <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {manage && user ? (
+            <AgentCommissionRules
+              teamId={team.id}
+              userId={user.id}
+              agentId={cp.id}
+              rules={(rules ?? []) as Rule[]}
+              incomeCategories={(incomeCats ?? []) as { id: string; name: string }[]}
+            />
+          ) : <div />}
+          <section className="rounded-3xl bg-white p-6 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
+            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">
+              Клиенты от агента
+            </h2>
+            {(referredClients ?? []).length > 0 ? (
+              <ul className="space-y-1.5 text-sm">
+                {(referredClients ?? []).map((rc) => (
+                  <li key={rc.id}>
+                    <Link href={`/counterparties/${rc.id}`} className="text-slate-700 hover:text-brand dark:text-neutral-300">{rc.name}</Link>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-slate-400">Пока нет клиентов, привязанных к этому агенту.</p>
+            )}
+          </section>
+        </div>
+      )}
 
       {/* Операции */}
       <section className="mt-6">
