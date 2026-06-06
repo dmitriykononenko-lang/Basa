@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canWriteTx } from "@/lib/team";
 import ImportWizard from "@/components/ImportWizard";
 import ImportBatchCard, { type Batch } from "@/components/ImportBatchCard";
+import CategoryRulesManager, { type Rule } from "@/components/CategoryRulesManager";
 
 export default async function ImportPage() {
   const current = await getCurrentTeam();
@@ -29,16 +30,18 @@ export default async function ImportPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
-  const [{ data: accounts }, { data: categories }, { data: counterparties }, { data: projects }, { data: batches }] = await Promise.all([
+  const [{ data: accounts }, { data: categories }, { data: counterparties }, { data: projects }, { data: batches }, { data: rules }] = await Promise.all([
     supabase.from("accounts").select("id, name, currency").eq("team_id", team.id).eq("archived", false).order("created_at"),
     supabase.from("categories").select("id, name, kind").eq("team_id", team.id).eq("archived", false).order("name"),
     supabase.from("counterparties").select("id, name").eq("team_id", team.id).eq("archived", false).order("name"),
     supabase.from("projects").select("id, name").eq("team_id", team.id).eq("archived", false).order("name"),
     supabase.from("import_batches").select("id, file_name, created_at, row_count, status, bank, account:accounts(name)").eq("team_id", team.id).order("created_at", { ascending: false }).limit(50),
+    supabase.from("category_rules").select("id, match_field, pattern, category_id, project_id").eq("team_id", team.id).eq("active", true).order("priority", { ascending: false }),
   ]);
 
   const cats = (categories ?? []) as { id: string; name: string; kind: "income" | "expense" }[];
   const batchList = (batches ?? []) as unknown as Batch[];
+  const ruleList = (rules ?? []) as Rule[];
 
   return (
     <div className="p-6 sm:p-8">
@@ -59,9 +62,22 @@ export default async function ImportPage() {
             categories={cats}
             counterparties={counterparties ?? []}
             projects={projects ?? []}
+            rules={ruleList}
           />
         )}
       </div>
+
+      {user && (
+        <div className="mb-6">
+          <CategoryRulesManager
+            teamId={team.id}
+            userId={user.id}
+            rules={ruleList}
+            categories={cats}
+            projects={projects ?? []}
+          />
+        </div>
+      )}
 
       <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">
         История импортов

@@ -15,6 +15,7 @@ import {
 type Account = { id: string; name: string; currency: string };
 type Named = { id: string; name: string };
 type Category = { id: string; name: string; kind: "income" | "expense" };
+export type CategoryRule = { id: string; match_field: string; pattern: string; category_id: string | null; project_id: string | null };
 
 type Resolved = {
   line: number;
@@ -43,7 +44,7 @@ function daysBetween(a: string, b: string) {
 }
 
 export default function ImportWizard({
-  teamId, userId, accounts: initialAccounts, categories, counterparties, projects,
+  teamId, userId, accounts: initialAccounts, categories, counterparties, projects, rules = [],
 }: {
   teamId: string;
   userId: string;
@@ -51,6 +52,7 @@ export default function ImportWizard({
   categories: Category[];
   counterparties: Named[];
   projects: Named[];
+  rules?: CategoryRule[];
 }) {
   const router = useRouter();
   const [accounts, setAccounts] = useState<Account[]>(initialAccounts);
@@ -79,6 +81,7 @@ export default function ImportWizard({
   const cpByName = useMemo(() => new Map(counterparties.map((c) => [c.name.toLowerCase(), c.id])), [counterparties]);
   const prByName = useMemo(() => new Map(projects.map((p) => [p.name.toLowerCase(), p.id])), [projects]);
   const catByKey = useMemo(() => new Map(categories.map((c) => [c.kind + "|" + c.name.toLowerCase(), c.id])), [categories]);
+  const catKindById = useMemo(() => new Map(categories.map((c) => [c.id, c.kind])), [categories]);
   const accByLowerName = useMemo(() => new Map(accounts.map((a) => [a.name.toLowerCase(), a])), [accounts]);
 
   function reset() {
@@ -260,21 +263,40 @@ export default function ImportWizard({
         continue;
       }
 
+      // Категория/проект: сначала по имени, затем по правилам авто-категоризации
+      let categoryId = catName ? catByKey.get(ta.type + "|" + catName) ?? null : null;
+      let projectId = prName ? prByName.get(prName) ?? null : null;
+      if (!categoryId && rules.length) {
+        const rawCp = mapping.counterparty >= 0 ? (r[mapping.counterparty] ?? "") : "";
+        const rawNote = note ?? "";
+        for (const rule of rules) {
+          if (!rule.category_id) continue;
+          const kind = catKindById.get(rule.category_id);
+          if (kind && kind !== ta.type) continue;
+          const hay = (rule.match_field === "counterparty" ? rawCp : rule.match_field === "note" ? rawNote : rawCp + " " + rawNote).toLowerCase();
+          if (rule.pattern && hay.includes(rule.pattern.toLowerCase())) {
+            categoryId = rule.category_id;
+            if (!projectId) projectId = rule.project_id;
+            break;
+          }
+        }
+      }
+
       out.push({
         line, status: "ok", date, typeLabel: ta.type === "income" ? "Приход" : "Расход",
         amount: ta.amount, currency: cur, accountName: account.name, categoryName: catLabel,
         insert: {
           team_id: teamId, type: ta.type, amount: ta.amount, currency: cur, account_id: account.id,
-          category_id: catName ? catByKey.get(ta.type + "|" + catName) ?? null : null,
+          category_id: categoryId,
           counterparty_id: cpName ? cpByName.get(cpName) ?? null : null,
-          project_id: prName ? prByName.get(prName) ?? null : null,
+          project_id: projectId,
           occurred_on: date, note, status: "actual", created_by: userId,
         },
       });
     }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, rows, mapping, typeMode, account, existing, mergeTransfers]);
+  }, [step, rows, mapping, typeMode, account, existing, mergeTransfers, rules]);
 
   const counts = useMemo(() => {
     const c = { ok: 0, transfer: 0, dup: 0, error: 0 };
