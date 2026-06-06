@@ -24,6 +24,8 @@ type Resolved = {
   insert?: Record<string, unknown>;
   reconcileId?: string; // существующая операция → превратить в перевод, строку не вставлять
   cpCreate?: { name: string; inn: string; kind: string }; // контрагента нет в базе — создать при коммите
+  cpDisplay?: string; // распознанный контрагент (для превью)
+  cpMatched?: boolean; // найден в базе
   date: string;
   typeLabel: string;
   amount: number;
@@ -306,8 +308,8 @@ export default function ImportWizard({
       out.push({
         line, status: "ok", date, typeLabel: ta.type === "income" ? "Приход" : "Расход",
         amount: ta.amount, currency: cur, accountName: account.name,
-        categoryName: catLabel || cpName2,
-        cpCreate,
+        categoryName: catLabel,
+        cpCreate, cpDisplay: cpName2 || undefined, cpMatched: !!cpId,
         insert: {
           team_id: teamId, type: ta.type, amount: ta.amount, currency: cur, account_id: account.id,
           category_id: categoryId,
@@ -501,10 +503,26 @@ export default function ImportWizard({
             )}
             {typeMode === "column" && <FieldRow k="typeCol" mapping={mapping} setField={setField} opts={headerOpts} />}
             <FieldRow k="currency" mapping={mapping} setField={setField} opts={headerOpts} />
-            <FieldRow k="counterparty" mapping={mapping} setField={setField} opts={headerOpts} />
             <FieldRow k="category" mapping={mapping} setField={setField} opts={headerOpts} />
             <FieldRow k="project" mapping={mapping} setField={setField} opts={headerOpts} />
             <FieldRow k="note" mapping={mapping} setField={setField} opts={headerOpts} />
+          </div>
+
+          {/* Контрагент: одна колонка ИЛИ раздельные плательщик/получатель */}
+          <div className="rounded-2xl bg-slate-50 p-3 dark:bg-white/[0.03]">
+            <div className="mb-1 text-xs font-medium text-slate-600 dark:text-neutral-300">Контрагент</div>
+            <p className="mb-2 text-xs text-slate-400 dark:text-neutral-500">
+              Если в выписке одна колонка контрагента — укажите её. Если раздельные «плательщик»
+              и «получатель» (Точка/1С) — укажите обе: для прихода берётся плательщик, для расхода — получатель.
+              Сопоставление по названию и ИНН.
+            </p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <FieldRow k="counterparty" mapping={mapping} setField={setField} opts={headerOpts} />
+              <FieldRow k="payer" mapping={mapping} setField={setField} opts={headerOpts} />
+              <FieldRow k="receiver" mapping={mapping} setField={setField} opts={headerOpts} />
+              <FieldRow k="payerInn" mapping={mapping} setField={setField} opts={headerOpts} />
+              <FieldRow k="receiverInn" mapping={mapping} setField={setField} opts={headerOpts} />
+            </div>
           </div>
 
           <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-neutral-300">
@@ -550,7 +568,8 @@ export default function ImportWizard({
                   <th className="px-3 py-2 text-left font-medium">Дата</th>
                   <th className="px-3 py-2 text-left font-medium">Тип</th>
                   <th className="px-3 py-2 text-right font-medium">Сумма</th>
-                  <th className="px-3 py-2 text-left font-medium">Статья / счёт</th>
+                  <th className="px-3 py-2 text-left font-medium">Контрагент</th>
+                  <th className="px-3 py-2 text-left font-medium">Статья</th>
                   <th className="px-3 py-2 text-left font-medium">Статус</th>
                 </tr>
               </thead>
@@ -560,6 +579,20 @@ export default function ImportWizard({
                     <td className="px-3 py-1.5">{r.date}</td>
                     <td className="px-3 py-1.5">{r.typeLabel}</td>
                     <td className="px-3 py-1.5 text-right tabular-nums">{r.amount ? formatMoney(r.amount, r.currency) : "—"}</td>
+                    <td className="px-3 py-1.5 text-slate-500">
+                      {r.cpDisplay ? (
+                        <span className="inline-flex items-center gap-1">
+                          <span className="max-w-[180px] truncate" title={r.cpDisplay}>{r.cpDisplay}</span>
+                          {r.cpMatched ? (
+                            <span className="text-emerald-500" title="Найден в базе">✓</span>
+                          ) : r.cpCreate ? (
+                            <span className="rounded bg-brand/10 px-1 text-[10px] text-brand">новый</span>
+                          ) : (
+                            <span className="text-amber-500" title="Не сопоставлен — будет без контрагента (включите создание)">!</span>
+                          )}
+                        </span>
+                      ) : "—"}
+                    </td>
                     <td className="px-3 py-1.5 text-slate-500">{r.categoryName || "—"}</td>
                     <td className="px-3 py-1.5">
                       <StatusChip status={r.status} reason={r.reason} />

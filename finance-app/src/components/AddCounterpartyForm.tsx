@@ -5,12 +5,12 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { COUNTERPARTY_KINDS } from "@/lib/constants";
 
-export default function AddCounterpartyForm({ teamId }: { teamId: string }) {
+export default function AddCounterpartyForm({ teamId, defaultKind = "client" }: { teamId: string; defaultKind?: string }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({
     name: "",
-    kind: "client",
+    kind: defaultKind,
     inn: "",
     kpp: "",
     contact_person: "",
@@ -48,7 +48,7 @@ export default function AddCounterpartyForm({ teamId }: { teamId: string }) {
       setLoading(false);
       return;
     }
-    setForm({ name: "", kind: "client", inn: "", kpp: "", contact_person: "", phone: "", email: "", note: "" });
+    setForm({ name: "", kind: defaultKind, inn: "", kpp: "", contact_person: "", phone: "", email: "", note: "" });
     setOpen(false);
     setLoading(false);
     router.refresh();
@@ -57,7 +57,7 @@ export default function AddCounterpartyForm({ teamId }: { teamId: string }) {
   if (!open) {
     return (
       <button onClick={() => setOpen(true)} className="btn-primary">
-        + Добавить контрагента
+        + Добавить {defaultKind === "agent" ? "агента" : "контрагента"}
       </button>
     );
   }
