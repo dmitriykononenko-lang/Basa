@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { formatMoney, formatDate } from "@/lib/format";
@@ -16,6 +16,7 @@ type P = {
   note: string | null;
   account_id: string | null;
   transfer_account_id: string | null;
+  counterparty_id: string | null;
   accountName: string | null;
   toAccountName: string | null;
   categoryName: string | null;
@@ -25,11 +26,11 @@ type P = {
 
 type ActualRow = {
   id: string; account_id: string | null; transfer_account_id: string | null;
-  type: string; amount: number; occurred_on: string;
+  counterparty_id: string | null; type: string; amount: number; occurred_on: string;
 };
 
 const SELECT =
-  `id, type, amount, currency, occurred_on, note, account_id, transfer_account_id,
+  `id, type, amount, currency, occurred_on, note, account_id, transfer_account_id, counterparty_id,
    account:accounts!transactions_account_id_fkey(name),
    to_account:accounts!transactions_transfer_account_id_fkey(name),
    category:categories(name), counterparty:counterparties(name), project:projects(name)`;
@@ -39,14 +40,14 @@ function daysBetween(a: string, b: string) {
 }
 
 export default function PlannedReview({
-  teamId, userId, count, variant = "card",
+  teamId, count, variant = "card",
 }: {
   teamId: string;
-  userId: string;
   count: number;
   variant?: "card" | "button";
 }) {
   const router = useRouter();
+  const changedRef = useRef(false);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [queue, setQueue] = useState<P[]>([]);
@@ -64,6 +65,7 @@ export default function PlannedReview({
     let cancelled = false;
     setLoading(true); setIdx(0); setDone(false);
     setStats({ confirmed: 0, conducted: 0, deleted: 0 }); setAutoClosed(0);
+    changedRef.current = false;
     (async () => {
       const supabase = createClient();
       const { data: pl } = await supabase
@@ -75,7 +77,7 @@ export default function PlannedReview({
         category: { name: string } | null; counterparty: { name: string } | null; project: { name: string } | null;
       }>).map((t) => ({
         id: t.id, type: t.type, amount: t.amount, currency: t.currency, occurred_on: t.occurred_on, note: t.note,
-        account_id: t.account_id, transfer_account_id: t.transfer_account_id,
+        account_id: t.account_id, transfer_account_id: t.transfer_account_id, counterparty_id: t.counterparty_id,
         accountName: t.account?.name ?? null, toAccountName: t.to_account?.name ?? null,
         categoryName: t.category?.name ?? null, counterpartyName: t.counterparty?.name ?? null, projectName: t.project?.name ?? null,
       })) as P[];
@@ -87,12 +89,14 @@ export default function PlannedReview({
         const lo = new Date(new Date(dates[0]).getTime() - 5 * 86400000).toISOString().slice(0, 10);
         const hi = new Date(new Date(dates[dates.length - 1]).getTime() + 5 * 86400000).toISOString().slice(0, 10);
         const { data } = await supabase
-          .from("transactions").select("id, account_id, transfer_account_id, type, amount, occurred_on")
+          .from("transactions").select("id, account_id, transfer_account_id, counterparty_id, type, amount, occurred_on")
           .eq("team_id", teamId).eq("status", "actual").gte("occurred_on", lo).lte("occurred_on", hi);
         actuals = (data ?? []) as ActualRow[];
       }
 
-      // Авто-склейка: плановая, по которой уже есть факт → закрываем плановую
+      // Авто-склейка: плановая, по которой уже есть факт → закрываем плановую.
+      // Сопоставляем по счёту, типу, сумме, дате ±5 дней И контрагенту (если он задан с обеих сторон),
+      // чтобы не склеить два разных платежа на одну сумму от РАЗНЫХ контрагентов.
       const usedActual = new Set<string>();
       const toClose: string[] = [];
       const remaining: P[] = [];
@@ -100,13 +104,18 @@ export default function PlannedReview({
         const m = actuals.find((a) =>
           !usedActual.has(a.id) && a.type === p.type && a.amount === p.amount && a.account_id === p.account_id &&
           (p.type !== "transfer" || a.transfer_account_id === p.transfer_account_id) &&
+          (p.counterparty_id == null || a.counterparty_id == null || a.counterparty_id === p.counterparty_id) &&
           daysBetween(a.occurred_on, p.occurred_on) <= 5
         );
         if (m) { usedActual.add(m.id); toClose.push(p.id); }
         else remaining.push(p);
       }
-      if (toClose.length > 0) await supabase.from("transactions").delete().in("id", toClose);
+      // Если окно закрыли во время загрузки — не мутируем данные
       if (cancelled) return;
+      if (toClose.length > 0) {
+        await supabase.from("transactions").delete().in("id", toClose);
+        changedRef.current = true;
+      }
       setAutoClosed(toClose.length);
       setQueue(remaining);
       setEditDate(remaining[0]?.occurred_on ?? "");
@@ -118,19 +127,27 @@ export default function PlannedReview({
   }, [open, teamId]);
 
   const cur = queue[idx];
+  const dateChanged = !!cur && !!editDate && editDate !== cur.occurred_on;
 
   function advance() {
     if (idx + 1 >= queue.length) { setDone(true); router.refresh(); }
     else { const n = idx + 1; setIdx(n); setEditDate(queue[n].occurred_on); }
   }
 
+  // Закрытие: если что-то меняли, обновляем серверные данные (дашборд/балансы/счётчик)
+  function handleClose() {
+    setOpen(false);
+    if (changedRef.current) router.refresh();
+  }
+
   async function confirmDate() {
     if (!cur) return;
     setBusy(true);
-    if (editDate && editDate !== cur.occurred_on) {
+    if (dateChanged) {
       const supabase = createClient();
       const { error } = await supabase.from("transactions").update({ occurred_on: editDate }).eq("id", cur.id);
       if (error) { setBusy(false); return toast.error(error.message); }
+      changedRef.current = true;
     }
     setStats((s) => ({ ...s, confirmed: s.confirmed + 1 }));
     setBusy(false);
@@ -144,6 +161,7 @@ export default function PlannedReview({
     const { error } = await supabase.from("transactions")
       .update({ status: "actual", occurred_on: editDate || cur.occurred_on }).eq("id", cur.id);
     if (error) { setBusy(false); return toast.error(error.message); }
+    changedRef.current = true;
     setStats((s) => ({ ...s, conducted: s.conducted + 1 }));
     setBusy(false);
     toast.success("Операция проведена");
@@ -156,6 +174,7 @@ export default function PlannedReview({
     const supabase = createClient();
     const { error } = await supabase.from("transactions").delete().eq("id", cur.id);
     if (error) { setBusy(false); return toast.error(error.message); }
+    changedRef.current = true;
     setStats((s) => ({ ...s, deleted: s.deleted + 1 }));
     setBusy(false);
     advance();
@@ -188,7 +207,7 @@ export default function PlannedReview({
         </button>
       )}
 
-      <Modal open={open} onClose={() => setOpen(false)} title="Проверка плановых платежей">
+      <Modal open={open} onClose={handleClose} title="Проверка плановых платежей">
         {loading ? (
           <div className="flex items-center justify-center gap-2 py-12 text-sm text-slate-400">
             <span className="spinner spinner-brand" /> Загружаем плановые…
@@ -205,7 +224,7 @@ export default function PlannedReview({
                 <>Подтверждено: {stats.confirmed} · проведено: {stats.conducted} · удалено: {stats.deleted}.</>
               )}
             </p>
-            <button onClick={() => setOpen(false)} className="btn-primary mt-5">Закрыть</button>
+            <button onClick={handleClose} className="btn-primary mt-5">Закрыть</button>
           </div>
         ) : cur ? (
           <div>
@@ -249,7 +268,7 @@ export default function PlannedReview({
             {/* действия */}
             <div className="mt-4 flex flex-wrap gap-2">
               <button onClick={confirmDate} disabled={busy} className="btn-primary">
-                {editDate !== cur.occurred_on ? "Перенести и далее" : "Подтвердить дату"}
+                {dateChanged ? "Перенести и далее" : "Подтвердить дату"}
               </button>
               <button onClick={conduct} disabled={busy} className="rounded-full bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-700 ring-1 ring-emerald-200 transition hover:bg-emerald-100 disabled:opacity-50 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-900/40">
                 Провести (оплачено)

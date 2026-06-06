@@ -324,7 +324,7 @@ export default async function DashboardPage() {
     <div className="p-6 sm:p-8">
       {InvitesBlock}
       {user && (plannedCount ?? 0) > 0 && (
-        <PlannedReview teamId={team.id} userId={user.id} count={plannedCount ?? 0} variant="card" />
+        <PlannedReview teamId={team.id} count={plannedCount ?? 0} variant="card" />
       )}
       {!onboardingDone && (
         <div className="mb-6 rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">

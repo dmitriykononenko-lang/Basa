@@ -72,11 +72,12 @@ export default async function TransactionsPage({
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
-  const [{ data: accounts }, { data: categories }, { data: counterparties }, { data: projects }] = await Promise.all([
+  const [{ data: accounts }, { data: categories }, { data: counterparties }, { data: projects }, { count: plannedCount }] = await Promise.all([
     supabase.from("accounts").select("id, name, currency").eq("team_id", team.id).eq("archived", false).order("created_at"),
     supabase.from("categories").select("id, name, kind").eq("team_id", team.id).eq("archived", false).order("name"),
     supabase.from("counterparties").select("id, name, inn").eq("team_id", team.id).eq("archived", false).order("name"),
     supabase.from("projects").select("id, name").eq("team_id", team.id).eq("archived", false).order("name"),
+    supabase.from("transactions").select("id", { count: "exact", head: true }).eq("team_id", team.id).eq("status", "planned"),
   ]);
 
   let query = supabase
@@ -105,9 +106,6 @@ export default async function TransactionsPage({
   query = query.order("occurred_on", { ascending: false }).order("created_at", { ascending: false }).limit(300);
 
   const { data: txs } = await query;
-  const { count: plannedCount } = await supabase
-    .from("transactions").select("id", { count: "exact", head: true })
-    .eq("team_id", team.id).eq("status", "planned");
   const rows = (txs ?? []) as unknown as TxRow[];
   const writable = canWriteTx(role) && (accounts?.length ?? 0) > 0;
   const cats = (categories ?? []) as { id: string; name: string; kind: "income" | "expense" }[];
@@ -148,7 +146,7 @@ export default async function TransactionsPage({
             filename={`operations-${period}.csv`}
           />
           {writable && user && (plannedCount ?? 0) > 0 && (
-            <PlannedReview teamId={team.id} userId={user.id} count={plannedCount ?? 0} variant="button" />
+            <PlannedReview teamId={team.id} count={plannedCount ?? 0} variant="button" />
           )}
           {writable && user && (
             <Link
