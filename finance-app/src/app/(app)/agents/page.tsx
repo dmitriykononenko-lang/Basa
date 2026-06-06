@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import { formatMoney } from "@/lib/format";
 import { buildRateMap, toBase } from "@/lib/fx";
-import AddCounterpartyForm from "@/components/AddCounterpartyForm";
+import AgentWizard from "@/components/AgentWizard";
 
 export default async function AgentsPage() {
   const current = await getCurrentTeam();
@@ -19,12 +19,14 @@ export default async function AgentsPage() {
   const { team, role } = current;
   const base = team.base_currency;
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
 
-  const [{ data: agents }, { data: bals }, { data: clients }, { data: fxRows }] = await Promise.all([
+  const [{ data: agents }, { data: bals }, { data: clients }, { data: fxRows }, { data: incomeCats }] = await Promise.all([
     supabase.from("counterparties").select("id, name").eq("team_id", team.id).contains("kinds", ["agent"]).eq("archived", false).order("name"),
     supabase.from("obligation_balances").select("counterparty_id, amount, paid, outstanding, currency").eq("team_id", team.id).eq("type", "payable"),
     supabase.from("counterparties").select("agent_id").eq("team_id", team.id).eq("archived", false).not("agent_id", "is", null),
     supabase.from("fx_rates").select("currency, rate, rate_date").eq("team_id", team.id),
+    supabase.from("categories").select("id, name").eq("team_id", team.id).eq("kind", "income").eq("archived", false).order("name"),
   ]);
 
   const rates = buildRateMap(fxRows ?? [], base);
@@ -65,7 +67,9 @@ export default async function AgentsPage() {
             Комиссии агентам начисляются автоматически после прихода денег от их клиентов
           </p>
         </div>
-        {canEditFinance(role) && <AddCounterpartyForm teamId={team.id} defaultKind="agent" />}
+        {canEditFinance(role) && user && (
+          <AgentWizard teamId={team.id} userId={user.id} incomeCategories={(incomeCats ?? []) as { id: string; name: string }[]} />
+        )}
       </header>
 
       <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
