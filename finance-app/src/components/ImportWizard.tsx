@@ -13,7 +13,7 @@ import {
 } from "@/lib/importParse";
 
 type Account = { id: string; name: string; currency: string };
-type Named = { id: string; name: string };
+type Named = { id: string; name: string; inn?: string | null };
 type Category = { id: string; name: string; kind: "income" | "expense" };
 export type CategoryRule = { id: string; match_field: string; pattern: string; category_id: string | null; project_id: string | null };
 
@@ -23,6 +23,7 @@ type Resolved = {
   reason?: string;
   insert?: Record<string, unknown>;
   reconcileId?: string; // существующая операция → превратить в перевод, строку не вставлять
+  cpCreate?: { name: string; inn: string; kind: string }; // контрагента нет в базе — создать при коммите
   date: string;
   typeLabel: string;
   amount: number;
@@ -37,6 +38,7 @@ const FIELD_LABELS: Record<FieldKey, string> = {
   date: "Дата *", amount: "Сумма *", amountIn: "Приход (сумма)", amountOut: "Расход (сумма)",
   currency: "Валюта", account: "Счёт (в файле)", category: "Статья", counterparty: "Контрагент",
   project: "Проект", note: "Комментарий", typeCol: "Колонка типа",
+  payer: "Плательщик", receiver: "Получатель", payerInn: "ИНН плательщика", receiverInn: "ИНН получателя",
 };
 
 function daysBetween(a: string, b: string) {
@@ -70,6 +72,7 @@ export default function ImportWizard({
   const [accountId, setAccountId] = useState("");
   const [skipDup, setSkipDup] = useState(true);
   const [mergeTransfers, setMergeTransfers] = useState(true);
+  const [createCps, setCreateCps] = useState(false);
   const [existing, setExisting] = useState<ExistingTx[]>([]);
 
   // создание счёта
@@ -79,6 +82,7 @@ export default function ImportWizard({
   const [creatingAcc, setCreatingAcc] = useState(false);
 
   const cpByName = useMemo(() => new Map(counterparties.map((c) => [c.name.toLowerCase(), c.id])), [counterparties]);
+  const cpByInn = useMemo(() => new Map(counterparties.filter((c) => c.inn).map((c) => [String(c.inn), c.id])), [counterparties]);
   const prByName = useMemo(() => new Map(projects.map((p) => [p.name.toLowerCase(), p.id])), [projects]);
   const catByKey = useMemo(() => new Map(categories.map((c) => [c.kind + "|" + c.name.toLowerCase(), c.id])), [categories]);
   const catKindById = useMemo(() => new Map(categories.map((c) => [c.id, c.kind])), [categories]);
@@ -210,7 +214,6 @@ export default function ImportWizard({
       if (!ta || ta.amount <= 0) { out.push({ line, status: "error", reason: "нет суммы/типа", date, typeLabel: "—", amount: 0, currency: cur, accountName: account.name, categoryName: "" }); continue; }
 
       const catName = mapping.category >= 0 ? (r[mapping.category] ?? "").toLowerCase() : "";
-      const cpName = mapping.counterparty >= 0 ? (r[mapping.counterparty] ?? "").toLowerCase() : "";
       const prName = mapping.project >= 0 ? (r[mapping.project] ?? "").toLowerCase() : "";
       const note = mapping.note >= 0 ? r[mapping.note] || null : null;
 
@@ -263,6 +266,24 @@ export default function ImportWizard({
         continue;
       }
 
+      // Контрагент: из колонки «Контрагент», иначе по направлению
+      // (приход → плательщик, расход → получатель — в обоих случаях это «не мы»). Матч по названию и ИНН.
+      let cpName2 = "";
+      let cpInn2 = "";
+      if (mapping.counterparty >= 0) {
+        cpName2 = (r[mapping.counterparty] ?? "").trim();
+      } else {
+        const nameCol = ta.type === "income" ? mapping.payer : mapping.receiver;
+        const innCol = ta.type === "income" ? mapping.payerInn : mapping.receiverInn;
+        cpName2 = nameCol >= 0 ? (r[nameCol] ?? "").trim() : "";
+        cpInn2 = innCol >= 0 ? (r[innCol] ?? "").trim() : "";
+      }
+      let cpId: string | null = cpName2 ? cpByName.get(cpName2.toLowerCase()) ?? null : null;
+      if (!cpId && cpInn2) cpId = cpByInn.get(cpInn2) ?? null;
+      const cpCreate = !cpId && cpName2 && createCps
+        ? { name: cpName2, inn: cpInn2, kind: ta.type === "income" ? "client" : "supplier" }
+        : undefined;
+
       // Категория/проект: сначала по имени, затем по правилам авто-категоризации
       let categoryId = catName ? catByKey.get(ta.type + "|" + catName) ?? null : null;
       let projectId = prName ? prByName.get(prName) ?? null : null;
@@ -284,11 +305,13 @@ export default function ImportWizard({
 
       out.push({
         line, status: "ok", date, typeLabel: ta.type === "income" ? "Приход" : "Расход",
-        amount: ta.amount, currency: cur, accountName: account.name, categoryName: catLabel,
+        amount: ta.amount, currency: cur, accountName: account.name,
+        categoryName: catLabel || cpName2,
+        cpCreate,
         insert: {
           team_id: teamId, type: ta.type, amount: ta.amount, currency: cur, account_id: account.id,
           category_id: categoryId,
-          counterparty_id: cpName ? cpByName.get(cpName) ?? null : null,
+          counterparty_id: cpId,
           project_id: projectId,
           occurred_on: date, note, status: "actual", created_by: userId,
         },
@@ -296,7 +319,7 @@ export default function ImportWizard({
     }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, rows, mapping, typeMode, account, existing, mergeTransfers, rules]);
+  }, [step, rows, mapping, typeMode, account, existing, mergeTransfers, rules, createCps]);
 
   const counts = useMemo(() => {
     const c = { ok: 0, transfer: 0, dup: 0, error: 0 };
@@ -350,6 +373,30 @@ export default function ImportWizard({
         await supabase.from("transactions").update(r.insert!).eq("id", r.reconcileId!);
       }
 
+      // 2.5) создать недостающих контрагентов (по плательщику/получателю)
+      let createdCps = 0;
+      if (createCps) {
+        const uniq = new Map<string, { name: string; inn: string; kind: string }>();
+        for (const r of toInsert) {
+          if (r.cpCreate) {
+            const k = r.cpCreate.name.toLowerCase();
+            if (!uniq.has(k)) uniq.set(k, r.cpCreate);
+          }
+        }
+        if (uniq.size > 0) {
+          const payload = [...uniq.values()].map((c) => ({ team_id: teamId, name: c.name, inn: c.inn || null, kind: c.kind }));
+          const { data: created, error: cErr } = await supabase.from("counterparties").insert(payload).select("id, name");
+          if (cErr) { await supabase.from("import_batches").delete().eq("id", batchId); throw cErr; }
+          createdCps = created?.length ?? 0;
+          const nameToId = new Map((created ?? []).map((c) => [(c.name as string).toLowerCase(), c.id]));
+          for (const r of toInsert) {
+            if (r.cpCreate && r.insert && !r.insert.counterparty_id) {
+              r.insert.counterparty_id = nameToId.get(r.cpCreate.name.toLowerCase()) ?? null;
+            }
+          }
+        }
+      }
+
       // 3) вставка операций батча
       if (toInsert.length > 0) {
         const payload = toInsert.map((r) => ({ ...r.insert, import_batch_id: batchId }));
@@ -362,6 +409,7 @@ export default function ImportWizard({
 
       setResultMsg(
         `Импортировано: ${toInsert.length}` +
+        (createdCps ? `, создано контрагентов: ${createdCps}` : "") +
         (reconciles.length ? `, переводов реконсилировано: ${reconciles.length}` : "") +
         (skipDup && counts.dup ? `, пропущено дублей: ${counts.dup}` : "") +
         (counts.error ? `, ошибок: ${counts.error}` : "")
@@ -463,6 +511,16 @@ export default function ImportWizard({
             <input type="checkbox" checked={mergeTransfers} onChange={(e) => setMergeTransfers(e.target.checked)} />
             Объединять встречные операции между своими счетами в переводы
           </label>
+          <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-neutral-300">
+            <input type="checkbox" checked={createCps} onChange={(e) => setCreateCps(e.target.checked)} />
+            Создавать недостающих контрагентов из выписки (по плательщику/получателю)
+          </label>
+          {mapping.counterparty < 0 && (mapping.payer >= 0 || mapping.receiver >= 0) && (
+            <p className="text-xs text-slate-400 dark:text-neutral-500">
+              Контрагент определяется по направлению: для прихода — плательщик, для расхода — получатель.
+              Сопоставление по названию и ИНН.
+            </p>
+          )}
 
           <div className="flex justify-between">
             <button onClick={reset} className="rounded-full px-4 py-2 text-sm text-slate-500 hover:text-slate-700 dark:text-neutral-400">← Другой файл</button>

@@ -107,23 +107,32 @@ export default async function DashboardPage() {
   monthStart.setDate(1);
   const monthStartStr = monthStart.toISOString().slice(0, 10);
 
+  const monthEndStr = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0).toISOString().slice(0, 10);
+
   const [{ data: monthTx }, { data: fxRows }] = await Promise.all([
     supabase
       .from("transactions")
-      .select("type, amount, currency")
+      .select("type, amount, currency, status")
       .eq("team_id", team.id)
-      .eq("status", "actual")
-      .gte("occurred_on", monthStartStr),
+      .gte("occurred_on", monthStartStr)
+      .lte("occurred_on", monthEndStr),
     supabase.from("fx_rates").select("currency, rate, rate_date").eq("team_id", team.id),
   ]);
 
   const rates = buildRateMap(fxRows ?? [], team.base_currency);
   let income = 0;
   let expense = 0;
+  let plannedIncome = 0;
+  let plannedExpense = 0;
   for (const t of monthTx ?? []) {
     const val = toBase(t.amount, t.currency, rates);
-    if (t.type === "income") income += val;
-    else if (t.type === "expense") expense += val;
+    if (t.status === "planned") {
+      if (t.type === "income") plannedIncome += val;
+      else if (t.type === "expense") plannedExpense += val;
+    } else {
+      if (t.type === "income") income += val;
+      else if (t.type === "expense") expense += val;
+    }
   }
 
   // Просроченные долги
@@ -426,13 +435,29 @@ export default async function DashboardPage() {
 
       {/* Метрики месяца */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <Metric title="Доход за месяц" accent="emerald">
+        <Metric
+          title="Доход за месяц"
+          accent="emerald"
+          sub={plannedIncome > 0 ? `план: +${formatMoney(plannedIncome, team.base_currency)}` : undefined}
+        >
           {formatMoney(income, team.base_currency)}
         </Metric>
-        <Metric title="Расход за месяц" accent="red">
+        <Metric
+          title="Расход за месяц"
+          accent="red"
+          sub={plannedExpense > 0 ? `план: −${formatMoney(plannedExpense, team.base_currency)}` : undefined}
+        >
           {formatMoney(expense, team.base_currency)}
         </Metric>
-        <Metric title="Денежный поток" accent="brand">
+        <Metric
+          title="Денежный поток"
+          accent="brand"
+          sub={
+            plannedIncome > 0 || plannedExpense > 0
+              ? `с планом: ${formatMoney(income + plannedIncome - expense - plannedExpense, team.base_currency)}`
+              : undefined
+          }
+        >
           {formatMoney(income - expense, team.base_currency)}
         </Metric>
       </div>
@@ -559,10 +584,12 @@ function Metric({
   title,
   children,
   accent,
+  sub,
 }: {
   title: string;
   children: React.ReactNode;
   accent: "emerald" | "red" | "brand";
+  sub?: string;
 }) {
   const accentMap = {
     emerald: "text-emerald-600 dark:text-emerald-400",
@@ -575,6 +602,7 @@ function Metric({
       <div className={`mt-2 text-2xl font-bold ${accentMap[accent]}`}>
         {children}
       </div>
+      {sub && <div className="mt-1 text-xs font-medium text-violet-500 dark:text-violet-400">{sub}</div>}
     </div>
   );
 }

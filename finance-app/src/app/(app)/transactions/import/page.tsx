@@ -33,7 +33,7 @@ export default async function ImportPage() {
   const [{ data: accounts }, { data: categories }, { data: counterparties }, { data: projects }, { data: batches }, { data: rules }] = await Promise.all([
     supabase.from("accounts").select("id, name, currency").eq("team_id", team.id).eq("archived", false).order("created_at"),
     supabase.from("categories").select("id, name, kind").eq("team_id", team.id).eq("archived", false).order("name"),
-    supabase.from("counterparties").select("id, name").eq("team_id", team.id).eq("archived", false).order("name"),
+    supabase.from("counterparties").select("id, name, inn").eq("team_id", team.id).eq("archived", false).order("name"),
     supabase.from("projects").select("id, name").eq("team_id", team.id).eq("archived", false).order("name"),
     supabase.from("import_batches").select("id, file_name, created_at, row_count, status, bank, account:accounts(name)").eq("team_id", team.id).order("created_at", { ascending: false }).limit(50),
     supabase.from("category_rules").select("id, match_field, pattern, category_id, project_id").eq("team_id", team.id).eq("active", true).order("priority", { ascending: false }),
