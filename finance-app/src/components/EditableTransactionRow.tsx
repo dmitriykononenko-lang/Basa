@@ -7,6 +7,7 @@ import { formatMoney, formatDate, parseMoney } from "@/lib/format";
 import { toast } from "@/lib/toast";
 import Attachments, { type Attachment } from "@/components/Attachments";
 import Combobox, { type ComboOption } from "@/components/Combobox";
+import SplitTransactionModal from "@/components/SplitTransactionModal";
 
 type Account = { id: string; name: string; currency: string };
 type Named = { id: string; name: string; inn?: string | null };
@@ -60,6 +61,7 @@ export default function EditableTransactionRow({
 }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
+  const [splitting, setSplitting] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -209,6 +211,15 @@ export default function EditableTransactionRow({
               >
                 Изм.
               </button>
+              {!isTransfer && (
+                <button
+                  onClick={() => setSplitting(true)}
+                  className="rounded-full px-2 py-1 text-xs text-slate-500 transition hover:bg-slate-100 dark:text-neutral-400 dark:hover:bg-neutral-800"
+                  title="Разбить на несколько операций"
+                >
+                  Разбить
+                </button>
+              )}
               <button
                 onClick={remove}
                 disabled={busy}
@@ -217,6 +228,19 @@ export default function EditableTransactionRow({
                 Удалить
               </button>
             </div>
+          )}
+          {splitting && (
+            <SplitTransactionModal
+              open={splitting}
+              onClose={() => setSplitting(false)}
+              tx={tx}
+              categories={categories}
+              counterparties={counterparties}
+              projects={projects}
+              teamId={teamId}
+              userId={userId}
+              hasAttachments={attachments.length > 0}
+            />
           )}
         </td>
       </tr>
