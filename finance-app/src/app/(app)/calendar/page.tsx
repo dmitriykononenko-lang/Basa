@@ -1,14 +1,14 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentTeam } from "@/lib/team";
+import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import { formatMoney } from "@/lib/format";
 import { buildRateMap, toBase } from "@/lib/fx";
+import CalendarGrid, { type Cell } from "@/components/CalendarGrid";
 
 const MONTHS_RU = [
   "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
   "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
 ];
-const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 
 function ym(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
@@ -42,9 +42,10 @@ export default async function CalendarPage({
     );
   }
 
-  const { team } = current;
+  const { team, role } = current;
   const base = team.base_currency;
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
 
   const [{ data: balances }, { data: obls }, { data: planned }, { data: fxRows }] = await Promise.all([
     supabase.from("account_balances").select("balance, currency").eq("team_id", team.id),
@@ -105,13 +106,15 @@ export default async function CalendarPage({
   const firstDow = (monthStart.getDay() + 6) % 7;
   const daysInMonth = new Date(y, m, 0).getDate();
   const weeks = Math.ceil((firstDow + daysInMonth) / 7);
-  const cells: (number | null)[] = [];
-  for (let i = 0; i < weeks * 7; i++) {
-    const dn = i - firstDow + 1;
-    cells.push(dn >= 1 && dn <= daysInMonth ? dn : null);
-  }
   const todayStr = now.toISOString().slice(0, 10);
   const mm = String(m).padStart(2, "0");
+  const cells: Cell[] = [];
+  for (let i = 0; i < weeks * 7; i++) {
+    const dn = i - firstDow + 1;
+    if (dn < 1 || dn > daysInMonth) { cells.push({ dn: null, dateStr: null, info: null }); continue; }
+    const dateStr = `${y}-${mm}-${String(dn).padStart(2, "0")}`;
+    cells.push({ dn, dateStr, info: dayInfo.get(dateStr) ?? null });
+  }
 
   return (
     <div className="p-6 sm:p-8">
@@ -136,50 +139,14 @@ export default async function CalendarPage({
         </div>
       )}
 
-      <div className="overflow-x-auto">
-        <div className="min-w-[900px]">
-          <div className="grid grid-cols-7 gap-px">
-            {WEEKDAYS.map((w) => (
-              <div key={w} className="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">
-                {w}
-              </div>
-            ))}
-          </div>
-          <div className="grid grid-cols-7 gap-px overflow-hidden rounded-2xl bg-slate-200/70 ring-1 ring-slate-200/70 dark:bg-white/[0.04] dark:ring-white/[0.07]">
-            {cells.map((dn, i) => {
-              if (dn === null) {
-                return <div key={i} className="min-h-[120px] bg-slate-50 dark:bg-[#121317]" />;
-              }
-              const dateStr = `${y}-${mm}-${String(dn).padStart(2, "0")}`;
-              const info = dayInfo.get(dateStr);
-              const isToday = dateStr === todayStr;
-              return (
-                <div
-                  key={i}
-                  className={`min-h-[120px] bg-white p-2 dark:bg-[#15171c] ${isToday ? "ring-2 ring-inset ring-brand/40" : ""}`}
-                >
-                  <div className={`mb-1 text-right text-sm ${isToday ? "font-bold text-brand" : "text-slate-400 dark:text-neutral-500"}`}>
-                    {dn}
-                  </div>
-                  {info && (
-                    <div className="space-y-0.5 text-[11px] leading-tight">
-                      <div className="text-slate-400 dark:text-neutral-600">{formatMoney(info.opening, base)}</div>
-                      {info.in > 0 && <div className="text-emerald-600 dark:text-emerald-400">+{formatMoney(info.in, base)}</div>}
-                      {info.out > 0 && <div className="text-red-600 dark:text-red-400">−{formatMoney(info.out, base)}</div>}
-                      <div className={`rounded-md px-1.5 py-0.5 font-semibold ${info.net >= 0 ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300" : "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300"}`}>
-                        {info.net >= 0 ? "+" : "−"}{formatMoney(Math.abs(info.net), base)}
-                      </div>
-                      <div className={`${info.closing < 0 ? "text-red-500" : "text-slate-400 dark:text-neutral-600"}`}>
-                        {formatMoney(info.closing, base)}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
+      <CalendarGrid
+        cells={cells}
+        base={base}
+        todayStr={todayStr}
+        teamId={team.id}
+        userId={user?.id ?? ""}
+        canEdit={canEditFinance(role)}
+      />
 
       <p className="mt-4 text-xs text-slate-400 dark:text-neutral-600">
         В ячейке: остаток на начало · +поступления · −выплаты · итог дня · остаток на

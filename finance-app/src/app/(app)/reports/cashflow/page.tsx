@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentTeam } from "@/lib/team";
+import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import { buildRateMap, toBase } from "@/lib/fx";
 import CashflowTable from "@/components/CashflowTable";
 
@@ -13,7 +13,7 @@ type Tx = {
   amount: number;
   currency: string;
   occurred_on: string;
-  category: { name: string } | null;
+  category: { id: string; name: string } | null;
 };
 
 export default async function CashflowPage() {
@@ -31,9 +31,10 @@ export default async function CashflowPage() {
     );
   }
 
-  const { team } = current;
+  const { team, role } = current;
   const base = team.base_currency;
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
   const now = new Date();
   const year = now.getFullYear();
   const monthsCount = now.getMonth() + 1; // Январь..текущий месяц
@@ -42,7 +43,7 @@ export default async function CashflowPage() {
   const [{ data: txs }, { data: balances }, { data: fxRows }] = await Promise.all([
     supabase
       .from("transactions")
-      .select("type, amount, currency, occurred_on, category:categories(name)")
+      .select("type, amount, currency, occurred_on, category:categories(id, name)")
       .eq("team_id", team.id)
       .eq("status", "actual")
       .gte("occurred_on", yearStart),
@@ -56,13 +57,15 @@ export default async function CashflowPage() {
 
   const incomeM = new Array(monthsCount).fill(0);
   const expenseM = new Array(monthsCount).fill(0);
-  const incomeCat = new Map<string, number[]>();
-  const expenseCat = new Map<string, number[]>();
+  type CatAgg = { id: string | null; name: string; values: number[] };
+  const incomeCat = new Map<string, CatAgg>();
+  const expenseCat = new Map<string, CatAgg>();
 
-  function bump(map: Map<string, number[]>, name: string, mi: number, v: number) {
-    let arr = map.get(name);
-    if (!arr) { arr = new Array(monthsCount).fill(0); map.set(name, arr); }
-    arr[mi] += v;
+  function bump(map: Map<string, CatAgg>, id: string | null, name: string, mi: number, v: number) {
+    const key = id ?? "none";
+    let row = map.get(key);
+    if (!row) { row = { id, name, values: new Array(monthsCount).fill(0) }; map.set(key, row); }
+    row.values[mi] += v;
   }
 
   for (const t of rows) {
@@ -71,10 +74,10 @@ export default async function CashflowPage() {
     const v = toBase(t.amount, t.currency, rates);
     if (t.type === "income") {
       incomeM[mi] += v;
-      bump(incomeCat, t.category?.name ?? "Без статьи", mi, v);
+      bump(incomeCat, t.category?.id ?? null, t.category?.name ?? "Без статьи", mi, v);
     } else if (t.type === "expense") {
       expenseM[mi] += v;
-      bump(expenseCat, t.category?.name ?? "Без статьи", mi, v);
+      bump(expenseCat, t.category?.id ?? null, t.category?.name ?? "Без статьи", mi, v);
     }
   }
 
@@ -91,8 +94,10 @@ export default async function CashflowPage() {
     closing[i] = run;
   }
 
-  const incomeCats = [...incomeCat.entries()].sort((a, b) => b[1].reduce((s, x) => s + x, 0) - a[1].reduce((s, x) => s + x, 0));
-  const expenseCats = [...expenseCat.entries()].sort((a, b) => b[1].reduce((s, x) => s + x, 0) - a[1].reduce((s, x) => s + x, 0));
+  const sum = (a: CatAgg) => a.values.reduce((s, x) => s + x, 0);
+  const incomeCats = [...incomeCat.values()].sort((a, b) => sum(b) - sum(a));
+  const expenseCats = [...expenseCat.values()].sort((a, b) => sum(b) - sum(a));
+  const monthKeys = months.map((i) => `${year}-${String(i + 1).padStart(2, "0")}`);
 
   return (
     <div className="p-6 sm:p-8">
@@ -107,6 +112,7 @@ export default async function CashflowPage() {
 
       <CashflowTable
         monthLabels={months.map((i) => MONTHS_RU[i])}
+        monthKeys={monthKeys}
         base={base}
         opening={opening}
         incomeM={incomeM}
@@ -115,6 +121,9 @@ export default async function CashflowPage() {
         expenseCats={expenseCats}
         saldoM={saldoM}
         closing={closing}
+        teamId={team.id}
+        userId={user?.id ?? ""}
+        canEdit={canEditFinance(role)}
       />
     </div>
   );

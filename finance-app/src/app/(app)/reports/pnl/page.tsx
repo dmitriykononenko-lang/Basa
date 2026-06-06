@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentTeam } from "@/lib/team";
+import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import { formatMoney } from "@/lib/format";
 import { buildRateMap, toBase } from "@/lib/fx";
 import PnlTable from "@/components/PnlTable";
@@ -11,8 +11,9 @@ type Tx = {
   currency: string;
   occurred_on: string;
   project_id: string | null;
-  category: { name: string; kind: string; cf_activity: string; pnl_treatment: string } | null;
+  category: { id: string; name: string; kind: string; cf_activity: string; pnl_treatment: string } | null;
 };
+type CatAgg = { id: string | null; name: string; value: number };
 
 function periodStart(period: string): string {
   const now = new Date();
@@ -44,15 +45,17 @@ export default async function PnlPage({
     );
   }
 
-  const { team } = current;
+  const { team, role } = current;
   const base = team.base_currency;
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
   const start = periodStart(period);
+  const todayStr = new Date().toISOString().slice(0, 10);
 
   const [{ data: txs }, { data: fxRows }] = await Promise.all([
     supabase
       .from("transactions")
-      .select("type, amount, currency, occurred_on, project_id, category:categories(name, kind, cf_activity, pnl_treatment)")
+      .select("type, amount, currency, occurred_on, project_id, category:categories(id, name, kind, cf_activity, pnl_treatment)")
       .eq("team_id", team.id)
       .eq("status", "actual")
       .gte("occurred_on", start),
@@ -62,11 +65,18 @@ export default async function PnlPage({
   const rates = buildRateMap(fxRows ?? [], base);
   const rows = (txs ?? []) as unknown as Tx[];
 
-  const revenueByCat = new Map<string, number>();
-  const directByCat = new Map<string, number>();
-  const indirectByCat = new Map<string, number>();
-  const otherByCat = new Map<string, number>();
+  const revenueByCat = new Map<string, CatAgg>();
+  const directByCat = new Map<string, CatAgg>();
+  const indirectByCat = new Map<string, CatAgg>();
+  const otherByCat = new Map<string, CatAgg>();
   let revenue = 0, direct = 0, indirect = 0, other = 0;
+
+  function add(map: Map<string, CatAgg>, id: string | null, name: string, v: number) {
+    const key = id ?? "none:" + name;
+    const row = map.get(key) ?? { id, name, value: 0 };
+    row.value += v;
+    map.set(key, row);
+  }
 
   for (const t of rows) {
     if (t.type === "transfer") continue;
@@ -76,22 +86,24 @@ export default async function PnlPage({
     if (treatment === "excluded") continue;
     if (activity !== "operating") continue; // капвложения и финансовые потоки не входят в ОПиУ
     const v = toBase(t.amount, t.currency, rates);
+    const id = cat?.id ?? null;
     const name = cat?.name ?? (t.type === "income" ? "Прочая выручка" : "Прочие расходы");
 
     if (t.type === "income") {
       revenue += v;
-      revenueByCat.set(name, (revenueByCat.get(name) ?? 0) + v);
+      add(revenueByCat, id, name, v);
     } else {
       const bucket =
         treatment === "direct" ? "direct"
         : treatment === "indirect" ? "indirect"
         : treatment === "other" ? "other"
         : t.project_id ? "direct" : "indirect"; // auto
-      if (bucket === "direct") { direct += v; directByCat.set(name, (directByCat.get(name) ?? 0) + v); }
-      else if (bucket === "indirect") { indirect += v; indirectByCat.set(name, (indirectByCat.get(name) ?? 0) + v); }
-      else { other += v; otherByCat.set(name, (otherByCat.get(name) ?? 0) + v); }
+      if (bucket === "direct") { direct += v; add(directByCat, id, name, v); }
+      else if (bucket === "indirect") { indirect += v; add(indirectByCat, id, name, v); }
+      else { other += v; add(otherByCat, id, name, v); }
     }
   }
+  const sortCats = (m: Map<string, CatAgg>) => [...m.values()].sort((a, b) => b.value - a.value);
 
   const gross = revenue - direct;
   const operating = gross - indirect;
@@ -136,11 +148,13 @@ export default async function PnlPage({
 
       <PnlTable
         base={base}
-        revenue={revenue} revenueCats={[...revenueByCat.entries()].sort((a, b) => b[1] - a[1])}
-        direct={direct} directCats={[...directByCat.entries()].sort((a, b) => b[1] - a[1])}
-        indirect={indirect} indirectCats={[...indirectByCat.entries()].sort((a, b) => b[1] - a[1])}
-        other={other} otherCats={[...otherByCat.entries()].sort((a, b) => b[1] - a[1])}
+        revenue={revenue} revenueCats={sortCats(revenueByCat)}
+        direct={direct} directCats={sortCats(directByCat)}
+        indirect={indirect} indirectCats={sortCats(indirectByCat)}
+        other={other} otherCats={sortCats(otherByCat)}
         gross={gross} operating={operating} net={net}
+        teamId={team.id} userId={user?.id ?? ""} canEdit={canEditFinance(role)}
+        dateFrom={start} dateTo={todayStr}
       />
 
       <p className="mt-4 text-xs text-slate-400 dark:text-neutral-600">
