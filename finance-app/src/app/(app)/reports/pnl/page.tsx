@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam } from "@/lib/team";
 import { formatMoney } from "@/lib/format";
 import { buildRateMap, toBase } from "@/lib/fx";
+import PnlTable from "@/components/PnlTable";
 
 type Tx = {
   type: "income" | "expense" | "transfer";
@@ -133,44 +134,14 @@ export default async function PnlPage({
         <Kpi title="Чистая прибыль" value={formatMoney(net, base)} sub={`${pct(net)}`} accent={net < 0 ? "red" : "brand"} />
       </div>
 
-      <div className="mt-6 overflow-hidden rounded-3xl bg-white ring-1 ring-slate-200/70 dark:bg-[#15171c] dark:ring-white/[0.07]">
-        <table className="w-full text-sm">
-          <tbody>
-            <SectionRow label="Выручка" value={formatMoney(revenue, base)} bold accent="emerald" />
-            {[...revenueByCat.entries()].sort((a, b) => b[1] - a[1]).map(([n, v]) => (
-              <ItemRow key={"r" + n} name={n} value={"+" + formatMoney(v, base)} />
-            ))}
-
-            <SectionRow label="Прямые расходы" value={"−" + formatMoney(direct, base)} accent="red" />
-            {[...directByCat.entries()].sort((a, b) => b[1] - a[1]).map(([n, v]) => (
-              <ItemRow key={"d" + n} name={n} value={"−" + formatMoney(v, base)} />
-            ))}
-            <SectionRow label="Валовая прибыль" value={formatMoney(gross, base)} bold subtotal />
-
-            <SectionRow label="Косвенные расходы" value={"−" + formatMoney(indirect, base)} accent="red" />
-            {[...indirectByCat.entries()].sort((a, b) => b[1] - a[1]).map(([n, v]) => (
-              <ItemRow key={"i" + n} name={n} value={"−" + formatMoney(v, base)} />
-            ))}
-            <SectionRow label="Операционная прибыль" value={formatMoney(operating, base)} bold subtotal />
-
-            {other > 0 && (
-              <>
-                <SectionRow label="Прочие расходы" value={"−" + formatMoney(other, base)} accent="red" />
-                {[...otherByCat.entries()].sort((a, b) => b[1] - a[1]).map(([n, v]) => (
-                  <ItemRow key={"o" + n} name={n} value={"−" + formatMoney(v, base)} />
-                ))}
-              </>
-            )}
-
-            <tr className="border-t-2 border-slate-200 dark:border-white/10">
-              <td className="px-5 py-4 text-base font-bold text-slate-900 dark:text-white">Чистая прибыль</td>
-              <td className={`px-5 py-4 text-right text-base font-bold ${net < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}>
-                {formatMoney(net, base)}
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <PnlTable
+        base={base}
+        revenue={revenue} revenueCats={[...revenueByCat.entries()].sort((a, b) => b[1] - a[1])}
+        direct={direct} directCats={[...directByCat.entries()].sort((a, b) => b[1] - a[1])}
+        indirect={indirect} indirectCats={[...indirectByCat.entries()].sort((a, b) => b[1] - a[1])}
+        other={other} otherCats={[...otherByCat.entries()].sort((a, b) => b[1] - a[1])}
+        gross={gross} operating={operating} net={net}
+      />
 
       <p className="mt-4 text-xs text-slate-400 dark:text-neutral-600">
         В ОПиУ учитываются операционные доходы и расходы. Капвложения (инвестиционные)
@@ -195,24 +166,5 @@ function Kpi({ title, value, sub, accent }: { title: string; value: string; sub?
       <div className={`mt-2 text-lg font-bold ${map[accent]}`}>{value}</div>
       {sub && <div className="mt-0.5 text-xs text-slate-400">{sub}</div>}
     </div>
-  );
-}
-
-function SectionRow({ label, value, bold, subtotal, accent }: { label: string; value: string; bold?: boolean; subtotal?: boolean; accent?: "emerald" | "red" }) {
-  const color = accent === "emerald" ? "text-emerald-600 dark:text-emerald-400" : accent === "red" ? "text-red-600 dark:text-red-400" : "text-slate-900 dark:text-white";
-  return (
-    <tr className={`border-b border-slate-100 dark:border-white/[0.06] ${subtotal ? "bg-slate-50/60 dark:bg-white/[0.02]" : ""}`}>
-      <td className={`px-5 py-2.5 ${bold ? "font-semibold text-slate-900 dark:text-white" : "font-medium text-slate-600 dark:text-neutral-300"}`}>{label}</td>
-      <td className={`px-5 py-2.5 text-right font-semibold ${bold ? color : color}`}>{value}</td>
-    </tr>
-  );
-}
-
-function ItemRow({ name, value }: { name: string; value: string }) {
-  return (
-    <tr className="border-b border-slate-50 dark:border-white/[0.04]">
-      <td className="px-5 py-2 pl-10 text-slate-500 dark:text-neutral-400">{name}</td>
-      <td className="px-5 py-2 text-right text-slate-500 dark:text-neutral-400">{value}</td>
-    </tr>
   );
 }

@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam } from "@/lib/team";
-import { formatMoney } from "@/lib/format";
 import { buildRateMap, toBase } from "@/lib/fx";
+import CashflowTable from "@/components/CashflowTable";
 
 const MONTHS_RU = [
   "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
@@ -94,8 +94,6 @@ export default async function CashflowPage() {
   const incomeCats = [...incomeCat.entries()].sort((a, b) => b[1].reduce((s, x) => s + x, 0) - a[1].reduce((s, x) => s + x, 0));
   const expenseCats = [...expenseCat.entries()].sort((a, b) => b[1].reduce((s, x) => s + x, 0) - a[1].reduce((s, x) => s + x, 0));
 
-  const cell = "whitespace-nowrap px-4 py-2.5 text-right tabular-nums";
-
   return (
     <div className="p-6 sm:p-8">
       <header className="mb-5">
@@ -107,68 +105,17 @@ export default async function CashflowPage() {
         </p>
       </header>
 
-      <div className="overflow-x-auto rounded-3xl bg-white ring-1 ring-slate-200/70 dark:bg-[#15171c] dark:ring-white/[0.07]">
-        <table className="w-full min-w-[700px] text-sm">
-          <thead>
-            <tr className="border-b border-slate-100 text-xs uppercase tracking-wider text-slate-400 dark:border-white/[0.07] dark:text-neutral-500">
-              <th className="sticky left-0 bg-white px-5 py-3 text-left font-medium dark:bg-[#15171c]">Статья</th>
-              {months.map((i) => (
-                <th key={i} className="px-4 py-3 text-right font-medium">{MONTHS_RU[i]}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            <Row label="Деньги на начало периода" values={opening} muted cellCls={cell} base={base} sticky />
-            <Row label="Поступления" values={incomeM} bold accent="emerald" cellCls={cell} base={base} sticky />
-            {incomeCats.map(([name, arr]) => (
-              <Row key={"i" + name} label={name} values={arr} sub cellCls={cell} base={base} sticky />
-            ))}
-            <Row label="Выплаты" values={expenseM.map((x) => -x)} bold accent="red" cellCls={cell} base={base} sticky />
-            {expenseCats.map(([name, arr]) => (
-              <Row key={"e" + name} label={name} values={arr.map((x) => -x)} sub cellCls={cell} base={base} sticky />
-            ))}
-            <Row label="Переводы между счетами" values={months.map(() => 0)} muted cellCls={cell} base={base} sticky />
-            <Row label="Сальдо" values={saldoM} bold signed cellCls={cell} base={base} sticky />
-            <Row label="Деньги на конец периода" values={closing} bold muted cellCls={cell} base={base} sticky />
-          </tbody>
-        </table>
-      </div>
+      <CashflowTable
+        monthLabels={months.map((i) => MONTHS_RU[i])}
+        base={base}
+        opening={opening}
+        incomeM={incomeM}
+        incomeCats={incomeCats}
+        expenseM={expenseM}
+        expenseCats={expenseCats}
+        saldoM={saldoM}
+        closing={closing}
+      />
     </div>
-  );
-}
-
-function Row({
-  label, values, bold, sub, muted, accent, signed, cellCls, base, sticky,
-}: {
-  label: string;
-  values: number[];
-  bold?: boolean;
-  sub?: boolean;
-  muted?: boolean;
-  accent?: "emerald" | "red";
-  signed?: boolean;
-  cellCls: string;
-  base: string;
-  sticky?: boolean;
-}) {
-  const labelColor = muted ? "text-slate-400 dark:text-neutral-500" : "text-slate-800 dark:text-neutral-200";
-  function color(v: number) {
-    if (signed) return v < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400";
-    if (accent === "emerald") return "text-emerald-600 dark:text-emerald-400";
-    if (accent === "red") return "text-red-600 dark:text-red-400";
-    if (muted) return "text-slate-400 dark:text-neutral-500";
-    return "text-slate-600 dark:text-neutral-400";
-  }
-  return (
-    <tr className="border-b border-slate-50 last:border-0 dark:border-white/[0.04]">
-      <td className={`${sticky ? "sticky left-0 bg-white dark:bg-[#15171c]" : ""} px-5 py-2.5 ${sub ? "pl-10 text-slate-500 dark:text-neutral-400" : `font-medium ${labelColor}`} ${bold ? "font-semibold" : ""}`}>
-        {label}
-      </td>
-      {values.map((v, i) => (
-        <td key={i} className={`${cellCls} ${bold ? "font-semibold" : ""} ${color(v)}`}>
-          {v === 0 ? "—" : formatMoney(v, base)}
-        </td>
-      ))}
-    </tr>
   );
 }
