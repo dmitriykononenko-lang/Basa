@@ -297,9 +297,12 @@ export default async function DashboardPage() {
   // Проекция минимального остатка по каждому счёту (в базовой валюте)
   const accProjection = (accounts ?? []).map((a) => {
     const startBal = toBase(balanceMap.get(a.id) ?? 0, a.currency, rates);
-    const evs = (evByAcc.get(a.id) ?? []).sort((x, y) => (x.date < y.date ? -1 : 1));
+    // Порядок операций ВНУТРИ дня неизвестен — берём чистый итог дня (а не худший внутридневной сценарий)
+    const byDate = new Map<string, number>();
+    for (const e of evByAcc.get(a.id) ?? []) byDate.set(e.date, (byDate.get(e.date) ?? 0) + e.delta);
+    const dates = [...byDate.keys()].sort();
     let run = startBal, min = startBal, minDate: string | null = null;
-    for (const e of evs) { run += e.delta; if (run < min) { min = run; minDate = e.date; } }
+    for (const d of dates) { run += byDate.get(d)!; if (run < min) { min = run; minDate = d; } }
     return { id: a.id, name: a.name, currency: a.currency, startBal, min, minDate };
   });
   const shortfalls = accProjection.filter((a) => a.min < 0).sort((a, b) => a.min - b.min);
