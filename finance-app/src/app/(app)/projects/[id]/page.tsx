@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentTeam } from "@/lib/team";
+import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import { formatMoney, formatDate } from "@/lib/format";
 import { buildRateMap, toBase } from "@/lib/fx";
+import EditProjectForm from "@/components/EditProjectForm";
 
 export default async function ProjectPage({
   params,
@@ -13,16 +14,27 @@ export default async function ProjectPage({
   const { id } = await params;
   const current = await getCurrentTeam();
   if (!current) notFound();
-  const { team } = current;
+  const { team, role } = current;
   const base = team.base_currency;
   const supabase = await createClient();
 
   const { data: project } = await supabase
     .from("projects")
-    .select("id, name, status")
+    .select("id, name, status, responsible_counterparty_id")
     .eq("id", id)
     .maybeSingle();
   if (!project) notFound();
+
+  const { data: employees } = await supabase
+    .from("counterparties")
+    .select("id, name")
+    .eq("team_id", team.id)
+    .eq("kind", "employee")
+    .eq("archived", false)
+    .order("name");
+  const responsibleName =
+    (employees ?? []).find((e) => e.id === project.responsible_counterparty_id)?.name ?? null;
+  const manage = canEditFinance(role);
 
   const [{ data: txs }, { data: obls }, { data: fxRows }] = await Promise.all([
     supabase
@@ -102,11 +114,25 @@ export default async function ProjectPage({
       <Link href="/projects" className="text-sm text-slate-400 hover:text-brand">
         ← Проекты
       </Link>
-      <header className="mb-6 mt-2">
-        <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
-          {project.name}
-        </h1>
-        <p className="text-sm text-slate-500 dark:text-neutral-400">Финансы и маржинальность проекта</p>
+      <header className="mb-6 mt-2 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+            {project.name}
+          </h1>
+          <p className="text-sm text-slate-500 dark:text-neutral-400">
+            Финансы и маржинальность проекта
+            {responsibleName && <> · ответственный: <b>{responsibleName}</b></>}
+          </p>
+        </div>
+        {manage && (
+          <EditProjectForm
+            projectId={project.id}
+            name={project.name}
+            status={project.status}
+            responsibleId={project.responsible_counterparty_id}
+            employees={employees ?? []}
+          />
+        )}
       </header>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
