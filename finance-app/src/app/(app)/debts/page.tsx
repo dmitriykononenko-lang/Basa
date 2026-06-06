@@ -5,6 +5,7 @@ import { formatMoney } from "@/lib/format";
 import { buildRateMap, toBase } from "@/lib/fx";
 import AddObligationForm from "@/components/AddObligationForm";
 import PayObligationButton from "@/components/PayObligationButton";
+import LinkPaymentButton from "@/components/LinkPaymentButton";
 
 type Row = {
   id: string;
@@ -82,6 +83,13 @@ export default async function DebtsPage({
 
   const { data: categories } = await supabase
     .from("categories").select("id, name, kind").eq("team_id", team.id).eq("archived", false).order("name");
+
+  // «За что»: статья обязательства (вью obligation_balances её не содержит)
+  const { data: oblCats } = await supabase
+    .from("obligations").select("id, category:categories(name)").eq("team_id", team.id);
+  const oblCatName = new Map(
+    ((oblCats ?? []) as unknown as { id: string; category: { name: string } | null }[]).map((o) => [o.id, o.category?.name ?? null])
+  );
 
   const rows = (obligations ?? []) as unknown as Row[];
   const rates = buildRateMap(fxRows ?? [], cur);
@@ -270,6 +278,7 @@ export default async function DebtsPage({
                 <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wider text-slate-400 dark:border-white/[0.07] dark:text-neutral-500">
                   <th className="px-5 py-3 font-medium">Контрагент</th>
                   <th className="px-5 py-3 font-medium">Тип</th>
+                  <th className="px-5 py-3 font-medium">За что</th>
                   <th className="px-5 py-3 text-right font-medium">Остаток</th>
                   <th className="px-5 py-3 text-right font-medium"></th>
                 </tr>
@@ -294,6 +303,9 @@ export default async function DebtsPage({
                         {o.type === "receivable" ? "Нам должны" : "Мы должны"}
                       </span>
                     </td>
+                    <td className="px-5 py-3 text-slate-500 dark:text-neutral-400">
+                      {oblCatName.get(o.id) || o.note || "—"}
+                    </td>
                     <td className="px-5 py-3 text-right font-semibold text-slate-800 dark:text-neutral-200">
                       {formatMoney(o.outstanding, o.currency)}
                       {o.outstanding !== o.amount && (
@@ -304,15 +316,26 @@ export default async function DebtsPage({
                     </td>
                     <td className="px-5 py-3 text-right">
                       {canEditFinance(role) && user ? (
-                        <PayObligationButton
-                          obligationId={o.id}
-                          userId={user.id}
-                          outstanding={o.outstanding}
-                          currency={o.currency}
-                          teamId={team.id}
-                          counterpartyId={o.counterparty_id}
-                          accounts={accounts ?? []}
-                        />
+                        <div className="flex items-center justify-end gap-1">
+                          <LinkPaymentButton
+                            obligationId={o.id}
+                            oblType={o.type}
+                            counterpartyId={o.counterparty_id}
+                            currency={o.currency}
+                            outstanding={o.outstanding}
+                            teamId={team.id}
+                            userId={user.id}
+                          />
+                          <PayObligationButton
+                            obligationId={o.id}
+                            userId={user.id}
+                            outstanding={o.outstanding}
+                            currency={o.currency}
+                            teamId={team.id}
+                            counterpartyId={o.counterparty_id}
+                            accounts={accounts ?? []}
+                          />
+                        </div>
                       ) : null}
                     </td>
                   </tr>
