@@ -5,9 +5,10 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { formatMoney, formatDate, parseMoney } from "@/lib/format";
 import Attachments, { type Attachment } from "@/components/Attachments";
+import Combobox, { type ComboOption } from "@/components/Combobox";
 
 type Account = { id: string; name: string; currency: string };
-type Named = { id: string; name: string };
+type Named = { id: string; name: string; inn?: string | null };
 type Category = { id: string; name: string; kind: "income" | "expense" };
 
 export type TxData = {
@@ -40,6 +41,8 @@ export default function EditableTransactionRow({
   categories,
   counterparties,
   projects,
+  selected = false,
+  onToggle,
 }: {
   tx: TxData;
   editable: boolean;
@@ -50,6 +53,8 @@ export default function EditableTransactionRow({
   categories: Category[];
   counterparties: Named[];
   projects: Named[];
+  selected?: boolean;
+  onToggle?: () => void;
 }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
@@ -141,8 +146,13 @@ export default function EditableTransactionRow({
     return (
       <tr
         onClick={() => editable && setEditing(true)}
-        className={`border-b border-slate-50 last:border-0 dark:border-white/[0.05] ${editable ? "cursor-pointer hover:bg-slate-50/70 dark:hover:bg-white/[0.02]" : ""}`}
+        className={`border-b border-slate-50 last:border-0 dark:border-white/[0.05] ${selected ? "bg-brand/5" : ""} ${editable ? "cursor-pointer hover:bg-slate-50/70 dark:hover:bg-white/[0.02]" : ""}`}
       >
+        <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
+          {onToggle && (
+            <input type="checkbox" checked={selected} onChange={onToggle} className="h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand" />
+          )}
+        </td>
         <td className="whitespace-nowrap px-5 py-3 text-slate-500 dark:text-neutral-400">
           <span className="inline-flex items-center gap-1">
             {tx.status === "planned" && <span title="Плановая" className="text-violet-500">🕒</span>}
@@ -203,45 +213,30 @@ export default function EditableTransactionRow({
 
   return (
     <tr className="border-b border-slate-50 bg-slate-50/60 last:border-0 dark:border-white/[0.05] dark:bg-neutral-800/30">
-      <td colSpan={7} className="px-5 py-4">
+      <td colSpan={8} className="px-5 py-4">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           <Field label="Сумма">
             <input value={amount} onChange={(e) => setAmount(e.target.value)} className="input" />
           </Field>
           <Field label="Счёт">
-            <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className="input">
-              {accounts.map((a) => (
-                <option key={a.id} value={a.id}>{a.name}</option>
-              ))}
-            </select>
+            <Combobox value={accountId} onChange={setAccountId} placeholder="Счёт"
+              options={accounts.map((a): ComboOption => ({ value: a.id, label: a.name }))} />
           </Field>
           {!isTransfer && (
-            <Field label="Категория">
-              <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className="input">
-                <option value="">—</option>
-                {filteredCats.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
+            <Field label="Статья">
+              <Combobox value={categoryId} onChange={setCategoryId} placeholder="—" emptyLabel="— без статьи —"
+                options={filteredCats.map((c): ComboOption => ({ value: c.id, label: c.name }))} />
             </Field>
           )}
           {!isTransfer && (
             <Field label="Контрагент">
-              <select value={counterpartyId} onChange={(e) => setCounterpartyId(e.target.value)} className="input">
-                <option value="">—</option>
-                {counterparties.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
+              <Combobox value={counterpartyId} onChange={setCounterpartyId} placeholder="—" emptyLabel="— не указан —"
+                options={counterparties.map((c): ComboOption => ({ value: c.id, label: c.name, search: `${c.name} ${c.inn ?? ""}` }))} />
             </Field>
           )}
           <Field label="Проект">
-            <select value={projectId} onChange={(e) => setProjectId(e.target.value)} className="input">
-              <option value="">—</option>
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
+            <Combobox value={projectId} onChange={setProjectId} placeholder="—" emptyLabel="— без проекта —"
+              options={projects.map((p): ComboOption => ({ value: p.id, label: p.name }))} />
           </Field>
           <Field label="Дата">
             <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="input" />

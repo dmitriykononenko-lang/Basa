@@ -1,12 +1,10 @@
-import { Fragment } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canWriteTx, canEditFinance } from "@/lib/team";
-import { formatDate } from "@/lib/format";
 import AddTransactionForm from "@/components/AddTransactionForm";
 import ImportTransactions from "@/components/ImportTransactions";
 import TransactionsFilter from "@/components/TransactionsFilter";
 import ExportButton from "@/components/ExportButton";
-import EditableTransactionRow, { type TxData } from "@/components/EditableTransactionRow";
+import OperationsTable from "@/components/OperationsTable";
 
 type TxRow = {
   id: string;
@@ -120,15 +118,6 @@ export default async function TransactionsPage({
     attByTx.set(a.transaction_id, arr);
   }
 
-  // Группировка по дате
-  const groups: { date: string; rows: TxRow[] }[] = [];
-  for (const t of rows) {
-    const last = groups[groups.length - 1];
-    if (last && last.date === t.occurred_on) last.rows.push(t);
-    else groups.push({ date: t.occurred_on, rows: [t] });
-  }
-  const today = new Date().toISOString().slice(0, 10);
-
   const exportRows = rows.map((t) => [
     t.occurred_on,
     t.type === "income" ? "Приход" : t.type === "expense" ? "Расход" : "Перевод",
@@ -178,57 +167,26 @@ export default async function TransactionsPage({
       />
 
       {rows.length > 0 ? (
-        <div className="overflow-x-auto rounded-3xl bg-white ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
-          <table className="w-full min-w-[860px] text-sm">
-            <thead>
-              <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wider text-slate-400 dark:border-white/[0.07] dark:text-neutral-500">
-                <th className="px-5 py-3 font-medium">Дата</th>
-                <th className="px-5 py-3 font-medium">Операция</th>
-                <th className="px-5 py-3 font-medium">Статья / Описание</th>
-                <th className="px-5 py-3 font-medium">Проект</th>
-                <th className="px-5 py-3 font-medium">Контрагент</th>
-                <th className="px-5 py-3 font-medium">Счёт</th>
-                <th className="px-3 py-3"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {groups.map((g) => (
-                <Fragment key={g.date}>
-                  <tr className="bg-slate-50/70 dark:bg-white/[0.03]">
-                    <td colSpan={7} className="px-5 py-2 text-xs font-semibold text-slate-500 dark:text-neutral-400">
-                      {g.date === today ? "Сегодня" : formatDate(g.date)}
-                    </td>
-                  </tr>
-                  {g.rows.map((t) => {
-                    const editable = canEditFinance(role) || (role === "employee" && t.created_by === user?.id);
-                    const data: TxData = {
-                      id: t.id, type: t.type, amount: t.amount, currency: t.currency, occurred_on: t.occurred_on,
-                      note: t.note, status: t.status, account_id: t.account_id, transfer_account_id: t.transfer_account_id,
-                      category_id: t.category_id, counterparty_id: t.counterparty_id, project_id: t.project_id,
-                      accountName: t.account?.name ?? null, toAccountName: t.to_account?.name ?? null,
-                      categoryName: t.category?.name ?? null, counterpartyName: t.counterparty?.name ?? null,
-                      projectName: t.project?.name ?? null,
-                    };
-                    return (
-                      <EditableTransactionRow
-                        key={t.id}
-                        tx={data}
-                        editable={editable}
-                        teamId={team.id}
-                        userId={user?.id ?? ""}
-                        attachments={attByTx.get(t.id) ?? []}
-                        accounts={accounts ?? []}
-                        categories={cats}
-                        counterparties={counterparties ?? []}
-                        projects={projects ?? []}
-                      />
-                    );
-                  })}
-                </Fragment>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <OperationsTable
+          items={rows.map((t) => ({
+            editable: canEditFinance(role) || (role === "employee" && t.created_by === user?.id),
+            attachments: attByTx.get(t.id) ?? [],
+            tx: {
+              id: t.id, type: t.type, amount: t.amount, currency: t.currency, occurred_on: t.occurred_on,
+              note: t.note, status: t.status, account_id: t.account_id, transfer_account_id: t.transfer_account_id,
+              category_id: t.category_id, counterparty_id: t.counterparty_id, project_id: t.project_id,
+              accountName: t.account?.name ?? null, toAccountName: t.to_account?.name ?? null,
+              categoryName: t.category?.name ?? null, counterpartyName: t.counterparty?.name ?? null,
+              projectName: t.project?.name ?? null,
+            },
+          }))}
+          accounts={accounts ?? []}
+          categories={cats}
+          counterparties={counterparties ?? []}
+          projects={projects ?? []}
+          teamId={team.id}
+          userId={user?.id ?? ""}
+        />
       ) : (
         <p className="rounded-3xl bg-white p-6 text-sm text-slate-500 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:text-neutral-400 dark:ring-white/[0.07]">
           Операций по фильтру нет.
