@@ -6,16 +6,28 @@ import { createClient } from "@/lib/supabase/client";
 import { parseMoney } from "@/lib/format";
 import { CURRENCIES } from "@/lib/constants";
 
+type Salary = { effective_from: string; amount: number; currency: string };
+
+// Ставка оклада, действующая на начало указанного месяца
+function salaryForMonth(salaries: Salary[], monthStart: string): Salary | null {
+  const eligible = salaries
+    .filter((s) => s.effective_from <= monthStart)
+    .sort((a, b) => (a.effective_from < b.effective_from ? 1 : -1));
+  return eligible[0] ?? null;
+}
+
 export default function AddAccrualForm({
   teamId,
   employeeId,
   defaultCurrency,
   projects = [],
+  salaries = [],
 }: {
   teamId: string;
   employeeId: string;
   defaultCurrency: string;
   projects?: { id: string; name: string }[];
+  salaries?: Salary[];
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -29,6 +41,15 @@ export default function AddAccrualForm({
   const [projectId, setProjectId] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Подстановка оклада: при открытии и смене месяца, если часть фиксированная
+  const subst = kind === "fixed" ? salaryForMonth(salaries, `${month}-01`) : null;
+  function applySalary() {
+    if (subst) {
+      setAmount((subst.amount / 100).toFixed(2).replace(".", ","));
+      setCurrency(subst.currency);
+    }
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -64,7 +85,7 @@ export default function AddAccrualForm({
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="btn-primary">
+      <button onClick={() => { setOpen(true); applySalary(); }} className="btn-primary">
         + Начислить
       </button>
     );
@@ -99,6 +120,11 @@ export default function AddAccrualForm({
       <div>
         <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Сумма</label>
         <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" placeholder="0,00" className="input w-32" />
+        {subst && (
+          <button type="button" onClick={applySalary} className="mt-1 block text-[11px] text-brand hover:underline">
+            оклад {(subst.amount / 100).toLocaleString("ru-RU")} {subst.currency} — подставить
+          </button>
+        )}
       </div>
       <div>
         <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Валюта</label>

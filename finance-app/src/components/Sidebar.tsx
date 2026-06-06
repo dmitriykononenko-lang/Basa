@@ -31,6 +31,7 @@ const NAV: Item[] = [
   { href: "/counterparties", label: "Контрагенты", Icon: IconCounterparties },
   { href: "/projects", label: "Проекты", Icon: IconProjects },
   { href: "/employees", label: "Сотрудники", Icon: IconEmployees },
+  { href: "/payroll", label: "Зарплата", Icon: IconEmployees },
   { href: "/budgets", label: "Бюджеты", Icon: IconBudgets },
 ];
 

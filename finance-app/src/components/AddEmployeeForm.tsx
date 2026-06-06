@@ -11,6 +11,7 @@ export default function AddEmployeeForm({ teamId }: { teamId: string }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [startDate, setStartDate] = useState("");
+  const [department, setDepartment] = useState("");
   const [type, setType] = useState("salary");
   const [currency, setCurrency] = useState("RUB");
   const [pay, setPay] = useState<PaymentData>(emptyPayment);
@@ -33,6 +34,7 @@ export default function AddEmployeeForm({ teamId }: { teamId: string }) {
       kind: "employee",
       name,
       start_date: startDate || null,
+      department: department || null,
       employment_type: type,
       payout_currency: currency,
       payment_method: pay.payment_method,
@@ -52,6 +54,7 @@ export default function AddEmployeeForm({ teamId }: { teamId: string }) {
     }
     setName("");
     setStartDate("");
+    setDepartment("");
     setPay(emptyPayment);
     setOpen(false);
     setLoading(false);
@@ -77,6 +80,9 @@ export default function AddEmployeeForm({ teamId }: { teamId: string }) {
         </F>
         <F label="Дата начала">
           <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="input" />
+        </F>
+        <F label="Отдел">
+          <input value={department} onChange={(e) => setDepartment(e.target.value)} placeholder="Например, Маркетинг" className="input" />
         </F>
         <F label="Тип занятости">
           <select value={type} onChange={(e) => setType(e.target.value)} className="input">

@@ -28,7 +28,7 @@ export default async function EmployeesPage() {
   const [{ data: employees }, { data: balances }, { data: fxRows }] = await Promise.all([
     supabase
       .from("counterparties")
-      .select("id, name, employment_type, payout_currency")
+      .select("id, name, employment_type, payout_currency, department, end_date")
       .eq("team_id", team.id)
       .eq("kind", "employee")
       .eq("archived", false)
@@ -76,7 +76,10 @@ export default async function EmployeesPage() {
             Тип контрагента «Сотрудник» · начислено / выплачено / остаток
           </p>
         </div>
-        {canEditFinance(role) && <AddEmployeeForm teamId={team.id} />}
+        <div className="flex items-center gap-2">
+          <Link href="/payroll" className="btn-ghost">Зарплата →</Link>
+          {canEditFinance(role) && <AddEmployeeForm teamId={team.id} />}
+        </div>
       </header>
 
       <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -91,6 +94,7 @@ export default async function EmployeesPage() {
             <thead>
               <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wider text-slate-400 dark:border-white/[0.07] dark:text-neutral-500">
                 <th className="px-5 py-3 font-medium">Сотрудник</th>
+                <th className="px-5 py-3 font-medium">Отдел</th>
                 <th className="px-5 py-3 font-medium">Тип</th>
                 <th className="px-5 py-3 text-right font-medium">Начислено</th>
                 <th className="px-5 py-3 text-right font-medium">Выплачено</th>
@@ -104,7 +108,9 @@ export default async function EmployeesPage() {
                     <Link href={`/employees/${e.id}`} className="break-words text-slate-800 hover:text-brand dark:text-neutral-200">
                       {e.name}
                     </Link>
+                    {e.end_date && <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500 dark:bg-neutral-800 dark:text-neutral-400">уволен</span>}
                   </td>
+                  <td className="px-5 py-3 text-slate-500 dark:text-neutral-400">{e.department ?? "—"}</td>
                   <td className="px-5 py-3 text-slate-500 dark:text-neutral-400">
                     {e.employment_type ? EMPLOYMENT_TYPE_LABELS[e.employment_type] ?? e.employment_type : "—"}
                   </td>

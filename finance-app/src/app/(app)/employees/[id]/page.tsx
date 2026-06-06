@@ -6,6 +6,7 @@ import { formatMoney, formatDate } from "@/lib/format";
 import { buildRateMap, toBase } from "@/lib/fx";
 import { EMPLOYMENT_TYPE_LABELS } from "@/lib/constants";
 import AddAccrualForm from "@/components/AddAccrualForm";
+import SalaryEditor from "@/components/SalaryEditor";
 import CopyField from "@/components/CopyField";
 import EditEmployeePayment from "@/components/EditEmployeePayment";
 import PayObligationButton from "@/components/PayObligationButton";
@@ -43,12 +44,12 @@ export default async function EmployeePage({
 
   const { data: emp } = await supabase
     .from("counterparties")
-    .select("id, name, kind, employment_type, start_date, payout_currency, payment_method, legal_status, payee_name, inn, bank_account, bank_name, bik, wallet_address, wallet_network")
+    .select("id, name, kind, employment_type, start_date, end_date, department, payout_currency, payment_method, legal_status, payee_name, inn, bank_account, bank_name, bik, wallet_address, wallet_network")
     .eq("id", id)
     .maybeSingle();
   if (!emp) notFound();
 
-  const [{ data: bals }, { data: projects }, { data: accounts }] = await Promise.all([
+  const [{ data: bals }, { data: projects }, { data: accounts }, { data: salaries }] = await Promise.all([
     supabase
       .from("obligation_balances")
       .select("id, amount, paid, outstanding, currency, project_id, pay_part, period_month, due_date")
@@ -57,7 +58,9 @@ export default async function EmployeePage({
       .eq("counterparty_id", id),
     supabase.from("projects").select("id, name").eq("team_id", team.id).order("name"),
     supabase.from("accounts").select("id, name, currency").eq("team_id", team.id).eq("archived", false).order("created_at"),
+    supabase.from("employee_salaries").select("id, effective_from, amount, currency").eq("counterparty_id", id).order("effective_from", { ascending: false }),
   ]);
+  const salaryRows = (salaries ?? []) as { id: string; effective_from: string; amount: number; currency: string }[];
 
   const rates = buildRateMap([], base); // курсы не критичны на карточке; суммы в валюте обязательства
   const projName = new Map((projects ?? []).map((p) => [p.id, p.name]));
@@ -98,7 +101,9 @@ export default async function EmployeePage({
           <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">{emp.name}</h1>
           <p className="text-sm text-slate-500 dark:text-neutral-400">
             {emp.employment_type ? EMPLOYMENT_TYPE_LABELS[emp.employment_type] ?? emp.employment_type : "Сотрудник"}
+            {emp.department && ` · ${emp.department}`}
             {emp.start_date && ` · с ${formatDate(emp.start_date)}`}
+            {emp.end_date && ` · уволен ${formatDate(emp.end_date)}`}
             {emp.payout_currency && ` · выплаты в ${emp.payout_currency}`}
           </p>
         </div>
@@ -108,6 +113,7 @@ export default async function EmployeePage({
             employeeId={emp.id}
             defaultCurrency={emp.payout_currency ?? base}
             projects={projects ?? []}
+            salaries={salaryRows}
           />
         )}
       </header>
@@ -117,6 +123,20 @@ export default async function EmployeePage({
         <Kpi title="Выплачено" value={formatMoney(totalPaid, base)} />
         <Kpi title="Остаток к выплате" value={formatMoney(totalOut, base)} accent={totalOut > 0 ? "amber" : "emerald"} />
       </div>
+
+      {manage && user && (
+        <div className="mb-6">
+          <SalaryEditor
+            teamId={team.id}
+            userId={user.id}
+            counterpartyId={emp.id}
+            defaultCurrency={emp.payout_currency ?? base}
+            salaries={salaryRows}
+            endDate={emp.end_date ?? null}
+            department={emp.department ?? null}
+          />
+        </div>
+      )}
 
       {/* Реквизиты */}
       <section className="mb-6 rounded-3xl bg-white p-6 ring-1 ring-slate-200/70 dark:bg-[#15171c] dark:ring-white/[0.07]">
