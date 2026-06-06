@@ -41,6 +41,7 @@ const ANALYTICS: Item[] = [
   { href: "/reports", label: "Анализ расходов", Icon: IconReports, exact: true },
   { href: "/debts", label: "Задолженности", Icon: IconDebts },
   { href: "/calendar", label: "Платёжный календарь", Icon: IconCalendar },
+  { href: "/recurring", label: "Регулярные операции", Icon: IconCalendar },
 ];
 
 const SETTINGS: Item = {
