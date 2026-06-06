@@ -184,7 +184,7 @@ export default async function DashboardPage() {
       .gte("occurred_on", sixStart),
     supabase
       .from("transactions")
-      .select("type, amount, currency, occurred_on")
+      .select("type, amount, currency, occurred_on, account_id, transfer_account_id")
       .eq("team_id", team.id)
       .eq("status", "planned")
       .gte("occurred_on", today),
@@ -257,9 +257,69 @@ export default async function DashboardPage() {
   const hasGap = gapValue < 0;
   const showTrend = (accounts?.length ?? 0) > 0;
 
+  // ── Прогноз по каждому счёту: где не хватит и нужен перевод ──
+  type PlanEv = { occurred_on: string; type: string; amount: number; currency: string; account_id: string | null; transfer_account_id: string | null };
+  const evByAcc = new Map<string, { date: string; delta: number }[]>();
+  function pushEv(accId: string | null, date: string, delta: number) {
+    if (!accId) return;
+    const arr = evByAcc.get(accId) ?? [];
+    arr.push({ date, delta });
+    evByAcc.set(accId, arr);
+  }
+  for (const t of (planTx ?? []) as PlanEv[]) {
+    const v = toBase(t.amount, t.currency, rates);
+    if (t.type === "income") pushEv(t.account_id, t.occurred_on, v);
+    else if (t.type === "expense") pushEv(t.account_id, t.occurred_on, -v);
+    else if (t.type === "transfer") { pushEv(t.account_id, t.occurred_on, -v); pushEv(t.transfer_account_id, t.occurred_on, v); }
+  }
+
+  // Проекция минимального остатка по каждому счёту (в базовой валюте)
+  const accProjection = (accounts ?? []).map((a) => {
+    const startBal = toBase(balanceMap.get(a.id) ?? 0, a.currency, rates);
+    const evs = (evByAcc.get(a.id) ?? []).sort((x, y) => (x.date < y.date ? -1 : 1));
+    let run = startBal, min = startBal, minDate: string | null = null;
+    for (const e of evs) { run += e.delta; if (run < min) { min = run; minDate = e.date; } }
+    return { id: a.id, name: a.name, currency: a.currency, startBal, min, minDate };
+  });
+  const shortfalls = accProjection.filter((a) => a.min < 0).sort((a, b) => a.min - b.min);
+  const transferWarnings = shortfalls.map((s) => {
+    const donors = accProjection.filter((a) => a.id !== s.id && a.currency === s.currency && a.min > 0).sort((a, b) => b.min - a.min);
+    const donor = donors[0] ?? null;
+    return {
+      ...s,
+      deficit: -s.min,
+      donorName: donor?.name ?? null,
+      donorFree: donor?.min ?? 0,
+      needConvert: !donor, // нет покрытия в этой валюте
+    };
+  });
+
   return (
     <div className="p-6 sm:p-8">
       {InvitesBlock}
+      {transferWarnings.length > 0 && (
+        <div className="mb-6 space-y-2">
+          {transferWarnings.map((w) => (
+            <Link
+              key={w.id}
+              href="/transactions"
+              className="flex flex-wrap items-center justify-between gap-3 rounded-3xl bg-amber-50 px-5 py-4 ring-1 ring-amber-200 transition hover:ring-amber-300 dark:bg-amber-950/30 dark:ring-amber-900/40"
+            >
+              <span className="text-sm text-amber-800 dark:text-amber-200">
+                💱 На счёте «<b>{w.name}</b>» ожидается нехватка{" "}
+                <b>{formatMoney(w.deficit, team.base_currency)}</b>
+                {w.minDate && <> к {new Date(w.minDate).toLocaleDateString("ru-RU")}</>}.{" "}
+                {w.needConvert ? (
+                  <>Нет свободных средств в {w.currency} — потребуется конвертация с другого счёта.</>
+                ) : (
+                  <>Сделайте перевод со счёта «<b>{w.donorName}</b>» (свободно ~{formatMoney(w.donorFree, team.base_currency)}).</>
+                )}
+              </span>
+              <span className="text-sm font-medium text-amber-700 dark:text-amber-300">Создать перевод →</span>
+            </Link>
+          ))}
+        </div>
+      )}
       {overdueCount > 0 && (
         <Link
           href="/debts"
