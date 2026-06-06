@@ -36,6 +36,7 @@ export default function AddTransactionForm({
   const [counterpartyId, setCounterpartyId] = useState("");
   const [projectId, setProjectId] = useState("");
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [accrualDate, setAccrualDate] = useState("");
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -117,6 +118,7 @@ export default function AddTransactionForm({
       counterparty_id: counterpartyId || null,
       project_id: projectId || null,
       occurred_on: date,
+      accrual_date: type !== "transfer" ? accrualDate || null : null,
       note: note || null,
       status: planned ? "planned" : "actual",
       created_by: userId,
@@ -130,6 +132,7 @@ export default function AddTransactionForm({
 
     setAmount("");
     setNote("");
+    setAccrualDate("");
     setOpen(false);
     setLoading(false);
     router.refresh();
@@ -300,7 +303,7 @@ export default function AddTransactionForm({
           </div>
         </Field>
 
-        <Field label="Дата">
+        <Field label={type === "transfer" ? "Дата" : "Дата (платёж)"}>
           <input
             type="date"
             value={date}
@@ -313,6 +316,20 @@ export default function AddTransactionForm({
             className="input"
           />
         </Field>
+
+        {type !== "transfer" && (
+          <Field label="Дата начисления">
+            <input
+              type="date"
+              value={accrualDate}
+              onChange={(e) => setAccrualDate(e.target.value)}
+              className="input"
+            />
+            <span className="mt-1 block text-[11px] text-slate-400 dark:text-neutral-500">
+              Для ОПиУ (метод начисления). Пусто = как дата платежа.
+            </span>
+          </Field>
+        )}
 
         <Field label="Комментарий">
           <input

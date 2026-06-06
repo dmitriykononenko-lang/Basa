@@ -10,6 +10,7 @@ type Tx = {
   amount: number;
   currency: string;
   occurred_on: string;
+  accrual_date: string | null;
   project_id: string | null;
   category: { id: string; name: string; kind: string; cf_activity: string; pnl_treatment: string } | null;
 };
@@ -55,10 +56,10 @@ export default async function PnlPage({
   const [{ data: txs }, { data: fxRows }] = await Promise.all([
     supabase
       .from("transactions")
-      .select("type, amount, currency, occurred_on, project_id, category:categories(id, name, kind, cf_activity, pnl_treatment)")
+      .select("type, amount, currency, occurred_on, accrual_date, project_id, category:categories(id, name, kind, cf_activity, pnl_treatment)")
       .eq("team_id", team.id)
       .eq("status", "actual")
-      .gte("occurred_on", start),
+      .or(`occurred_on.gte.${start},accrual_date.gte.${start}`),
     supabase.from("fx_rates").select("currency, rate, rate_date").eq("team_id", team.id),
   ]);
 
@@ -80,6 +81,9 @@ export default async function PnlPage({
 
   for (const t of rows) {
     if (t.type === "transfer") continue;
+    // Метод начисления: операция относится к периоду по дате начисления (если задана)
+    const eff = t.accrual_date ?? t.occurred_on;
+    if (eff < start) continue;
     const cat = t.category;
     const treatment = cat?.pnl_treatment ?? "auto";
     const activity = cat?.cf_activity ?? "operating";

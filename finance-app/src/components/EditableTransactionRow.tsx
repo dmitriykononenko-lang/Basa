@@ -17,6 +17,7 @@ export type TxData = {
   amount: number;
   currency: string;
   occurred_on: string;
+  accrual_date: string | null;
   note: string | null;
   status: string;
   account_id: string | null;
@@ -67,6 +68,7 @@ export default function EditableTransactionRow({
   const [counterpartyId, setCounterpartyId] = useState(tx.counterparty_id ?? "");
   const [projectId, setProjectId] = useState(tx.project_id ?? "");
   const [date, setDate] = useState(tx.occurred_on);
+  const [accrualDate, setAccrualDate] = useState(tx.accrual_date ?? "");
   const [note, setNote] = useState(tx.note ?? "");
 
   const isTransfer = tx.type === "transfer";
@@ -90,6 +92,7 @@ export default function EditableTransactionRow({
         counterparty_id: isTransfer ? null : counterpartyId || null,
         project_id: projectId || null,
         occurred_on: date,
+        accrual_date: accrualDate || null,
         note: note || null,
       })
       .eq("id", tx.id);
@@ -158,6 +161,11 @@ export default function EditableTransactionRow({
             {tx.status === "planned" && <span title="Плановая" className="text-violet-500">🕒</span>}
             {formatDate(tx.occurred_on)}
           </span>
+          {tx.accrual_date && tx.accrual_date !== tx.occurred_on && (
+            <div className="text-[11px] text-violet-500/80" title="Дата начисления (учитывается в ОПиУ)">
+              начислено: {formatDate(tx.accrual_date)}
+            </div>
+          )}
         </td>
         <td className={`whitespace-nowrap px-5 py-3 font-semibold ${amountColor}`}>
           {sign}
@@ -238,9 +246,14 @@ export default function EditableTransactionRow({
             <Combobox value={projectId} onChange={setProjectId} placeholder="—" emptyLabel="— без проекта —"
               options={projects.map((p): ComboOption => ({ value: p.id, label: p.name }))} />
           </Field>
-          <Field label="Дата">
+          <Field label="Дата (платёж)">
             <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="input" />
           </Field>
+          {!isTransfer && (
+            <Field label="Дата начисления">
+              <input type="date" value={accrualDate} onChange={(e) => setAccrualDate(e.target.value)} className="input" placeholder="как дата платежа" />
+            </Field>
+          )}
           <div className="col-span-2 sm:col-span-3 lg:col-span-6">
             <Field label="Комментарий">
               <input value={note} onChange={(e) => setNote(e.target.value)} className="input" />
@@ -256,6 +269,12 @@ export default function EditableTransactionRow({
             />
           </div>
         </div>
+        {!isTransfer && (
+          <p className="mt-2 text-[11px] text-slate-400 dark:text-neutral-500">
+            «Дата платежа» — для ДДС и баланса счёта (кассовый метод). «Дата начисления» — для ОПиУ
+            (метод начисления): к какому периоду экономически относится доход/расход. Пусто = как дата платежа.
+          </p>
+        )}
         {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
         <div className="mt-3 flex gap-2">
           <button onClick={save} disabled={busy} className="btn-primary">
