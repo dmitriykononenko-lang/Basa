@@ -7,6 +7,12 @@ import { getCurrentTeam } from "@/lib/team";
 import { buildRateMap, toBase } from "@/lib/fx";
 import AcceptInviteButton from "@/components/AcceptInviteButton";
 import { IconTransactions, IconAccounts, IconReports } from "@/components/icons";
+import TrendChart, { type TrendPoint } from "@/components/TrendChart";
+
+const MONTHS_SHORT = [
+  "Янв", "Фев", "Мар", "Апр", "Май", "Июн",
+  "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек",
+];
 
 export default async function DashboardPage() {
   const current = await getCurrentTeam();
@@ -156,6 +162,101 @@ export default async function DashboardPage() {
     if (spent > b.amount) overBudgets++;
   }
 
+  // ── Динамика остатка на счетах: факт + прогноз кассового разрыва ──
+  const curY = new Date().getFullYear();
+  const curM = new Date().getMonth();
+  const curKey = curY * 12 + curM;
+  const PAST = 5; // месяцев истории до текущего
+  const FUT = 3; // месяцев прогноза вперёд
+  const sixStart = new Date(curY, curM - PAST, 1).toISOString().slice(0, 10);
+
+  const currentBalance = (balances ?? []).reduce(
+    (s, b) => s + toBase(b.balance, b.currency, rates),
+    0
+  );
+
+  const [{ data: histTx }, { data: planTx }, { data: futureObl }] = await Promise.all([
+    supabase
+      .from("transactions")
+      .select("type, amount, currency, occurred_on")
+      .eq("team_id", team.id)
+      .eq("status", "actual")
+      .gte("occurred_on", sixStart),
+    supabase
+      .from("transactions")
+      .select("type, amount, currency, occurred_on")
+      .eq("team_id", team.id)
+      .eq("status", "planned")
+      .gte("occurred_on", today),
+    supabase
+      .from("obligation_balances")
+      .select("outstanding, currency, due_date")
+      .eq("team_id", team.id)
+      .gt("outstanding", 0)
+      .gte("due_date", today),
+  ]);
+
+  // Чистый поток по месяцам (переводы между своими счетами не меняют общий остаток)
+  const factNet = new Map<number, number>();
+  for (const t of histTx ?? []) {
+    if (t.type === "transfer") continue;
+    const d = new Date(t.occurred_on);
+    const key = d.getFullYear() * 12 + d.getMonth();
+    const v = toBase(t.amount, t.currency, rates);
+    factNet.set(key, (factNet.get(key) ?? 0) + (t.type === "income" ? v : -v));
+  }
+
+  const fcNet = new Map<number, number>();
+  for (const t of planTx ?? []) {
+    if (t.type === "transfer") continue;
+    const d = new Date(t.occurred_on);
+    const key = d.getFullYear() * 12 + d.getMonth();
+    const v = toBase(t.amount, t.currency, rates);
+    fcNet.set(key, (fcNet.get(key) ?? 0) + (t.type === "income" ? v : -v));
+  }
+  for (const o of futureObl ?? []) {
+    const d = new Date(o.due_date);
+    const key = d.getFullYear() * 12 + d.getMonth();
+    fcNet.set(key, (fcNet.get(key) ?? 0) - toBase(o.outstanding, o.currency, rates));
+  }
+
+  // Закрытие месяца: факт — обратным ходом от текущего баланса
+  const closeByKey = new Map<number, number>();
+  closeByKey.set(curKey, currentBalance);
+  for (let k = 1; k <= PAST; k++) {
+    const key = curKey - k;
+    closeByKey.set(key, closeByKey.get(key + 1)! - (factNet.get(key + 1) ?? 0));
+  }
+  // Прогноз — вперёд (учитываем плановые операции остатка текущего месяца)
+  let running = currentBalance + (fcNet.get(curKey) ?? 0);
+  for (let k = 1; k <= FUT; k++) {
+    const key = curKey + k;
+    running += fcNet.get(key) ?? 0;
+    closeByKey.set(key, running);
+  }
+
+  const trendPoints: TrendPoint[] = [];
+  for (let key = curKey - PAST; key <= curKey + FUT; key++) {
+    const m = ((key % 12) + 12) % 12;
+    trendPoints.push({
+      label: MONTHS_SHORT[m],
+      value: closeByKey.get(key) ?? 0,
+      forecast: key > curKey,
+    });
+  }
+
+  // Кассовый разрыв: минимальная прогнозная точка ниже нуля
+  let gapValue = 0;
+  let gapLabel = "";
+  for (const p of trendPoints) {
+    if (p.forecast && p.value < gapValue) {
+      gapValue = p.value;
+      gapLabel = p.label;
+    }
+  }
+  const hasGap = gapValue < 0;
+  const showTrend = (accounts?.length ?? 0) > 0;
+
   return (
     <div className="p-6 sm:p-8">
       {InvitesBlock}
@@ -232,6 +333,32 @@ export default async function DashboardPage() {
           {formatMoney(income - expense, team.base_currency)}
         </Metric>
       </div>
+
+      {/* Динамика остатка + прогноз */}
+      {showTrend && (
+        <section className="mt-8 rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
+          <div className="mb-2 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
+                Динамика остатка на счетах
+              </h2>
+              <p className="text-xs text-slate-400 dark:text-neutral-500">
+                Факт за {PAST} мес. · пунктир — прогноз по плановым операциям и обязательствам ({team.base_currency})
+              </p>
+            </div>
+            {hasGap ? (
+              <span className="rounded-full bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 ring-1 ring-red-200 dark:bg-red-950/30 dark:text-red-300 dark:ring-red-900/40">
+                ⚠️ Кассовый разрыв возможен в {gapLabel}: {formatMoney(gapValue, team.base_currency)}
+              </span>
+            ) : (
+              <span className="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-900/40">
+                Разрывов не прогнозируется
+              </span>
+            )}
+          </div>
+          <TrendChart points={trendPoints} base={team.base_currency} />
+        </section>
+      )}
 
       {/* Счета */}
       <section className="mt-8">
