@@ -62,6 +62,8 @@ export default async function EmployeePage({
   ]);
   const { data: positions } = await supabase
     .from("employee_positions").select("id, effective_from, position").eq("counterparty_id", id).order("effective_from", { ascending: false });
+  const { data: expenseCats } = await supabase
+    .from("categories").select("id, name, kind").eq("team_id", team.id).eq("kind", "expense").eq("archived", false).order("name");
   const salaryRows = (salaries ?? []) as { id: string; effective_from: string; amount: number; currency: string }[];
   const positionRows = (positions ?? []) as { id: string; effective_from: string; position: string }[];
   const todayStr = new Date().toISOString().slice(0, 10);
@@ -119,6 +121,7 @@ export default async function EmployeePage({
             defaultCurrency={emp.payout_currency ?? base}
             projects={projects ?? []}
             salaries={salaryRows}
+            categories={(expenseCats ?? []) as { id: string; name: string; kind: string }[]}
           />
         )}
       </header>

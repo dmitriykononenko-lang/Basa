@@ -22,12 +22,14 @@ export default function AddAccrualForm({
   defaultCurrency,
   projects = [],
   salaries = [],
+  categories = [],
 }: {
   teamId: string;
   employeeId: string;
   defaultCurrency: string;
   projects?: { id: string; name: string }[];
   salaries?: Salary[];
+  categories?: { id: string; name: string; kind: string }[];
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -38,7 +40,9 @@ export default function AddAccrualForm({
   const [kind, setKind] = useState<"fixed" | "variable">("fixed");
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState(defaultCurrency);
+  const [categoryId, setCategoryId] = useState("");
   const [projectId, setProjectId] = useState("");
+  const expenseCats = categories.filter((c) => c.kind === "expense");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -64,6 +68,7 @@ export default function AddAccrualForm({
       type: "payable",
       amount: minor,
       currency,
+      category_id: categoryId || null,
       project_id: projectId || null,
       due_date: `${month}-01`,
       period_month: `${month}-01`,
@@ -104,6 +109,15 @@ export default function AddAccrualForm({
           <option value="variable">Переменная</option>
         </select>
       </div>
+      {expenseCats.length > 0 && (
+        <div>
+          <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Статья</label>
+          <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className="input">
+            <option value="">— оплата труда —</option>
+            {expenseCats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+      )}
       {projects.length > 0 && (
         <div>
           <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">

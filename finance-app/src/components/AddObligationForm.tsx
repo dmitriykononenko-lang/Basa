@@ -7,6 +7,7 @@ import { parseMoney } from "@/lib/format";
 import { CURRENCIES } from "@/lib/constants";
 
 type Named = { id: string; name: string };
+type Category = { id: string; name: string; kind: "income" | "expense" };
 
 export default function AddObligationForm({
   teamId,
@@ -14,12 +15,14 @@ export default function AddObligationForm({
   baseCurrency,
   counterparties,
   projects,
+  categories = [],
 }: {
   teamId: string;
   userId: string;
   baseCurrency: string;
   counterparties: Named[];
   projects: Named[];
+  categories?: Category[];
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -27,9 +30,12 @@ export default function AddObligationForm({
   const [counterpartyId, setCounterpartyId] = useState(counterparties[0]?.id ?? "");
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState(baseCurrency);
+  const [categoryId, setCategoryId] = useState("");
   const [projectId, setProjectId] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [note, setNote] = useState("");
+  const catKind = type === "receivable" ? "income" : "expense";
+  const filteredCats = categories.filter((c) => c.kind === catKind);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -49,6 +55,7 @@ export default function AddObligationForm({
       type,
       amount: minor,
       currency,
+      category_id: categoryId || null,
       project_id: projectId || null,
       due_date: dueDate || null,
       note: note || null,
@@ -152,6 +159,17 @@ export default function AddObligationForm({
             </select>
           </div>
         </Field>
+
+        {filteredCats.length > 0 && (
+          <Field label="Статья (для ОПиУ)">
+            <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className="input">
+              <option value="">— без статьи —</option>
+              {filteredCats.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </Field>
+        )}
 
         <Field label="Проект">
           <select

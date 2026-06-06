@@ -6,6 +6,7 @@ import { buildRateMap, toBase } from "@/lib/fx";
 import PnlTable from "@/components/PnlTable";
 
 type Tx = {
+  id: string;
   type: "income" | "expense" | "transfer";
   amount: number;
   currency: string;
@@ -13,6 +14,15 @@ type Tx = {
   accrual_date: string | null;
   project_id: string | null;
   category: { id: string; name: string; kind: string; cf_activity: string; pnl_treatment: string } | null;
+};
+type Obl = {
+  type: "receivable" | "payable";
+  amount: number;
+  currency: string;
+  period_month: string | null;
+  due_date: string | null;
+  project_id: string | null;
+  category: { id: string; name: string; cf_activity: string; pnl_treatment: string } | null;
 };
 type CatAgg = { id: string | null; name: string; value: number };
 
@@ -56,12 +66,23 @@ export default async function PnlPage({
   const [{ data: txs }, { data: fxRows }] = await Promise.all([
     supabase
       .from("transactions")
-      .select("type, amount, currency, occurred_on, accrual_date, project_id, category:categories(id, name, kind, cf_activity, pnl_treatment)")
+      .select("id, type, amount, currency, occurred_on, accrual_date, project_id, category:categories(id, name, kind, cf_activity, pnl_treatment)")
       .eq("team_id", team.id)
       .eq("status", "actual")
       .or(`occurred_on.gte.${start},accrual_date.gte.${start}`),
     supabase.from("fx_rates").select("currency, rate, rate_date").eq("team_id", team.id),
   ]);
+
+  // Метод начисления: расход/доход признаём при начислении (обязательства), а не при оплате.
+  // Поэтому: 1) оплаты обязательств исключаем из транзакций ОПиУ; 2) добавляем начисленные обязательства.
+  const [{ data: payRows }, { data: oblRows }] = await Promise.all([
+    supabase.from("obligation_payments").select("transaction_id").not("transaction_id", "is", null),
+    supabase
+      .from("obligations")
+      .select("type, amount, currency, period_month, due_date, project_id, category:categories(id, name, cf_activity, pnl_treatment)")
+      .eq("team_id", team.id),
+  ]);
+  const settledTx = new Set((payRows ?? []).map((p) => p.transaction_id as string));
 
   const rates = buildRateMap(fxRows ?? [], base);
   const rows = (txs ?? []) as unknown as Tx[];
@@ -81,6 +102,7 @@ export default async function PnlPage({
 
   for (const t of rows) {
     if (t.type === "transfer") continue;
+    if (settledTx.has(t.id)) continue; // оплата обязательства — расход уже признан при начислении
     // Метод начисления: операция относится к периоду по дате начисления (если задана)
     const eff = t.accrual_date ?? t.occurred_on;
     if (eff < start) continue;
@@ -107,6 +129,33 @@ export default async function PnlPage({
       else { other += v; add(otherByCat, id, name, v); }
     }
   }
+  // Начисленные обязательства (в т.ч. неоплаченные) — по периоду начисления
+  for (const o of (oblRows ?? []) as unknown as Obl[]) {
+    const eff = o.period_month ?? o.due_date;
+    if (!eff || eff < start) continue;
+    const cat = o.category;
+    const treatment = cat?.pnl_treatment ?? "auto";
+    const activity = cat?.cf_activity ?? "operating";
+    if (treatment === "excluded") continue;
+    if (activity !== "operating") continue;
+    const v = toBase(o.amount, o.currency, rates);
+    const id = cat?.id ?? null;
+    if (o.type === "receivable") {
+      revenue += v;
+      add(revenueByCat, id, cat?.name ?? "Начисленная выручка", v);
+    } else {
+      const bucket =
+        treatment === "direct" ? "direct"
+        : treatment === "indirect" ? "indirect"
+        : treatment === "other" ? "other"
+        : o.project_id ? "direct" : "indirect";
+      const name = cat?.name ?? "Оплата труда и начисления";
+      if (bucket === "direct") { direct += v; add(directByCat, id, name, v); }
+      else if (bucket === "indirect") { indirect += v; add(indirectByCat, id, name, v); }
+      else { other += v; add(otherByCat, id, name, v); }
+    }
+  }
+
   const sortCats = (m: Map<string, CatAgg>) => [...m.values()].sort((a, b) => b.value - a.value);
 
   const gross = revenue - direct;
@@ -162,10 +211,10 @@ export default async function PnlPage({
       />
 
       <p className="mt-4 text-xs text-slate-400 dark:text-neutral-600">
-        В ОПиУ учитываются операционные доходы и расходы. Капвложения (инвестиционные)
-        и финансовые потоки (кредиты, ввод/вывод денег) исключены. Тип расхода
-        (прямой/косвенный) берётся из настроек статьи; «авто» = прямой, если у операции
-        есть проект, иначе косвенный.
+        Метод начисления: доходы и расходы признаются в периоде <b>начисления</b>, а не оплаты.
+        Учитываются начисленные обязательства (в т.ч. неоплаченные, по их периоду), а оплаты
+        этих обязательств в ОПиУ не дублируются. Дата начисления операции (если задана) задаёт
+        её период. Капвложения и финансовые потоки исключены; тип расхода берётся из настроек статьи.
       </p>
     </div>
   );

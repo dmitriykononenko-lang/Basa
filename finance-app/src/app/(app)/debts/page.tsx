@@ -80,6 +80,9 @@ export default async function DebtsPage({
       supabase.from("accounts").select("id, name, currency").eq("team_id", team.id).eq("archived", false).order("created_at"),
     ]);
 
+  const { data: categories } = await supabase
+    .from("categories").select("id, name, kind").eq("team_id", team.id).eq("archived", false).order("name");
+
   const rows = (obligations ?? []) as unknown as Row[];
   const rates = buildRateMap(fxRows ?? [], cur);
 
@@ -250,6 +253,7 @@ export default async function DebtsPage({
             baseCurrency={cur}
             counterparties={counterparties ?? []}
             projects={projects ?? []}
+            categories={(categories ?? []) as { id: string; name: string; kind: "income" | "expense" }[]}
           />
         </section>
       )}
