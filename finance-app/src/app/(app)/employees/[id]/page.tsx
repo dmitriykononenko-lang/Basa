@@ -270,6 +270,13 @@ export default async function EmployeePage({
           </h2>
           <div className="overflow-hidden rounded-3xl bg-white ring-1 ring-slate-200/70 dark:bg-[#15171c] dark:ring-white/[0.07]">
             <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wider text-slate-400 dark:border-white/[0.07] dark:text-neutral-500">
+                  <th className="px-5 py-3 font-medium">Месяц · тип · за что</th>
+                  <th className="px-5 py-3 text-right font-medium">Остаток к выплате · начислено</th>
+                  <th className="px-5 py-3 text-right font-medium">Действия</th>
+                </tr>
+              </thead>
               <tbody>
                 {rows.map((o) => (
                   <tr key={o.id} className="border-b border-slate-50 last:border-0 dark:border-white/[0.05]">
@@ -338,8 +345,11 @@ export default async function EmployeePage({
               </tbody>
             </table>
           </div>
-          <p className="mt-3 text-xs text-slate-400 dark:text-neutral-600">
-            «Погасить» = выплата сотруднику (уменьшает остаток и кредиторку в отчёте по долгам).
+          <p className="mt-3 text-xs leading-relaxed text-slate-400 dark:text-neutral-600">
+            <b>Месяц · тип · за что</b> — период начисления, фиксированная (оклад) или переменная (бонус) часть и проект.{" "}
+            <b>Остаток к выплате</b> — сколько ещё не выплачено из общей суммы начисления («из …»).{" "}
+            <b>Изм.</b> — изменить или удалить начисление. <b>Запланировать</b> — поставить плановый платёж по сроку.{" "}
+            <b>Погасить</b> — отметить выплату сотруднику (уменьшает остаток и кредиторку). <b>Погашено</b> — начисление полностью выплачено.
           </p>
         </>
       )}
