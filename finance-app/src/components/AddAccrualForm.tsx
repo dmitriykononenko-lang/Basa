@@ -5,16 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { parseMoney } from "@/lib/format";
 import { CURRENCIES } from "@/lib/constants";
-
-type Salary = { effective_from: string; amount: number; currency: string };
-
-// Ставка оклада, действующая на начало указанного месяца
-function salaryForMonth(salaries: Salary[], monthStart: string): Salary | null {
-  const eligible = salaries
-    .filter((s) => s.effective_from <= monthStart)
-    .sort((a, b) => (a.effective_from < b.effective_from ? 1 : -1));
-  return eligible[0] ?? null;
-}
+import { salaryForMonth, type SalaryRate as Salary } from "@/lib/salary";
 
 export default function AddAccrualForm({
   teamId,

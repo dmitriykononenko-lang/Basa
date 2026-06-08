@@ -10,7 +10,7 @@ export type SalaryRow = { id: string; effective_from: string; amount: number; cu
 export type PositionRow = { id: string; effective_from: string; position: string };
 
 export default function SalaryEditor({
-  teamId, userId, counterpartyId, defaultCurrency, salaries, positions, endDate, department,
+  teamId, userId, counterpartyId, defaultCurrency, salaries, positions, endDate, department, autoAccrue = false,
 }: {
   teamId: string;
   userId: string;
@@ -20,6 +20,7 @@ export default function SalaryEditor({
   positions: PositionRow[];
   endDate: string | null;
   department: string | null;
+  autoAccrue?: boolean;
 }) {
   const router = useRouter();
   const [from, setFrom] = useState(new Date().toISOString().slice(0, 10));
@@ -29,6 +30,7 @@ export default function SalaryEditor({
   const [posTitle, setPosTitle] = useState("");
   const [end, setEnd] = useState(endDate ?? "");
   const [dept, setDept] = useState(department ?? "");
+  const [auto, setAuto] = useState(autoAccrue);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -85,7 +87,7 @@ export default function SalaryEditor({
     const supabase = createClient();
     const { error } = await supabase
       .from("counterparties")
-      .update({ end_date: end || null, department: dept || null })
+      .update({ end_date: end || null, department: dept || null, auto_accrue: auto })
       .eq("id", counterpartyId);
     setBusy(false);
     if (error) { setError(error.message); return; }
@@ -108,6 +110,10 @@ export default function SalaryEditor({
           <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Дата увольнения</label>
           <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} className="input w-40 py-1.5 text-sm" />
         </div>
+        <label className="flex items-center gap-2 pb-1.5 text-sm text-slate-600 dark:text-neutral-300" title="Каждый месяц автоматически начислять оклад по ставке">
+          <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} className="h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand" />
+          Авто-начисление каждый месяц
+        </label>
         <button onClick={saveMeta} disabled={busy} className="rounded-full bg-slate-200 px-3 py-1.5 text-sm font-medium disabled:opacity-50 dark:bg-neutral-700">
           Сохранить
         </button>

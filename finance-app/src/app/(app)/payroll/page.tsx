@@ -1,8 +1,11 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentTeam } from "@/lib/team";
+import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import { formatMoney } from "@/lib/format";
 import { buildRateMap, toBase } from "@/lib/fx";
+import type { SalaryRate } from "@/lib/salary";
+import AccrueAllButton from "@/components/AccrueAllButton";
+import PayrollRowActions from "@/components/PayrollRowActions";
 
 const MONTHS_RU = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
 
@@ -14,11 +17,13 @@ function periodStartMonth(period: string): { y: number; m: number } {
 }
 
 type Obl = {
+  id: string;
   counterparty_id: string | null;
   amount: number;
   paid: number;
   outstanding: number;
   currency: string;
+  due_date: string | null;
   pay_part: "fixed" | "variable" | null;
   period_month: string | null;
 };
@@ -41,21 +46,42 @@ export default async function PayrollPage({
     );
   }
 
-  const { team } = current;
+  const { team, role } = current;
   const base = team.base_currency;
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  const manage = canEditFinance(role);
+
+  // Ленивое авто-начисление зарплаты для сотрудников с включённым авто-режимом
+  if (manage) await supabase.rpc("materialize_auto_accruals", { p_team: team.id });
 
   const start = periodStartMonth(period);
   const startStr = `${start.y}-${String(start.m + 1).padStart(2, "0")}-01`;
 
-  const [{ data: employees }, { data: obls }, { data: fxRows }] = await Promise.all([
+  const [{ data: employees }, { data: obls }, { data: fxRows }, { data: salaryRows }, { data: accounts }, { data: scheduledRows }] = await Promise.all([
     supabase.from("counterparties").select("id, name, department").eq("team_id", team.id).contains("kinds", ["employee"]).eq("archived", false).order("name"),
-    supabase.from("obligation_balances").select("counterparty_id, amount, paid, outstanding, currency, pay_part, period_month").eq("team_id", team.id).eq("type", "payable").gte("period_month", startStr),
+    supabase.from("obligation_balances").select("id, counterparty_id, amount, paid, outstanding, currency, due_date, pay_part, period_month").eq("team_id", team.id).eq("type", "payable").gte("period_month", startStr),
     supabase.from("fx_rates").select("currency, rate, rate_date").eq("team_id", team.id),
+    supabase.from("employee_salaries").select("counterparty_id, effective_from, amount, currency").eq("team_id", team.id).order("effective_from", { ascending: false }),
+    supabase.from("accounts").select("id, name, currency").eq("team_id", team.id).eq("archived", false).order("created_at"),
+    supabase.from("transactions").select("obligation_id").eq("team_id", team.id).eq("status", "planned").not("obligation_id", "is", null),
   ]);
 
   const rates = buildRateMap(fxRows ?? [], base);
   const emps = (employees ?? []) as { id: string; name: string; department: string | null }[];
+
+  // Оклады по сотрудникам — для «Начислить всем за месяц»
+  const salByEmp = new Map<string, SalaryRate[]>();
+  for (const s of (salaryRows ?? []) as { counterparty_id: string; effective_from: string; amount: number; currency: string }[]) {
+    const arr = salByEmp.get(s.counterparty_id) ?? [];
+    arr.push({ effective_from: s.effective_from, amount: s.amount, currency: s.currency });
+    salByEmp.set(s.counterparty_id, arr);
+  }
+  const employeesWithSalary = emps.map((e) => ({ id: e.id, name: e.name, salaries: salByEmp.get(e.id) ?? [] }));
+
+  // Непогашенные начисления по сотрудникам — для «Выплатить/Запланировать»
+  const outByEmp = new Map<string, { id: string; outstanding: number; currency: string; due_date: string | null }[]>();
+  const scheduledOblIds = ((scheduledRows ?? []) as { obligation_id: string | null }[]).map((r) => r.obligation_id).filter(Boolean) as string[];
 
   // Список месяцев периода (от старта до текущего)
   const now = new Date();
@@ -82,6 +108,11 @@ export default async function PayrollPage({
     agg.out += toBase(o.outstanding, o.currency, rates);
     const ym = (o.period_month ?? "").slice(0, 7);
     if (ym) agg.byMonth.set(ym, (agg.byMonth.get(ym) ?? 0) + v);
+    if (o.outstanding > 0) {
+      const arr = outByEmp.get(o.counterparty_id) ?? [];
+      arr.push({ id: o.id, outstanding: o.outstanding, currency: o.currency, due_date: o.due_date });
+      outByEmp.set(o.counterparty_id, arr);
+    }
   }
 
   // Группировка по отделам
@@ -108,11 +139,16 @@ export default async function PayrollPage({
   return (
     <div className="p-6 sm:p-8">
       <Link href="/employees" className="text-sm text-slate-400 hover:text-brand">← Сотрудники</Link>
-      <header className="mb-5 mt-2">
-        <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">Зарплата</h1>
-        <p className="text-sm text-slate-500 dark:text-neutral-400">
-          Начисления по месяцам: оклад и бонус по всем сотрудникам, по отделам (в {base})
-        </p>
+      <header className="mb-5 mt-2 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">Зарплата</h1>
+          <p className="text-sm text-slate-500 dark:text-neutral-400">
+            Начисления по месяцам: оклад и бонус по всем сотрудникам, по отделам (в {base})
+          </p>
+        </div>
+        {manage && employeesWithSalary.length > 0 && (
+          <AccrueAllButton teamId={team.id} employees={employeesWithSalary} />
+        )}
       </header>
 
       <div className="mb-6 inline-flex gap-1 rounded-full bg-slate-100 p-1 text-sm dark:bg-neutral-800">
@@ -142,6 +178,7 @@ export default async function PayrollPage({
                 <th className="px-3 py-3 text-right font-medium">Бонус</th>
                 <th className="px-3 py-3 text-right font-medium">Выплачено</th>
                 <th className="px-3 py-3 text-right font-medium">Остаток</th>
+                {manage && <th className="px-3 py-3 text-right font-medium">Действия</th>}
               </tr>
             </thead>
               {depts.map(([dep, list]) => {
@@ -154,7 +191,7 @@ export default async function PayrollPage({
                   <tbody key={dep}>
                     <tr className="bg-slate-50/70 dark:bg-white/[0.03]">
                       <td className="sticky left-0 bg-slate-50 px-5 py-2 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:bg-[#191b21] dark:text-neutral-400">{dep}</td>
-                      <td colSpan={months.length + 4} />
+                      <td colSpan={months.length + (manage ? 5 : 4)} />
                     </tr>
                     {list.map((r) => (
                       <tr key={r.id} className="border-b border-slate-50 dark:border-white/[0.04]">
@@ -169,6 +206,20 @@ export default async function PayrollPage({
                         <td className={`${cell} text-slate-700 dark:text-neutral-300`}>{formatMoney(r.agg.variable, base)}</td>
                         <td className={`${cell} text-slate-700 dark:text-neutral-300`}>{formatMoney(r.agg.paid, base)}</td>
                         <td className={`${cell} font-semibold ${r.agg.out > 0 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400"}`}>{formatMoney(r.agg.out, base)}</td>
+                        {manage && (
+                          <td className="whitespace-nowrap px-3 py-2.5 text-right">
+                            {user && (
+                              <PayrollRowActions
+                                teamId={team.id}
+                                userId={user.id}
+                                counterpartyId={r.id}
+                                obligations={outByEmp.get(r.id) ?? []}
+                                accounts={accounts ?? []}
+                                scheduledOblIds={scheduledOblIds}
+                              />
+                            )}
+                          </td>
+                        )}
                       </tr>
                     ))}
                     <tr className="border-b border-slate-100 dark:border-white/[0.07]">
@@ -178,6 +229,7 @@ export default async function PayrollPage({
                       <td className={`${cell} text-xs font-semibold text-slate-600 dark:text-neutral-300`}>{formatMoney(sub.variable, base)}</td>
                       <td className={`${cell} text-xs font-semibold text-slate-600 dark:text-neutral-300`}>{formatMoney(sub.paid, base)}</td>
                       <td className={`${cell} text-xs font-semibold text-slate-600 dark:text-neutral-300`}>{formatMoney(sub.out, base)}</td>
+                      {manage && <td />}
                     </tr>
                   </tbody>
                 );
@@ -190,6 +242,7 @@ export default async function PayrollPage({
                 <td className={`${cell} font-bold text-slate-900 dark:text-white`}>{formatMoney(grand.variable, base)}</td>
                 <td className={`${cell} font-bold text-slate-900 dark:text-white`}>{formatMoney(grand.paid, base)}</td>
                 <td className={`${cell} font-bold text-slate-900 dark:text-white`}>{formatMoney(grand.out, base)}</td>
+                {manage && <td />}
               </tr>
             </tbody>
           </table>

@@ -47,7 +47,7 @@ export default async function EmployeePage({
 
   const { data: emp } = await supabase
     .from("counterparties")
-    .select("id, name, kind, employment_type, start_date, end_date, department, payout_currency, payment_method, legal_status, payee_name, inn, bank_account, bank_name, bik, wallet_address, wallet_network")
+    .select("id, name, kind, employment_type, start_date, end_date, department, auto_accrue, payout_currency, payment_method, legal_status, payee_name, inn, bank_account, bank_name, bik, wallet_address, wallet_network")
     .eq("id", id)
     .maybeSingle();
   if (!emp) notFound();
@@ -155,6 +155,7 @@ export default async function EmployeePage({
             positions={positionRows}
             endDate={emp.end_date ?? null}
             department={emp.department ?? null}
+            autoAccrue={emp.auto_accrue ?? false}
           />
         </div>
       )}
