@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import { formatMoney } from "@/lib/format";
 import { buildRateMap, toBase } from "@/lib/fx";
+import { fetchCbrRates } from "@/lib/cbr";
 import CalendarGrid, { type Cell } from "@/components/CalendarGrid";
 
 const MONTHS_RU = [
@@ -47,7 +48,9 @@ export default async function CalendarPage({
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
-  const [{ data: balances }, { data: obls }, { data: planned }, { data: fxRows }] = await Promise.all([
+  const todayStr = now.toISOString().slice(0, 10);
+
+  const [{ data: balances }, { data: obls }, { data: txs }, { data: fxRows }] = await Promise.all([
     supabase.from("account_balances").select("balance, currency").eq("team_id", team.id),
     supabase
       .from("obligation_balances")
@@ -55,50 +58,88 @@ export default async function CalendarPage({
       .eq("team_id", team.id)
       .gt("outstanding", 0)
       .not("due_date", "is", null),
+    // И плановые, и фактические — чтобы видеть все приходы/выплаты и суммировать их по дням
     supabase
       .from("transactions")
-      .select("type, amount, currency, occurred_on")
+      .select("type, amount, currency, occurred_on, status")
       .eq("team_id", team.id)
-      .eq("status", "planned"),
+      .in("status", ["actual", "planned"]),
     supabase.from("fx_rates").select("currency, rate, rate_date").eq("team_id", team.id),
   ]);
 
   const rates = buildRateMap(fxRows ?? [], base);
+  // Курс ЦБ РФ на сегодня для валют без ручного курса (USD/USDT) — иначе приход в валюте занижается
+  if (base === "RUB") {
+    const cbr = await fetchCbrRates();
+    for (const [cur, r] of Object.entries(cbr.rates)) {
+      if (rates[cur] === undefined) rates[cur] = r;
+    }
+  }
+  // Текущий остаток = только фактические операции (account_balances)
   const startBalance = (balances ?? []).reduce((s, b) => s + toBase(b.balance, b.currency, rates), 0);
 
-  // События по датам
-  const dayMap = new Map<string, { in: number; out: number }>();
-  function ev(date: string, inc: number, out: number) {
-    const g = dayMap.get(date) ?? { in: 0, out: 0 };
-    g.in += inc;
-    g.out += out;
-    dayMap.set(date, g);
+  // Просроченные плановые/обязательства (срок раньше сегодня) считаем «к оплате сегодня»
+  const fold = (d: string) => (d < todayStr ? todayStr : d);
+
+  // Раздельно копим: фактические (по реальной дате) и плановые+обязательства (по дате с учётом переноса просрочки)
+  const actIn = new Map<string, number>();
+  const actOut = new Map<string, number>();
+  const planIn = new Map<string, number>();
+  const planOut = new Map<string, number>();
+  const actualNet = new Map<string, number>(); // нетто факта по реальной дате (для разворачивания баланса)
+  const add = (mp: Map<string, number>, k: string, v: number) => mp.set(k, (mp.get(k) ?? 0) + v);
+
+  for (const t of (txs ?? []) as unknown as { type: string; amount: number; currency: string; occurred_on: string; status: string }[]) {
+    if (t.type === "transfer") continue; // переводы между своими счетами не меняют общий остаток
+    const v = toBase(t.amount, t.currency, rates);
+    if (t.status === "actual") {
+      if (t.type === "income") add(actIn, t.occurred_on, v);
+      else add(actOut, t.occurred_on, v);
+      add(actualNet, t.occurred_on, t.type === "income" ? v : -v);
+    } else {
+      const d = fold(t.occurred_on);
+      if (t.type === "income") add(planIn, d, v);
+      else add(planOut, d, v);
+    }
   }
   for (const o of (obls ?? []) as unknown as { type: string; outstanding: number; currency: string; due_date: string }[]) {
     const v = toBase(o.outstanding, o.currency, rates);
-    if (o.type === "receivable") ev(o.due_date, v, 0);
-    else ev(o.due_date, 0, v);
-  }
-  for (const t of (planned ?? []) as unknown as { type: string; amount: number; currency: string; occurred_on: string }[]) {
-    if (t.type === "transfer") continue;
-    const v = toBase(t.amount, t.currency, rates);
-    if (t.type === "income") ev(t.occurred_on, v, 0);
-    else ev(t.occurred_on, 0, v);
+    const d = fold(o.due_date);
+    if (o.type === "receivable") add(planIn, d, v);
+    else add(planOut, d, v);
   }
 
-  // Глобальный прогон баланса по датам
-  const dates = [...dayMap.keys()].sort();
-  let running = startBalance;
-  let minRunning = startBalance;
+  const planNet = new Map<string, number>();
+  for (const k of new Set([...planIn.keys(), ...planOut.keys()])) {
+    planNet.set(k, (planIn.get(k) ?? 0) - (planOut.get(k) ?? 0));
+  }
+
+  // Остаток на конец дня D = текущий остаток − факт после D + план (с учётом переноса) до D включительно.
+  // Так прошлые дни показывают реальную историю по факту, а будущее — прогноз от сегодняшнего остатка.
+  const planAsc = [...planNet.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1));
+  const actAsc = [...actualNet.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1));
+  function closingAt(D: string): number {
+    let s = startBalance;
+    for (let i = actAsc.length - 1; i >= 0; i--) {
+      if (actAsc[i][0] > D) s -= actAsc[i][1];
+      else break;
+    }
+    for (const [x, n] of planAsc) {
+      if (x <= D) s += n;
+      else break;
+    }
+    return s;
+  }
+
+  // Кассовый разрыв — минимальный прогнозный остаток начиная с сегодня (включая будущие месяцы)
+  const horizon = new Set<string>([todayStr, ...planNet.keys()]);
+  for (const x of actualNet.keys()) if (x >= todayStr) horizon.add(x);
+  let minRunning = Infinity;
   let minDate: string | null = null;
-  const dayInfo = new Map<string, { opening: number; in: number; out: number; net: number; closing: number }>();
-  for (const d of dates) {
-    const g = dayMap.get(d)!;
-    const opening = running;
-    const net = g.in - g.out;
-    running += net;
-    if (running < minRunning) { minRunning = running; minDate = d; }
-    dayInfo.set(d, { opening, in: g.in, out: g.out, net, closing: running });
+  for (const d of horizon) {
+    if (d < todayStr) continue;
+    const c = closingAt(d);
+    if (c < minRunning) { minRunning = c; minDate = d; }
   }
   const hasGap = minRunning < 0;
 
@@ -106,14 +147,18 @@ export default async function CalendarPage({
   const firstDow = (monthStart.getDay() + 6) % 7;
   const daysInMonth = new Date(y, m, 0).getDate();
   const weeks = Math.ceil((firstDow + daysInMonth) / 7);
-  const todayStr = now.toISOString().slice(0, 10);
   const mm = String(m).padStart(2, "0");
   const cells: Cell[] = [];
   for (let i = 0; i < weeks * 7; i++) {
     const dn = i - firstDow + 1;
     if (dn < 1 || dn > daysInMonth) { cells.push({ dn: null, dateStr: null, info: null }); continue; }
     const dateStr = `${y}-${mm}-${String(dn).padStart(2, "0")}`;
-    cells.push({ dn, dateStr, info: dayInfo.get(dateStr) ?? null });
+    const inV = (actIn.get(dateStr) ?? 0) + (planIn.get(dateStr) ?? 0);
+    const outV = (actOut.get(dateStr) ?? 0) + (planOut.get(dateStr) ?? 0);
+    if (inV === 0 && outV === 0) { cells.push({ dn, dateStr, info: null }); continue; }
+    const net = inV - outV;
+    const closing = closingAt(dateStr);
+    cells.push({ dn, dateStr, info: { opening: closing - net, in: inV, out: outV, net, closing } });
   }
 
   return (
@@ -150,9 +195,10 @@ export default async function CalendarPage({
 
       <p className="mt-4 text-xs text-slate-400 dark:text-neutral-600">
         В ячейке: остаток на начало · +поступления · −выплаты · итог дня · остаток на
-        конец. Учитываются сроки непогашенных обязательств (дебиторка/кредиторка,
-        включая зарплату) и плановые операции. Прогноз идёт от текущего баланса
-        {" "}({formatMoney(startBalance, base)}).
+        конец. Суммируются <b>фактические и плановые</b> операции, а также сроки непогашенных
+        обязательств (дебиторка/кредиторка, включая зарплату). Валюта пересчитывается в рубли
+        по курсу ЦБ. Прогноз идёт от текущего остатка ({formatMoney(startBalance, base)});
+        просроченные платежи и обязательства учитываются на сегодня.
       </p>
     </div>
   );
