@@ -11,6 +11,7 @@ import CopyField from "@/components/CopyField";
 import EditEmployeePayment from "@/components/EditEmployeePayment";
 import PayObligationButton from "@/components/PayObligationButton";
 import PlanObligationButton from "@/components/PlanObligationButton";
+import EditObligationForm from "@/components/EditObligationForm";
 
 const MONTHS_RU = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
 function monthLabel(ym: string) {
@@ -28,6 +29,7 @@ type Bal = {
   pay_part: "fixed" | "variable" | null;
   period_month: string | null;
   due_date: string | null;
+  note: string | null;
 };
 
 export default async function EmployeePage({
@@ -53,7 +55,7 @@ export default async function EmployeePage({
   const [{ data: bals }, { data: projects }, { data: accounts }, { data: salaries }] = await Promise.all([
     supabase
       .from("obligation_balances")
-      .select("id, amount, paid, outstanding, currency, project_id, pay_part, period_month, due_date")
+      .select("id, amount, paid, outstanding, currency, project_id, pay_part, period_month, due_date, note")
       .eq("team_id", team.id)
       .eq("type", "payable")
       .eq("counterparty_id", id),
@@ -286,6 +288,24 @@ export default async function EmployeePage({
                     <td className="px-5 py-3 text-right">
                       {manage && user && (
                         <div className="flex items-center justify-end gap-1">
+                          <EditObligationForm
+                            mode="accrual"
+                            obligation={{
+                              id: o.id,
+                              type: "payable",
+                              amount: o.amount,
+                              currency: o.currency,
+                              due_date: o.due_date,
+                              period_month: o.period_month,
+                              pay_part: o.pay_part,
+                              project_id: o.project_id,
+                              category_id: oblCatId.get(o.id) ?? null,
+                              note: o.note,
+                              paid: o.paid,
+                            }}
+                            categories={(expenseCats ?? []) as { id: string; name: string; kind: string }[]}
+                            projects={projects ?? []}
+                          />
                           <PlanObligationButton
                             obligationId={o.id}
                             teamId={team.id}

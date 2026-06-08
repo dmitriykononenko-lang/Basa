@@ -7,6 +7,7 @@ import AddObligationForm from "@/components/AddObligationForm";
 import PayObligationButton from "@/components/PayObligationButton";
 import PlanObligationButton from "@/components/PlanObligationButton";
 import LinkPaymentButton from "@/components/LinkPaymentButton";
+import EditObligationForm from "@/components/EditObligationForm";
 
 type Row = {
   id: string;
@@ -14,6 +15,7 @@ type Row = {
   amount: number;
   currency: string;
   outstanding: number;
+  paid: number;
   due_date: string | null;
   note: string | null;
   counterparty_id: string;
@@ -56,7 +58,7 @@ export default async function DebtsPage({
       supabase
         .from("obligation_balances")
         .select(
-          `id, type, amount, currency, outstanding, due_date, note,
+          `id, type, amount, currency, outstanding, paid, due_date, note,
            counterparty_id, project_id,
            counterparty:counterparties(name), project:projects(name)`
         )
@@ -331,6 +333,24 @@ export default async function DebtsPage({
                     <td className="px-5 py-3 text-right">
                       {canEditFinance(role) && user ? (
                         <div className="flex items-center justify-end gap-1">
+                          <EditObligationForm
+                            mode="general"
+                            obligation={{
+                              id: o.id,
+                              type: o.type,
+                              amount: o.amount,
+                              currency: o.currency,
+                              due_date: o.due_date,
+                              period_month: null,
+                              pay_part: null,
+                              project_id: o.project_id,
+                              category_id: oblMeta.get(o.id)?.category_id ?? null,
+                              note: o.note,
+                              paid: o.paid,
+                            }}
+                            categories={(categories ?? []) as { id: string; name: string; kind: string }[]}
+                            projects={projects ?? []}
+                          />
                           <PlanObligationButton
                             obligationId={o.id}
                             teamId={team.id}
