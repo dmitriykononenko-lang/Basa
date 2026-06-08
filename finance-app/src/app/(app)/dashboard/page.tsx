@@ -5,6 +5,7 @@ import { ROLE_LABELS, type AppRole } from "@/lib/types";
 import { formatMoney } from "@/lib/format";
 import { getCurrentTeam } from "@/lib/team";
 import { buildRateMap, toBase } from "@/lib/fx";
+import { fetchCbrRates } from "@/lib/cbr";
 import AcceptInviteButton from "@/components/AcceptInviteButton";
 import { IconTransactions, IconAccounts, IconReports } from "@/components/icons";
 import TrendChart, { type TrendPoint } from "@/components/TrendChart";
@@ -122,6 +123,23 @@ export default async function DashboardPage() {
   ]);
 
   const rates = buildRateMap(fxRows ?? [], team.base_currency);
+  // Сверка с курсом ЦБ РФ на сегодня: для валют без ручного курса (например USD/USDT)
+  // подставляем официальный курс ЦБ, чтобы доход в валюте отображался в рублях.
+  const cbr = team.base_currency === "RUB" ? await fetchCbrRates() : { rates: {}, date: null };
+  for (const [cur, r] of Object.entries(cbr.rates)) {
+    if (rates[cur] === undefined) rates[cur] = r;
+  }
+  // Валюты операций/счетов без какого-либо курса (ни ручного, ни ЦБ) — считаются 1:1
+  const usedCurrencies = new Set<string>([
+    ...(accounts ?? []).map((a) => a.currency),
+    ...(monthTx ?? []).map((t) => t.currency),
+  ]);
+  const unconverted = [...usedCurrencies].filter(
+    (c) => c !== team.base_currency && rates[c] === undefined
+  );
+  // Курс USD по ЦБ для подписи-сверки (USDT котируется как USD)
+  const cbrUsd = cbr.rates.USD;
+
   let income = 0;
   let expense = 0;
   let plannedIncome = 0;
@@ -441,6 +459,24 @@ export default async function DashboardPage() {
         />
       </div>
 
+      {/* Сверка по курсу ЦБ */}
+      {(cbrUsd || unconverted.length > 0) && (
+        <div className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-400 dark:text-neutral-500">
+          {cbrUsd && (
+            <span>
+              💱 Суммы в валюте пересчитаны в рубли по курсу ЦБ РФ
+              {cbr.date ? ` на ${new Date(cbr.date).toLocaleDateString("ru-RU")}` : ""}: USD/USDT ≈{" "}
+              <b className="text-slate-500 dark:text-neutral-300">{cbrUsd.toFixed(2)} ₽</b>
+            </span>
+          )}
+          {unconverted.length > 0 && (
+            <span className="text-amber-600 dark:text-amber-400">
+              ⚠️ Нет курса для: {unconverted.join(", ")} — учтены как 1:1.
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Метрики месяца */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <Metric
@@ -504,6 +540,14 @@ export default async function DashboardPage() {
         {accounts && accounts.length > 0 ? (
           <>
             <div className="mb-3 flex flex-wrap gap-3">
+              {totalByCurrency.size > 1 && (
+                <div className="rounded-2xl bg-brand/5 px-5 py-3 ring-1 ring-brand/20">
+                  <div className="text-xs text-brand/80">Итого в рублях (по ЦБ)</div>
+                  <div className="text-lg font-bold text-slate-900 dark:text-white">
+                    {formatMoney(currentBalance, team.base_currency)}
+                  </div>
+                </div>
+              )}
               {[...totalByCurrency.entries()].map(([cur, total]) => (
                 <div
                   key={cur}
@@ -515,6 +559,11 @@ export default async function DashboardPage() {
                   <div className="text-lg font-bold text-slate-900 dark:text-white">
                     {formatMoney(total, cur)}
                   </div>
+                  {cur !== team.base_currency && rates[cur] !== undefined && (
+                    <div className="text-xs text-slate-400 dark:text-neutral-500">
+                      ≈ {formatMoney(toBase(total, cur, rates), team.base_currency)}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
