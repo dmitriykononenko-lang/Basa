@@ -108,6 +108,7 @@ export default async function DebtsPage({
   );
 
   const rows = (obligations ?? []) as unknown as Row[];
+  const openRows = rows.filter((o) => o.outstanding > 0); // показываем только непогашенные
   const rates = buildRateMap(fxRows ?? [], cur);
 
   let receivable = 0;
@@ -282,11 +283,11 @@ export default async function DebtsPage({
         </section>
       )}
 
-      {/* Список обязательств */}
-      {rows.length > 0 && (
+      {/* Список обязательств (только непогашенные) */}
+      {openRows.length > 0 && (
         <section className="mt-6">
           <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">
-            Все обязательства
+            Непогашенные обязательства
           </h2>
           <div className="overflow-hidden rounded-3xl bg-white ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
             <table className="w-full text-sm">
@@ -300,7 +301,7 @@ export default async function DebtsPage({
                 </tr>
               </thead>
               <tbody>
-                {rows.map((o) => (
+                {openRows.map((o) => (
                   <tr key={o.id} className="border-b border-slate-50 last:border-0 dark:border-white/[0.05]">
                     <td className="px-5 py-3 font-medium text-slate-800 dark:text-neutral-200">
                       {o.counterparty?.name ?? "—"}
