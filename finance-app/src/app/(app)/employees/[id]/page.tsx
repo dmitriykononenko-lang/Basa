@@ -10,6 +10,7 @@ import SalaryEditor from "@/components/SalaryEditor";
 import CopyField from "@/components/CopyField";
 import EditEmployeePayment from "@/components/EditEmployeePayment";
 import PayObligationButton from "@/components/PayObligationButton";
+import PlanObligationButton from "@/components/PlanObligationButton";
 
 const MONTHS_RU = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
 function monthLabel(ym: string) {
@@ -64,6 +65,15 @@ export default async function EmployeePage({
     .from("employee_positions").select("id, effective_from, position").eq("counterparty_id", id).order("effective_from", { ascending: false });
   const { data: expenseCats } = await supabase
     .from("categories").select("id, name, kind").eq("team_id", team.id).eq("kind", "expense").eq("archived", false).order("name");
+  // Категория начисления (вью obligation_balances её не отдаёт) + уже запланированные платежи
+  const { data: oblMetaRows } = await supabase
+    .from("obligations").select("id, category_id").eq("team_id", team.id).eq("counterparty_id", id);
+  const oblCatId = new Map(((oblMetaRows ?? []) as { id: string; category_id: string | null }[]).map((o) => [o.id, o.category_id]));
+  const { data: scheduledRows } = await supabase
+    .from("transactions").select("obligation_id").eq("team_id", team.id).eq("status", "planned").not("obligation_id", "is", null);
+  const scheduledOblIds = new Set(
+    ((scheduledRows ?? []) as { obligation_id: string | null }[]).map((r) => r.obligation_id).filter(Boolean) as string[]
+  );
   const salaryRows = (salaries ?? []) as { id: string; effective_from: string; amount: number; currency: string }[];
   const positionRows = (positions ?? []) as { id: string; effective_from: string; position: string }[];
   const todayStr = new Date().toISOString().slice(0, 10);
@@ -275,15 +285,31 @@ export default async function EmployeePage({
                     </td>
                     <td className="px-5 py-3 text-right">
                       {manage && user && (
-                        <PayObligationButton
-                          obligationId={o.id}
-                          userId={user.id}
-                          outstanding={o.outstanding}
-                          currency={o.currency}
-                          teamId={team.id}
-                          counterpartyId={emp.id}
-                          accounts={accounts ?? []}
-                        />
+                        <div className="flex items-center justify-end gap-1">
+                          <PlanObligationButton
+                            obligationId={o.id}
+                            teamId={team.id}
+                            userId={user.id}
+                            oblType="payable"
+                            outstanding={o.outstanding}
+                            currency={o.currency}
+                            counterpartyId={emp.id}
+                            categoryId={oblCatId.get(o.id) ?? null}
+                            projectId={o.project_id}
+                            dueDate={o.due_date}
+                            accounts={accounts ?? []}
+                            alreadyScheduled={scheduledOblIds.has(o.id)}
+                          />
+                          <PayObligationButton
+                            obligationId={o.id}
+                            userId={user.id}
+                            outstanding={o.outstanding}
+                            currency={o.currency}
+                            teamId={team.id}
+                            counterpartyId={emp.id}
+                            accounts={accounts ?? []}
+                          />
+                        </div>
                       )}
                     </td>
                   </tr>

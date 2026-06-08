@@ -5,6 +5,7 @@ import { formatMoney } from "@/lib/format";
 import { buildRateMap, toBase } from "@/lib/fx";
 import AddObligationForm from "@/components/AddObligationForm";
 import PayObligationButton from "@/components/PayObligationButton";
+import PlanObligationButton from "@/components/PlanObligationButton";
 import LinkPaymentButton from "@/components/LinkPaymentButton";
 
 type Row = {
@@ -84,11 +85,24 @@ export default async function DebtsPage({
   const { data: categories } = await supabase
     .from("categories").select("id, name, kind").eq("team_id", team.id).eq("archived", false).order("name");
 
-  // «За что»: статья обязательства (вью obligation_balances её не содержит)
-  const { data: oblCats } = await supabase
-    .from("obligations").select("id, category:categories(name)").eq("team_id", team.id);
-  const oblCatName = new Map(
-    ((oblCats ?? []) as unknown as { id: string; category: { name: string } | null }[]).map((o) => [o.id, o.category?.name ?? null])
+  // Метаданные обязательств (вью obligation_balances их не содержит): статья «За что», категория/проект для планирования
+  const { data: oblMetaRows } = await supabase
+    .from("obligations")
+    .select("id, category_id, project_id, category:categories(name)")
+    .eq("team_id", team.id);
+  type OblMeta = { id: string; category_id: string | null; project_id: string | null; category: { name: string } | null };
+  const oblMeta = new Map(((oblMetaRows ?? []) as unknown as OblMeta[]).map((o) => [o.id, o]));
+  const oblCatName = new Map([...oblMeta].map(([id, o]) => [id, o.category?.name ?? null]));
+
+  // Обязательства, по которым уже есть запланированный платёж (чтобы не задваивать)
+  const { data: scheduledRows } = await supabase
+    .from("transactions")
+    .select("obligation_id")
+    .eq("team_id", team.id)
+    .eq("status", "planned")
+    .not("obligation_id", "is", null);
+  const scheduledOblIds = new Set(
+    ((scheduledRows ?? []) as { obligation_id: string | null }[]).map((r) => r.obligation_id).filter(Boolean) as string[]
   );
 
   const rows = (obligations ?? []) as unknown as Row[];
@@ -317,6 +331,20 @@ export default async function DebtsPage({
                     <td className="px-5 py-3 text-right">
                       {canEditFinance(role) && user ? (
                         <div className="flex items-center justify-end gap-1">
+                          <PlanObligationButton
+                            obligationId={o.id}
+                            teamId={team.id}
+                            userId={user.id}
+                            oblType={o.type}
+                            outstanding={o.outstanding}
+                            currency={o.currency}
+                            counterpartyId={o.counterparty_id}
+                            categoryId={oblMeta.get(o.id)?.category_id ?? null}
+                            projectId={oblMeta.get(o.id)?.project_id ?? null}
+                            dueDate={o.due_date}
+                            accounts={accounts ?? []}
+                            alreadyScheduled={scheduledOblIds.has(o.id)}
+                          />
                           <LinkPaymentButton
                             obligationId={o.id}
                             oblType={o.type}

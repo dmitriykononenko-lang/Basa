@@ -54,14 +54,14 @@ export default async function CalendarPage({
     supabase.from("account_balances").select("balance, currency").eq("team_id", team.id),
     supabase
       .from("obligation_balances")
-      .select("type, outstanding, currency, due_date")
+      .select("id, type, outstanding, currency, due_date")
       .eq("team_id", team.id)
       .gt("outstanding", 0)
       .not("due_date", "is", null),
     // И плановые, и фактические — чтобы видеть все приходы/выплаты и суммировать их по дням
     supabase
       .from("transactions")
-      .select("type, amount, currency, occurred_on, status")
+      .select("type, amount, currency, occurred_on, status, obligation_id")
       .eq("team_id", team.id)
       .in("status", ["actual", "planned"]),
     supabase.from("fx_rates").select("currency, rate, rate_date").eq("team_id", team.id),
@@ -87,9 +87,10 @@ export default async function CalendarPage({
   const planIn = new Map<string, number>();
   const planOut = new Map<string, number>();
   const actualNet = new Map<string, number>(); // нетто факта по реальной дате (для разворачивания баланса)
+  const plannedByObl = new Map<string, number>(); // запланировано платежей по обязательству (в базовой валюте)
   const add = (mp: Map<string, number>, k: string, v: number) => mp.set(k, (mp.get(k) ?? 0) + v);
 
-  for (const t of (txs ?? []) as unknown as { type: string; amount: number; currency: string; occurred_on: string; status: string }[]) {
+  for (const t of (txs ?? []) as unknown as { type: string; amount: number; currency: string; occurred_on: string; status: string; obligation_id: string | null }[]) {
     if (t.type === "transfer") continue; // переводы между своими счетами не меняют общий остаток
     const v = toBase(t.amount, t.currency, rates);
     if (t.status === "actual") {
@@ -100,13 +101,16 @@ export default async function CalendarPage({
       const d = fold(t.occurred_on);
       if (t.type === "income") add(planIn, d, v);
       else add(planOut, d, v);
+      if (t.obligation_id) add(plannedByObl, t.obligation_id, v); // учтём для дедупа с обязательством
     }
   }
-  for (const o of (obls ?? []) as unknown as { type: string; outstanding: number; currency: string; due_date: string }[]) {
-    const v = toBase(o.outstanding, o.currency, rates);
+  // Обязательства: добавляем только НЕзапланированную часть (запланированный платёж уже учтён выше как операция)
+  for (const o of (obls ?? []) as unknown as { id: string; type: string; outstanding: number; currency: string; due_date: string }[]) {
+    const remaining = toBase(o.outstanding, o.currency, rates) - (plannedByObl.get(o.id) ?? 0);
+    if (remaining <= 0) continue;
     const d = fold(o.due_date);
-    if (o.type === "receivable") add(planIn, d, v);
-    else add(planOut, d, v);
+    if (o.type === "receivable") add(planIn, d, remaining);
+    else add(planOut, d, remaining);
   }
 
   const planNet = new Map<string, number>();
