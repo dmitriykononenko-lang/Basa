@@ -12,6 +12,7 @@ import EditEmployeePayment from "@/components/EditEmployeePayment";
 import PayObligationButton from "@/components/PayObligationButton";
 import PlanObligationButton from "@/components/PlanObligationButton";
 import EditObligationForm from "@/components/EditObligationForm";
+import { effectiveDue, businessDaysBetween, workdaysLabel } from "@/lib/workdays";
 
 const MONTHS_RU = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
 function monthLabel(ym: string) {
@@ -65,6 +66,15 @@ export default async function EmployeePage({
   ]);
   const { data: positions } = await supabase
     .from("employee_positions").select("id, effective_from, position").eq("counterparty_id", id).order("effective_from", { ascending: false });
+  // Проекты в работе, где сотрудник — ответственный (аналитик)
+  const { data: activeProjects } = await supabase
+    .from("projects")
+    .select("id, name, start_date, plan_work_days, due_date")
+    .eq("team_id", team.id)
+    .eq("responsible_counterparty_id", id)
+    .eq("status", "active")
+    .eq("archived", false)
+    .order("start_date", { ascending: true });
   const { data: expenseCats } = await supabase
     .from("categories").select("id, name, kind").eq("team_id", team.id).eq("kind", "expense").eq("archived", false).order("name");
   // Категория начисления (вью obligation_balances её не отдаёт) + уже запланированные платежи
@@ -143,6 +153,48 @@ export default async function EmployeePage({
         <Kpi title="Выплачено" value={formatMoney(totalPaid, base)} />
         <Kpi title="Остаток к выплате" value={formatMoney(totalOut, base)} accent={totalOut > 0 ? "amber" : "emerald"} />
       </div>
+
+      {(activeProjects ?? []).length > 0 && (
+        <section className="mb-6">
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">
+            Проекты в работе
+          </h2>
+          <div className="overflow-hidden rounded-3xl bg-white ring-1 ring-slate-200/70 dark:bg-[#15171c] dark:ring-white/[0.07]">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wider text-slate-400 dark:border-white/[0.07] dark:text-neutral-500">
+                  <th className="px-5 py-3 font-medium">Проект</th>
+                  <th className="px-5 py-3 font-medium">Идёт</th>
+                  <th className="px-5 py-3 text-right font-medium">Срок</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(activeProjects as { id: string; name: string; start_date: string; plan_work_days: number | null; due_date: string | null }[]).map((pr) => {
+                  const eff = effectiveDue(pr.start_date, pr.plan_work_days, pr.due_date);
+                  const elapsed = businessDaysBetween(pr.start_date, todayStr);
+                  let srok: React.ReactNode = <span className="text-slate-400">не задан</span>;
+                  if (eff) {
+                    if (todayStr > eff) {
+                      srok = <span className="font-medium text-red-600 dark:text-red-400">просрочка {workdaysLabel(businessDaysBetween(eff, todayStr))}</span>;
+                    } else {
+                      srok = <span className="text-slate-600 dark:text-neutral-300">до срока {workdaysLabel(businessDaysBetween(todayStr, eff))}</span>;
+                    }
+                  }
+                  return (
+                    <tr key={pr.id} className="border-b border-slate-50 last:border-0 dark:border-white/[0.05]">
+                      <td className="px-5 py-3 font-medium">
+                        <Link href={`/projects/${pr.id}`} className="text-slate-800 hover:text-brand dark:text-neutral-200">{pr.name}</Link>
+                      </td>
+                      <td className="px-5 py-3 text-slate-500 dark:text-neutral-400">{workdaysLabel(elapsed)}</td>
+                      <td className="px-5 py-3 text-right">{srok}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       {manage && user && (
         <div className="mb-6">

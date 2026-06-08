@@ -3,13 +3,38 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { parseMoney } from "@/lib/format";
+import { CURRENCIES } from "@/lib/constants";
+import Combobox from "@/components/Combobox";
+import { addBusinessDays } from "@/lib/workdays";
 
-export default function AddProjectForm({ teamId }: { teamId: string }) {
+type Named = { id: string; name: string };
+
+export default function AddProjectForm({
+  teamId,
+  employees = [],
+  baseCurrency = "RUB",
+}: {
+  teamId: string;
+  employees?: Named[];
+  baseCurrency?: string;
+}) {
   const router = useRouter();
+  const today = new Date().toISOString().slice(0, 10);
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
+  const [responsibleId, setResponsibleId] = useState("");
+  const [startDate, setStartDate] = useState(today);
+  const [mode, setMode] = useState<"days" | "date">("days");
+  const [planDays, setPlanDays] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [bonus, setBonus] = useState("");
+  const [bonusCur, setBonusCur] = useState(baseCurrency);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const planNum = planDays.trim() ? Math.max(0, parseInt(planDays, 10) || 0) : null;
+  const computedDue = mode === "days" && planNum ? addBusinessDays(startDate, planNum) : null;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -20,6 +45,12 @@ export default function AddProjectForm({ teamId }: { teamId: string }) {
     const { error } = await supabase.from("projects").insert({
       team_id: teamId,
       name,
+      responsible_counterparty_id: responsibleId || null,
+      start_date: startDate,
+      plan_work_days: mode === "days" ? planNum : null,
+      due_date: mode === "date" ? dueDate || null : null,
+      bonus_amount: bonus.trim() ? parseMoney(bonus) : 0,
+      bonus_currency: bonusCur,
     });
 
     if (error) {
@@ -27,8 +58,7 @@ export default function AddProjectForm({ teamId }: { teamId: string }) {
       setLoading(false);
       return;
     }
-
-    setName("");
+    setName(""); setResponsibleId(""); setPlanDays(""); setDueDate(""); setBonus("");
     setOpen(false);
     setLoading(false);
     router.refresh();
@@ -45,35 +75,57 @@ export default function AddProjectForm({ teamId }: { teamId: string }) {
   return (
     <form
       onSubmit={handleSubmit}
-      className="flex flex-wrap items-end gap-3 rounded-3xl bg-white p-4 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]"
+      className="space-y-3 rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]"
     >
-      <div className="min-w-[220px] flex-1">
-        <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">
-          Название проекта
-        </label>
-        <input
-          type="text"
-          required
-          autoFocus
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Например, Сайт для клиента X"
-          className="input"
-        />
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <F label="Название проекта" wide>
+          <input required autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Например, Внедрение CRM для X" className="input" />
+        </F>
+        <F label="Ответственный (аналитик)">
+          <Combobox value={responsibleId} onChange={setResponsibleId} placeholder="— не выбран —" emptyLabel="— не выбран —"
+            options={employees.map((e) => ({ value: e.id, label: e.name }))} />
+        </F>
+        <F label="Дата старта">
+          <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="input" />
+        </F>
+        <div className="lg:col-span-2">
+          <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Срок сдачи</label>
+          <div className="flex flex-wrap items-center gap-2">
+            <select value={mode} onChange={(e) => setMode(e.target.value as "days" | "date")} className="input w-auto">
+              <option value="days">Рабочих дней</option>
+              <option value="date">Дата</option>
+            </select>
+            {mode === "days" ? (
+              <input type="number" min={0} value={planDays} onChange={(e) => setPlanDays(e.target.value)} placeholder="напр. 20" className="input w-28" />
+            ) : (
+              <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="input w-44" />
+            )}
+            {computedDue && <span className="text-xs text-slate-400">→ срок {new Date(computedDue).toLocaleDateString("ru-RU")}</span>}
+          </div>
+        </div>
+        <F label="Бонус аналитику за сдачу">
+          <div className="flex gap-2">
+            <input value={bonus} onChange={(e) => setBonus(e.target.value)} inputMode="decimal" placeholder="0,00" className="input" />
+            <select value={bonusCur} onChange={(e) => setBonusCur(e.target.value)} className="input w-24">
+              {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+        </F>
       </div>
+      {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950/40">{error}</p>}
       <div className="flex gap-2">
-        <button type="submit" disabled={loading} className="btn-primary">
-          {loading ? "…" : "Сохранить"}
-        </button>
-        <button type="button" onClick={() => setOpen(false)} className="btn-ghost">
-          Отмена
-        </button>
+        <button type="submit" disabled={loading} className="btn-primary">{loading ? "…" : "Сохранить"}</button>
+        <button type="button" onClick={() => setOpen(false)} className="btn-ghost">Отмена</button>
       </div>
-      {error && (
-        <p className="w-full rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950/40">
-          {error}
-        </p>
-      )}
     </form>
+  );
+}
+
+function F({ label, children, wide }: { label: string; children: React.ReactNode; wide?: boolean }) {
+  return (
+    <div className={wide ? "sm:col-span-2 lg:col-span-1" : ""}>
+      <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">{label}</label>
+      {children}
+    </div>
   );
 }

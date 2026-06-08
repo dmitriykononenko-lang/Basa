@@ -3,30 +3,60 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { parseMoney } from "@/lib/format";
+import { CURRENCIES } from "@/lib/constants";
 import Combobox from "@/components/Combobox";
+import { addBusinessDays } from "@/lib/workdays";
 
 const STATUSES: { value: string; label: string }[] = [
   { value: "active", label: "Активный" },
-  { value: "done", label: "Завершён" },
+  { value: "done", label: "Сдан" },
   { value: "archived", label: "В архиве" },
 ];
 
 export default function EditProjectForm({
-  projectId, name: initialName, status: initialStatus, responsibleId, employees,
+  projectId,
+  name: initialName,
+  status: initialStatus,
+  responsibleId,
+  employees,
+  startDate: initialStart,
+  planWorkDays,
+  dueDate: initialDue,
+  completedOn,
+  bonusAmount,
+  bonusCurrency,
 }: {
   projectId: string;
   name: string;
   status: string;
   responsibleId: string | null;
   employees: { id: string; name: string }[];
+  startDate: string;
+  planWorkDays: number | null;
+  dueDate: string | null;
+  completedOn: string | null;
+  bonusAmount: number;
+  bonusCurrency: string;
 }) {
   const router = useRouter();
+  const today = new Date().toISOString().slice(0, 10);
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(initialName);
   const [status, setStatus] = useState(initialStatus);
   const [responsible, setResponsible] = useState(responsibleId ?? "");
+  const [startDate, setStartDate] = useState(initialStart ?? today);
+  const [mode, setMode] = useState<"days" | "date">(planWorkDays != null ? "days" : initialDue ? "date" : "days");
+  const [planDays, setPlanDays] = useState(planWorkDays != null ? String(planWorkDays) : "");
+  const [dueDate, setDueDate] = useState(initialDue ?? "");
+  const [completed, setCompleted] = useState(completedOn ?? "");
+  const [bonus, setBonus] = useState(bonusAmount ? (bonusAmount / 100).toFixed(2).replace(".", ",") : "");
+  const [bonusCur, setBonusCur] = useState(bonusCurrency || "RUB");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const planNum = planDays.trim() ? Math.max(0, parseInt(planDays, 10) || 0) : null;
+  const computedDue = mode === "days" && planNum ? addBusinessDays(startDate, planNum) : null;
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -35,7 +65,17 @@ export default function EditProjectForm({
     const supabase = createClient();
     const { error } = await supabase
       .from("projects")
-      .update({ name: name.trim(), status, responsible_counterparty_id: responsible || null })
+      .update({
+        name: name.trim(),
+        status,
+        responsible_counterparty_id: responsible || null,
+        start_date: startDate,
+        plan_work_days: mode === "days" ? planNum : null,
+        due_date: mode === "date" ? dueDate || null : null,
+        completed_on: status === "done" ? completed || null : null,
+        bonus_amount: bonus.trim() ? parseMoney(bonus) : 0,
+        bonus_currency: bonusCur,
+      })
       .eq("id", projectId);
     if (error) { setError(error.message); setLoading(false); return; }
     setOpen(false);
@@ -44,9 +84,7 @@ export default function EditProjectForm({
   }
 
   if (!open) {
-    return (
-      <button onClick={() => setOpen(true)} className="btn-ghost">Редактировать</button>
-    );
+    return <button onClick={() => setOpen(true)} className="btn-ghost">Редактировать</button>;
   }
 
   return (
@@ -63,16 +101,49 @@ export default function EditProjectForm({
           </select>
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Ответственный сотрудник</label>
-          <Combobox
-            value={responsible}
-            onChange={setResponsible}
+          <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Ответственный (аналитик)</label>
+          <Combobox value={responsible} onChange={setResponsible}
             options={employees.map((e) => ({ value: e.id, label: e.name }))}
-            placeholder="— не назначен —"
-            emptyLabel="— не назначен —"
-          />
+            placeholder="— не назначен —" emptyLabel="— не назначен —" />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Дата старта</label>
+          <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="input w-full" />
+        </div>
+        {status === "done" && (
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Дата сдачи</label>
+            <input type="date" value={completed} onChange={(e) => setCompleted(e.target.value)} placeholder="сегодня" className="input w-full" />
+          </div>
+        )}
+        <div className="sm:col-span-2">
+          <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Срок сдачи</label>
+          <div className="flex flex-wrap items-center gap-2">
+            <select value={mode} onChange={(e) => setMode(e.target.value as "days" | "date")} className="input w-auto">
+              <option value="days">Рабочих дней</option>
+              <option value="date">Дата</option>
+            </select>
+            {mode === "days" ? (
+              <input type="number" min={0} value={planDays} onChange={(e) => setPlanDays(e.target.value)} placeholder="напр. 20" className="input w-28" />
+            ) : (
+              <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="input w-44" />
+            )}
+            {computedDue && <span className="text-xs text-slate-400">→ срок {new Date(computedDue).toLocaleDateString("ru-RU")}</span>}
+          </div>
+        </div>
+        <div className="sm:col-span-2">
+          <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Бонус аналитику за сдачу</label>
+          <div className="flex gap-2">
+            <input value={bonus} onChange={(e) => setBonus(e.target.value)} inputMode="decimal" placeholder="0,00" className="input w-40" />
+            <select value={bonusCur} onChange={(e) => setBonusCur(e.target.value)} className="input w-24">
+              {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
         </div>
       </div>
+      <p className="text-[11px] text-slate-400 dark:text-neutral-600">
+        При статусе «Сдан» аналитику автоматически начисляется бонус за сдачу (с учётом просрочки по ступеням мотивации).
+      </p>
       <div className="flex gap-2">
         <button type="submit" disabled={loading} className="btn-primary">{loading ? "…" : "Сохранить"}</button>
         <button type="button" onClick={() => setOpen(false)} className="btn-ghost">Отмена</button>
