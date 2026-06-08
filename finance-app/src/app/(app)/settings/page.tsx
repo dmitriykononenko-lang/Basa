@@ -34,6 +34,13 @@ const GROUPS: { title: string; items: Card[] }[] = [
         Icon: IconTag,
         color: "bg-accent text-white",
       },
+      {
+        href: "/settings/motivation",
+        title: "Мотивация по проектам",
+        desc: "Ступени бонуса аналитику за сдачу в срок",
+        Icon: IconSettings,
+        color: "bg-emerald-600 text-white",
+      },
     ],
   },
   {
