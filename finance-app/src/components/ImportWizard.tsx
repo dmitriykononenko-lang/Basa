@@ -41,7 +41,11 @@ const FIELD_LABELS: Record<FieldKey, string> = {
   currency: "Валюта", account: "Счёт (в файле)", category: "Статья", counterparty: "Контрагент",
   project: "Проект", note: "Комментарий", typeCol: "Колонка типа",
   payer: "Плательщик", receiver: "Получатель", payerInn: "ИНН плательщика", receiverInn: "ИНН получателя",
+  payerAcc: "Счёт плательщика", receiverAcc: "Счёт получателя",
 };
+
+// Сравнение номеров счетов: только цифры
+const accDigits = (s: string) => (s ?? "").replace(/\D/g, "");
 
 function daysBetween(a: string, b: string) {
   return Math.abs((new Date(a).getTime() - new Date(b).getTime()) / 86400000);
@@ -143,8 +147,21 @@ export default function ImportWizard({
     return null;
   }
 
-  // Поиск другого своего счёта по тексту строки (внутренний перевод по описанию)
+  // Поиск другого своего счёта (внутренний перевод собственных средств).
   function matchOtherAccount(r: string[], selfId: string): Account | null {
+    // 1) По номеру счёта в колонках «Счёт плательщика/получателя».
+    // Для перевода между своими счетами один из этих номеров — другой наш счёт.
+    const accCols = [mapping.payerAcc, mapping.receiverAcc].filter((i) => i >= 0);
+    for (const ci of accCols) {
+      const num = accDigits(r[ci] ?? "");
+      if (num.length < 10) continue;
+      for (const a of accounts) {
+        if (a.id === selfId) continue;
+        const an = accDigits(a.name);
+        if (an.length >= 10 && an === num) return a;
+      }
+    }
+    // 2) По тексту описания: имя/номер другого счёта встречается в контрагенте/назначении.
     const text = [
       mapping.counterparty >= 0 ? r[mapping.counterparty] : "",
       mapping.note >= 0 ? r[mapping.note] : "",
@@ -522,6 +539,20 @@ export default function ImportWizard({
               <FieldRow k="receiver" mapping={mapping} setField={setField} opts={headerOpts} />
               <FieldRow k="payerInn" mapping={mapping} setField={setField} opts={headerOpts} />
               <FieldRow k="receiverInn" mapping={mapping} setField={setField} opts={headerOpts} />
+            </div>
+          </div>
+
+          {/* Счета плательщика/получателя — для распознавания переводов между своими счетами */}
+          <div className="rounded-2xl bg-slate-50 p-3 dark:bg-white/[0.03]">
+            <div className="mb-1 text-xs font-medium text-slate-600 dark:text-neutral-300">Переводы между своими счетами</div>
+            <p className="mb-2 text-xs text-slate-400 dark:text-neutral-500">
+              Если в выписке есть «Счёт плательщика» и «Счёт получателя» — укажите их. Когда номер
+              совпадает с одним из ваших счетов, операция распознаётся как перевод собственных средств,
+              а не как доход/расход (так суммы по фондам не задваиваются).
+            </p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <FieldRow k="payerAcc" mapping={mapping} setField={setField} opts={headerOpts} />
+              <FieldRow k="receiverAcc" mapping={mapping} setField={setField} opts={headerOpts} />
             </div>
           </div>
 

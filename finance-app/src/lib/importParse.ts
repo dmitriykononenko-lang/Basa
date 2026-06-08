@@ -4,7 +4,8 @@
 export type FieldKey =
   | "date" | "amount" | "amountIn" | "amountOut" | "currency"
   | "account" | "category" | "counterparty" | "project" | "note" | "typeCol"
-  | "payer" | "receiver" | "payerInn" | "receiverInn";
+  | "payer" | "receiver" | "payerInn" | "receiverInn"
+  | "payerAcc" | "receiverAcc";
 
 export type Mapping = Record<FieldKey, number>; // индекс колонки или -1
 export type TypeMode = "sign" | "split" | "column";
@@ -109,6 +110,9 @@ export function autoMap(header: string[]): { map: Mapping; mode: TypeMode } {
     receiver: find("наименование получател", "получатель (наимен"),
     payerInn: find("инн плательщика"),
     receiverInn: find("инн получател"),
+    // счёт плательщика/получателя — для распознавания переводов между своими счетами
+    payerAcc: find("счёт плательщика", "счет плательщика", "счёт плат", "счет плат"),
+    receiverAcc: find("счёт получател", "счет получател", "счёт получ", "счет получ"),
   };
   let mode: TypeMode = "sign";
   if (map.amountIn >= 0 && map.amountOut >= 0) mode = "split";
