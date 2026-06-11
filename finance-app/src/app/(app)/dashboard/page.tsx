@@ -8,7 +8,8 @@ import { buildRateMap, toBase } from "@/lib/fx";
 import { fetchCbrRates } from "@/lib/cbr";
 import AcceptInviteButton from "@/components/AcceptInviteButton";
 import { IconTransactions, IconAccounts, IconReports } from "@/components/icons";
-import TrendChart, { type TrendPoint } from "@/components/TrendChart";
+import { type TrendPoint } from "@/components/TrendChart";
+import { PointsChart } from "@/components/ui/points-chart";
 import PlannedReview from "@/components/PlannedReview";
 
 const MONTHS_SHORT = [
@@ -298,6 +299,16 @@ export default async function DashboardPage() {
   const hasGap = gapValue < 0;
   const showTrend = (accounts?.length ?? 0) > 0;
 
+  // Данные для графика (в основной валюте, мажорные единицы)
+  const trendChart = trendPoints.map((p, i) => ({
+    date: p.label,
+    total: Math.round(p.value / 100),
+    change: i === 0 ? 0 : Math.round((p.value - trendPoints[i - 1].value) / 100),
+  }));
+  const curSym = team.base_currency === "RUB" ? "₽" : team.base_currency;
+  const fmtTrend = (v: number) =>
+    `${new Intl.NumberFormat("ru-RU", { notation: "compact", maximumFractionDigits: 1 }).format(v)} ${curSym}`;
+
   // ── Прогноз по каждому счёту: где не хватит и нужен перевод ──
   type PlanEv = { occurred_on: string; type: string; amount: number; currency: string; account_id: string | null; transfer_account_id: string | null };
   const evByAcc = new Map<string, { date: string; delta: number }[]>();
@@ -508,27 +519,30 @@ export default async function DashboardPage() {
 
       {/* Динамика остатка + прогноз */}
       {showTrend && (
-        <section className="mt-8 rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
-          <div className="mb-2 flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
-                Динамика остатка на счетах
-              </h2>
-              <p className="text-xs text-slate-400 dark:text-neutral-500">
-                Факт за {PAST} мес. · пунктир — прогноз по плановым операциям и обязательствам ({team.base_currency})
-              </p>
-            </div>
-            {hasGap ? (
-              <span className="rounded-full bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 ring-1 ring-red-200 dark:bg-red-950/30 dark:text-red-300 dark:ring-red-900/40">
-                ⚠️ Кассовый разрыв возможен в {gapLabel}: {formatMoney(gapValue, team.base_currency)}
-              </span>
-            ) : (
-              <span className="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-900/40">
-                Разрывов не прогнозируется
-              </span>
-            )}
-          </div>
-          <TrendChart points={trendPoints} base={team.base_currency} />
+        <section className="mt-8">
+          <PointsChart
+            title="Динамика остатка на счетах"
+            data={trendChart}
+            height={240}
+            yAxisLabel={curSym}
+            valueLabel="Остаток"
+            valueFormatter={fmtTrend}
+            levels={hasGap ? [{ value: 0, color: "#ef4444" }] : undefined}
+            headerRight={
+              hasGap ? (
+                <span className="rounded-full bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 ring-1 ring-red-200 dark:bg-red-950/30 dark:text-red-300 dark:ring-red-900/40">
+                  ⚠️ Разрыв в {gapLabel}: {formatMoney(gapValue, team.base_currency)}
+                </span>
+              ) : (
+                <span className="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-900/40">
+                  Разрывов не прогнозируется
+                </span>
+              )
+            }
+          />
+          <p className="mt-2 px-1 text-xs text-slate-400 dark:text-neutral-500">
+            Факт за {PAST} мес. · далее — прогноз по плановым операциям и обязательствам ({team.base_currency}).
+          </p>
         </section>
       )}
 

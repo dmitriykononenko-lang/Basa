@@ -16,6 +16,17 @@ const config: Config = {
           DEFAULT: "#f4500a",
           soft: "#fde4d8",
         },
+        // Токены ui-компонентов (shadcn-стиль)
+        border: "var(--border)",
+        background: "var(--background)",
+        foreground: "var(--foreground)",
+        card: { DEFAULT: "var(--card)", foreground: "var(--card-foreground)" },
+        popover: { DEFAULT: "var(--popover)", foreground: "var(--popover-foreground)" },
+        primary: { DEFAULT: "var(--primary)", foreground: "var(--primary-foreground)" },
+        muted: { DEFAULT: "var(--muted)", foreground: "var(--muted-foreground)" },
+      },
+      borderColor: {
+        DEFAULT: "var(--border)",
       },
       borderRadius: {
         "4xl": "2rem",
