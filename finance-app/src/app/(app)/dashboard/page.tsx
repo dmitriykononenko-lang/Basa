@@ -240,12 +240,16 @@ export default async function DashboardPage() {
 
   // Чистый поток по месяцам (переводы между своими счетами не меняют общий остаток)
   const factNet = new Map<number, number>();
+  const factInc = new Map<number, number>(); // фактический доход по месяцам
+  const factExp = new Map<number, number>(); // фактический расход по месяцам
   for (const t of histTx ?? []) {
     if (t.type === "transfer") continue;
     const d = new Date(t.occurred_on);
     const key = d.getFullYear() * 12 + d.getMonth();
     const v = toBase(t.amount, t.currency, rates);
     factNet.set(key, (factNet.get(key) ?? 0) + (t.type === "income" ? v : -v));
+    if (t.type === "income") factInc.set(key, (factInc.get(key) ?? 0) + v);
+    else factExp.set(key, (factExp.get(key) ?? 0) + v);
   }
 
   const fcNet = new Map<number, number>();
@@ -308,6 +312,22 @@ export default async function DashboardPage() {
   const curSym = team.base_currency === "RUB" ? "₽" : team.base_currency;
   const fmtTrend = (v: number) =>
     `${new Intl.NumberFormat("ru-RU", { notation: "compact", maximumFractionDigits: 1 }).format(v)} ${curSym}`;
+
+  // Доходы и расходы по месяцам (факт, без переводов) — для пары графиков
+  const monthSeries = (src: Map<number, number>) => {
+    const out: { date: string; total: number; change: number }[] = [];
+    let prev: number | null = null;
+    for (let key = curKey - PAST; key <= curKey; key++) {
+      const m = ((key % 12) + 12) % 12;
+      const v = Math.round((src.get(key) ?? 0) / 100);
+      out.push({ date: MONTHS_SHORT[m], total: v, change: prev === null ? 0 : v - prev });
+      prev = v;
+    }
+    return out;
+  };
+  const incomeChart = monthSeries(factInc);
+  const expenseChart = monthSeries(factExp);
+  const hasFlows = incomeChart.some((p) => p.total > 0) || expenseChart.some((p) => p.total > 0);
 
   // ── Прогноз по каждому счёту: где не хватит и нужен перевод ──
   type PlanEv = { occurred_on: string; type: string; amount: number; currency: string; account_id: string | null; transfer_account_id: string | null };
@@ -543,6 +563,26 @@ export default async function DashboardPage() {
           <p className="mt-2 px-1 text-xs text-slate-400 dark:text-neutral-500">
             Факт за {PAST} мес. · далее — прогноз по плановым операциям и обязательствам ({team.base_currency}).
           </p>
+        </section>
+      )}
+
+      {/* Доходы и расходы по месяцам */}
+      {showTrend && hasFlows && (
+        <section className="mt-6 grid grid-cols-1 gap-3 lg:grid-cols-2">
+          <PointsChart
+            title="Доходы по месяцам"
+            data={incomeChart}
+            height={200}
+            valueLabel="Доход"
+            valueFormatter={fmtTrend}
+          />
+          <PointsChart
+            title="Расходы по месяцам"
+            data={expenseChart}
+            height={200}
+            valueLabel="Расход"
+            valueFormatter={fmtTrend}
+          />
         </section>
       )}
 
