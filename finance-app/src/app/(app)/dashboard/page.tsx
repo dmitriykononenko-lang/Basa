@@ -9,7 +9,7 @@ import { fetchCbrRates } from "@/lib/cbr";
 import AcceptInviteButton from "@/components/AcceptInviteButton";
 import { IconTransactions, IconAccounts, IconReports } from "@/components/icons";
 import { type TrendPoint } from "@/components/TrendChart";
-import { PointsChart } from "@/components/ui/points-chart";
+import DashboardCharts from "@/components/DashboardCharts";
 import PlannedReview from "@/components/PlannedReview";
 
 const MONTHS_SHORT = [
@@ -310,8 +310,7 @@ export default async function DashboardPage() {
     change: i === 0 ? 0 : Math.round((p.value - trendPoints[i - 1].value) / 100),
   }));
   const curSym = team.base_currency === "RUB" ? "₽" : team.base_currency;
-  const fmtTrend = (v: number) =>
-    `${new Intl.NumberFormat("ru-RU", { notation: "compact", maximumFractionDigits: 1 }).format(v)} ${curSym}`;
+  const gapText = formatMoney(gapValue, team.base_currency);
 
   // Доходы и расходы по месяцам (факт, без переводов) — для пары графиков
   const monthSeries = (src: Map<number, number>) => {
@@ -537,53 +536,20 @@ export default async function DashboardPage() {
         </Metric>
       </div>
 
-      {/* Динамика остатка + прогноз */}
+      {/* Графики: динамика остатка + доходы/расходы по месяцам */}
       {showTrend && (
-        <section className="mt-8">
-          <PointsChart
-            title="Динамика остатка на счетах"
-            data={trendChart}
-            height={240}
-            yAxisLabel={curSym}
-            valueLabel="Остаток"
-            valueFormatter={fmtTrend}
-            levels={hasGap ? [{ value: 0, color: "#ef4444" }] : undefined}
-            headerRight={
-              hasGap ? (
-                <span className="rounded-full bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 ring-1 ring-red-200 dark:bg-red-950/30 dark:text-red-300 dark:ring-red-900/40">
-                  ⚠️ Разрыв в {gapLabel}: {formatMoney(gapValue, team.base_currency)}
-                </span>
-              ) : (
-                <span className="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-900/40">
-                  Разрывов не прогнозируется
-                </span>
-              )
-            }
-          />
-          <p className="mt-2 px-1 text-xs text-slate-400 dark:text-neutral-500">
-            Факт за {PAST} мес. · далее — прогноз по плановым операциям и обязательствам ({team.base_currency}).
-          </p>
-        </section>
-      )}
-
-      {/* Доходы и расходы по месяцам */}
-      {showTrend && hasFlows && (
-        <section className="mt-6 grid grid-cols-1 gap-3 lg:grid-cols-2">
-          <PointsChart
-            title="Доходы по месяцам"
-            data={incomeChart}
-            height={200}
-            valueLabel="Доход"
-            valueFormatter={fmtTrend}
-          />
-          <PointsChart
-            title="Расходы по месяцам"
-            data={expenseChart}
-            height={200}
-            valueLabel="Расход"
-            valueFormatter={fmtTrend}
-          />
-        </section>
+        <DashboardCharts
+          curSym={curSym}
+          baseCurrency={team.base_currency}
+          past={PAST}
+          trend={trendChart}
+          hasGap={hasGap}
+          gapLabel={gapLabel}
+          gapText={gapText}
+          income={incomeChart}
+          expense={expenseChart}
+          showFlows={hasFlows}
+        />
       )}
 
       {/* Счета */}
