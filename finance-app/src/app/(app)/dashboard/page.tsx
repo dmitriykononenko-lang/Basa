@@ -5,7 +5,7 @@ import { ROLE_LABELS, type AppRole } from "@/lib/types";
 import { formatMoney } from "@/lib/format";
 import { getCurrentTeam } from "@/lib/team";
 import { buildRateMap, toBase } from "@/lib/fx";
-import { fetchCbrRates } from "@/lib/cbr";
+import { fetchCbrRates, type CbrRates } from "@/lib/cbr";
 import AcceptInviteButton from "@/components/AcceptInviteButton";
 import { IconTransactions, IconAccounts, IconReports } from "@/components/icons";
 import { type TrendPoint } from "@/components/TrendChart";
@@ -17,50 +17,29 @@ const MONTHS_SHORT = [
   "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек",
 ];
 
+type InviteRow = { id: string; role: AppRole; team: { name: string } | null };
+
 export default async function DashboardPage() {
-  const current = await getCurrentTeam();
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
 
-  // Приглашения, ожидающие принятия текущим пользователем
-  const { data: myInvites } = await supabase
-    .from("invites")
-    .select("id, role, team:teams(name)")
-    .eq("status", "pending")
-    .eq("email", (user?.email ?? "").toLowerCase());
+  // Команда и пользователь независимы — тянем параллельно
+  const [current, { data: { user } }] = await Promise.all([
+    getCurrentTeam(),
+    supabase.auth.getUser(),
+  ]);
+  const email = (user?.email ?? "").toLowerCase();
 
-  const invites = (myInvites ?? []) as unknown as {
-    id: string;
-    role: AppRole;
-    team: { name: string } | null;
-  }[];
-
-  const InvitesBlock =
-    invites.length > 0 ? (
-      <div className="mb-6 space-y-2">
-        {invites.map((inv) => (
-          <div
-            key={inv.id}
-            className="flex flex-wrap items-center justify-between gap-3 rounded-3xl bg-brand/5 px-5 py-4 ring-1 ring-brand/20"
-          >
-            <div className="text-sm text-slate-700 dark:text-neutral-200">
-              Вас пригласили в команду{" "}
-              <b>{inv.team?.name ?? "—"}</b> как{" "}
-              {ROLE_LABELS[inv.role]}
-            </div>
-            <AcceptInviteButton inviteId={inv.id} />
-          </div>
-        ))}
-      </div>
-    ) : null;
-
-  // Нет команды — показываем приглашения и/или онбординг
+  // Нет команды — лёгкая ветка: только приглашения + онбординг
   if (!current) {
+    const { data: myInvites } = await supabase
+      .from("invites")
+      .select("id, role, team:teams(name)")
+      .eq("status", "pending")
+      .eq("email", email);
+    const invites = (myInvites ?? []) as unknown as InviteRow[];
     return (
       <div className="mx-auto max-w-2xl p-6 sm:p-8">
-        {InvitesBlock}
+        <InvitesBlock invites={invites} />
         <div className="flex justify-center">
           <CreateTeamForm />
         </div>
@@ -70,24 +49,57 @@ export default async function DashboardPage() {
 
   const { team, role } = current;
 
-  const { data: accounts } = await supabase
-    .from("accounts")
-    .select("id, name, currency")
-    .eq("team_id", team.id)
-    .eq("archived", false)
-    .order("created_at", { ascending: true });
+  // ── Даты для запросов (сервер Vercel работает в UTC) ──
+  const now = new Date();
+  const curY = now.getFullYear();
+  const curM = now.getMonth();
+  const curKey = curY * 12 + curM;
+  const PAST = 5; // месяцев истории до текущего
+  const FUT = 3; // месяцев прогноза вперёд
+  const today = now.toISOString().slice(0, 10);
+  const monthStartStr = new Date(curY, curM, 1).toISOString().slice(0, 10);
+  const monthEndStr = new Date(curY, curM + 1, 0).toISOString().slice(0, 10);
+  const yearStart = new Date(curY, 0, 1).toISOString().slice(0, 10);
+  const sixStart = new Date(curY, curM - PAST, 1).toISOString().slice(0, 10);
 
-  const { data: balances } = await supabase
-    .from("account_balances")
-    .select("account_id, currency, balance")
-    .eq("team_id", team.id);
-
-  // Онбординг: сколько шагов пройдено
-  const [{ count: txCount }, { count: importCount }, { count: plannedCount }] = await Promise.all([
+  // ── Все запросы дашборда одним параллельным батчем ──
+  const [
+    { data: myInvites },
+    { data: accounts },
+    { data: balances },
+    { count: txCount },
+    { count: importCount },
+    { count: plannedCount },
+    { data: monthTx },
+    { data: fxRows },
+    cbr,
+    { data: overdue },
+    { data: budgets },
+    { data: yearExp },
+    { data: histTx },
+    { data: planTx },
+    { data: futureObl },
+  ] = await Promise.all([
+    supabase.from("invites").select("id, role, team:teams(name)").eq("status", "pending").eq("email", email),
+    supabase.from("accounts").select("id, name, currency").eq("team_id", team.id).eq("archived", false).order("created_at", { ascending: true }),
+    supabase.from("account_balances").select("account_id, currency, balance").eq("team_id", team.id),
     supabase.from("transactions").select("id", { count: "exact", head: true }).eq("team_id", team.id),
     supabase.from("import_batches").select("id", { count: "exact", head: true }).eq("team_id", team.id),
     supabase.from("transactions").select("id", { count: "exact", head: true }).eq("team_id", team.id).eq("status", "planned"),
+    supabase.from("transactions").select("type, amount, currency, status").eq("team_id", team.id).gte("occurred_on", monthStartStr).lte("occurred_on", monthEndStr),
+    supabase.from("fx_rates").select("currency, rate, rate_date").eq("team_id", team.id),
+    team.base_currency === "RUB" ? fetchCbrRates() : Promise.resolve<CbrRates>({ rates: {}, date: null }),
+    supabase.from("obligation_balances").select("outstanding, currency, due_date").eq("team_id", team.id).gt("outstanding", 0).lt("due_date", today),
+    supabase.from("budgets").select("amount, period, period_start, category_id").eq("team_id", team.id),
+    supabase.from("transactions").select("category_id, amount, currency, occurred_on").eq("team_id", team.id).eq("type", "expense").eq("status", "actual").gte("occurred_on", yearStart),
+    supabase.from("transactions").select("type, amount, currency, occurred_on").eq("team_id", team.id).eq("status", "actual").gte("occurred_on", sixStart),
+    supabase.from("transactions").select("type, amount, currency, occurred_on, account_id, transfer_account_id").eq("team_id", team.id).eq("status", "planned").gte("occurred_on", today),
+    supabase.from("obligation_balances").select("outstanding, currency, due_date").eq("team_id", team.id).gt("outstanding", 0).gte("due_date", today),
   ]);
+
+  const invites = (myInvites ?? []) as unknown as InviteRow[];
+
+  // Онбординг: сколько шагов пройдено
   const onboarding = [
     { done: (accounts?.length ?? 0) > 0, label: "Создайте счёт", href: "/accounts" },
     { done: (txCount ?? 0) > 0, label: "Добавьте первую операцию", href: "/transactions" },
@@ -107,26 +119,9 @@ export default async function DashboardPage() {
     );
   }
 
-  const monthStart = new Date();
-  monthStart.setDate(1);
-  const monthStartStr = monthStart.toISOString().slice(0, 10);
-
-  const monthEndStr = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0).toISOString().slice(0, 10);
-
-  const [{ data: monthTx }, { data: fxRows }] = await Promise.all([
-    supabase
-      .from("transactions")
-      .select("type, amount, currency, status")
-      .eq("team_id", team.id)
-      .gte("occurred_on", monthStartStr)
-      .lte("occurred_on", monthEndStr),
-    supabase.from("fx_rates").select("currency, rate, rate_date").eq("team_id", team.id),
-  ]);
-
   const rates = buildRateMap(fxRows ?? [], team.base_currency);
   // Сверка с курсом ЦБ РФ на сегодня: для валют без ручного курса (например USD/USDT)
   // подставляем официальный курс ЦБ, чтобы доход в валюте отображался в рублях.
-  const cbr = team.base_currency === "RUB" ? await fetchCbrRates() : { rates: {}, date: null };
   for (const [cur, r] of Object.entries(cbr.rates)) {
     if (rates[cur] === undefined) rates[cur] = r;
   }
@@ -157,14 +152,6 @@ export default async function DashboardPage() {
   }
 
   // Просроченные долги
-  const today = new Date().toISOString().slice(0, 10);
-  const { data: overdue } = await supabase
-    .from("obligation_balances")
-    .select("outstanding, currency, due_date")
-    .eq("team_id", team.id)
-    .gt("outstanding", 0)
-    .lt("due_date", today);
-
   let overdueAmount = 0;
   const overdueCount = (overdue ?? []).length;
   for (const o of overdue ?? []) {
@@ -172,21 +159,6 @@ export default async function DashboardPage() {
   }
 
   // Превышенные бюджеты
-  const yearStart = new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10);
-  const [{ data: budgets }, { data: yearExp }] = await Promise.all([
-    supabase
-      .from("budgets")
-      .select("amount, period, period_start, category_id")
-      .eq("team_id", team.id),
-    supabase
-      .from("transactions")
-      .select("category_id, amount, currency, occurred_on")
-      .eq("team_id", team.id)
-      .eq("type", "expense")
-      .eq("status", "actual")
-      .gte("occurred_on", yearStart),
-  ]);
-
   let overBudgets = 0;
   for (const b of budgets ?? []) {
     const start = b.period_start;
@@ -205,38 +177,10 @@ export default async function DashboardPage() {
   }
 
   // ── Динамика остатка на счетах: факт + прогноз кассового разрыва ──
-  const curY = new Date().getFullYear();
-  const curM = new Date().getMonth();
-  const curKey = curY * 12 + curM;
-  const PAST = 5; // месяцев истории до текущего
-  const FUT = 3; // месяцев прогноза вперёд
-  const sixStart = new Date(curY, curM - PAST, 1).toISOString().slice(0, 10);
-
   const currentBalance = (balances ?? []).reduce(
     (s, b) => s + toBase(b.balance, b.currency, rates),
     0
   );
-
-  const [{ data: histTx }, { data: planTx }, { data: futureObl }] = await Promise.all([
-    supabase
-      .from("transactions")
-      .select("type, amount, currency, occurred_on")
-      .eq("team_id", team.id)
-      .eq("status", "actual")
-      .gte("occurred_on", sixStart),
-    supabase
-      .from("transactions")
-      .select("type, amount, currency, occurred_on, account_id, transfer_account_id")
-      .eq("team_id", team.id)
-      .eq("status", "planned")
-      .gte("occurred_on", today),
-    supabase
-      .from("obligation_balances")
-      .select("outstanding, currency, due_date")
-      .eq("team_id", team.id)
-      .gt("outstanding", 0)
-      .gte("due_date", today),
-  ]);
 
   // Чистый поток по месяцам (переводы между своими счетами не меняют общий остаток)
   const factNet = new Map<number, number>();
@@ -370,7 +314,7 @@ export default async function DashboardPage() {
 
   return (
     <div className="p-6 sm:p-8">
-      {InvitesBlock}
+      <InvitesBlock invites={invites} />
       {user && (plannedCount ?? 0) > 0 && (
         <PlannedReview teamId={team.id} count={plannedCount ?? 0} variant="card" />
       )}
@@ -612,6 +556,26 @@ export default async function DashboardPage() {
           </p>
         )}
       </section>
+    </div>
+  );
+}
+
+function InvitesBlock({ invites }: { invites: InviteRow[] }) {
+  if (invites.length === 0) return null;
+  return (
+    <div className="mb-6 space-y-2">
+      {invites.map((inv) => (
+        <div
+          key={inv.id}
+          className="flex flex-wrap items-center justify-between gap-3 rounded-3xl bg-brand/5 px-5 py-4 ring-1 ring-brand/20"
+        >
+          <div className="text-sm text-slate-700 dark:text-neutral-200">
+            Вас пригласили в команду <b>{inv.team?.name ?? "—"}</b> как{" "}
+            {ROLE_LABELS[inv.role]}
+          </div>
+          <AcceptInviteButton inviteId={inv.id} />
+        </div>
+      ))}
     </div>
   );
 }
