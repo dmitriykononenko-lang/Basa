@@ -101,7 +101,9 @@ export default async function TeamPage() {
                   className="border-b border-slate-50 last:border-0 dark:border-white/[0.05]"
                 >
                   <td className="px-5 py-3 font-medium text-slate-800 dark:text-neutral-200">
-                    {fullName ?? "—"}
+                    <Link href={`/team/${m.user_id}`} className="hover:text-brand hover:underline">
+                      {fullName ?? "—"}
+                    </Link>
                     {isSelf && (
                       <span className="ml-2 text-xs text-slate-400">(вы)</span>
                     )}
