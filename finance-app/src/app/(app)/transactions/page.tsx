@@ -23,6 +23,7 @@ type TxRow = {
   counterparty_id: string | null;
   project_id: string | null;
   created_by: string | null;
+  import_batch_id: string | null;
   account: { name: string } | null;
   to_account: { name: string } | null;
   category: { name: string } | null;
@@ -84,7 +85,7 @@ export default async function TransactionsPage({
     .from("transactions")
     .select(
       `id, type, amount, currency, occurred_on, accrual_date, note, status,
-       account_id, transfer_account_id, category_id, counterparty_id, project_id, created_by,
+       account_id, transfer_account_id, category_id, counterparty_id, project_id, created_by, import_batch_id,
        account:accounts!transactions_account_id_fkey(name),
        to_account:accounts!transactions_transfer_account_id_fkey(name),
        category:categories(name),
@@ -187,6 +188,7 @@ export default async function TransactionsPage({
               id: t.id, type: t.type, amount: t.amount, currency: t.currency, occurred_on: t.occurred_on,
               accrual_date: t.accrual_date, note: t.note, status: t.status, account_id: t.account_id, transfer_account_id: t.transfer_account_id,
               category_id: t.category_id, counterparty_id: t.counterparty_id, project_id: t.project_id,
+              import_batch_id: t.import_batch_id,
               accountName: t.account?.name ?? null, toAccountName: t.to_account?.name ?? null,
               categoryName: t.category?.name ?? null, counterpartyName: t.counterparty?.name ?? null,
               projectName: t.project?.name ?? null,
