@@ -62,6 +62,21 @@ export default function OperationCard({
   const [error, setError] = useState<string | null>(null);
 
   const imported = !!tx.import_batch_id;
+  const acc = accounts.find((a) => a.id === accountId);
+  const cur = acc?.currency ?? tx.currency;
+
+  const typePill =
+    tx.type === "income"
+      ? { label: "Доход", cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300" }
+      : tx.type === "expense"
+        ? { label: "Расход", cls: "bg-red-100 text-red-600 dark:bg-red-950/50 dark:text-red-300" }
+        : { label: "Перевод", cls: "bg-blue-100 text-blue-600 dark:bg-blue-950/50 dark:text-blue-300" };
+  const amountColor =
+    tx.type === "income"
+      ? "text-emerald-600 dark:text-emerald-400"
+      : tx.type === "expense"
+        ? "text-red-600 dark:text-red-400"
+        : "text-slate-900 dark:text-white";
 
   async function save() {
     setError(null);
@@ -106,18 +121,41 @@ export default function OperationCard({
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={TITLES[tx.type] ?? "Операция"} wide>
+    <Modal
+      open={open}
+      onClose={onClose}
+      wide
+      title={
+        <span className="flex items-center gap-2.5">
+          {TITLES[tx.type] ?? "Операция"}
+          <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${typePill.cls}`}>{typePill.label}</span>
+        </span>
+      }
+    >
       {imported && (
-        <div className="mb-4 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-800 ring-1 ring-amber-200/70 dark:bg-amber-950/30 dark:text-amber-200 dark:ring-amber-900/40">
-          Эта операция импортирована из банка. Если изменить <b>сумму</b>, <b>дату</b> или <b>счёт</b>,
-          между банком и приложением появится расхождение.
+        <div className="mb-4 rounded-2xl bg-amber-50 px-4 py-2.5 text-xs text-amber-800 ring-1 ring-amber-200/70 dark:bg-amber-950/30 dark:text-amber-200 dark:ring-amber-900/40">
+          Импортирована из банка. Изменение <b>суммы</b>, <b>даты</b> или <b>счёта</b> создаст расхождение с банком.
         </div>
       )}
 
+      {/* Сумма — крупным блоком */}
+      <div className="mb-4 rounded-2xl bg-white p-4 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
+        <label className="mb-1 block text-left text-xs font-medium text-slate-500 dark:text-neutral-400">Сумма</label>
+        <div className="flex items-baseline gap-2">
+          <input
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            disabled={!canEdit}
+            inputMode="decimal"
+            autoFocus
+            className={`w-full bg-transparent text-3xl font-bold outline-none placeholder:text-slate-300 disabled:opacity-70 ${amountColor}`}
+            placeholder="0,00"
+          />
+          <span className="shrink-0 text-lg font-semibold text-slate-400">{cur}</span>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <Field label="Сумма">
-          <input value={amount} onChange={(e) => setAmount(e.target.value)} disabled={!canEdit} className="input" />
-        </Field>
         <Field label={isTransfer ? "Счёт списания" : "Счёт"}>
           <Combobox value={accountId} onChange={setAccountId} placeholder="Счёт"
             options={accounts.map((a): ComboOption => ({ value: a.id, label: a.name }))} />
@@ -165,11 +203,12 @@ export default function OperationCard({
 
         <div className="sm:col-span-2">
           <Field label="Описание">
-            <input value={note} onChange={(e) => setNote(e.target.value)} disabled={!canEdit} className="input" />
+            <input value={note} onChange={(e) => setNote(e.target.value)} disabled={!canEdit} className="input" placeholder="Комментарий к операции" />
           </Field>
         </div>
 
         <div className="sm:col-span-2">
+          <div className="mb-1 text-left text-xs font-medium text-slate-500 dark:text-neutral-400">Чеки и вложения</div>
           <Attachments teamId={teamId} transactionId={tx.id} userId={userId} items={attachments} canEdit={canEdit} />
         </div>
       </div>
@@ -177,7 +216,7 @@ export default function OperationCard({
       {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
 
       {canEdit && (
-        <div className="mt-5 flex items-center gap-3">
+        <div className="mt-5 flex items-center gap-3 border-t border-slate-200/70 pt-4 dark:border-white/[0.07]">
           <button onClick={save} disabled={busy} className="btn-primary">
             {busy ? "…" : "Сохранить"}
           </button>
@@ -194,8 +233,8 @@ export default function OperationCard({
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div>
-      <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">{label}</label>
+    <div className="text-left">
+      <label className="mb-1 block text-left text-xs font-medium text-slate-500 dark:text-neutral-400">{label}</label>
       {children}
     </div>
   );
