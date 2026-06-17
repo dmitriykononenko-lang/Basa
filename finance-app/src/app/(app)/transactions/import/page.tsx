@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canWriteTx } from "@/lib/team";
 import ImportWizard from "@/components/ImportWizard";
+import StatementImportWizard from "@/components/StatementImportWizard";
 import ImportBatchCard, { type Batch } from "@/components/ImportBatchCard";
 import CategoryRulesManager, { type Rule } from "@/components/CategoryRulesManager";
 
@@ -46,12 +47,26 @@ export default async function ImportPage() {
   return (
     <div className="p-6 sm:p-8">
       <Link href="/transactions" className="text-sm text-slate-400 hover:text-brand">← Операции</Link>
-      <header className="mb-6 mt-2">
-        <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">Импорт выписки</h1>
-        <p className="text-sm text-slate-500 dark:text-neutral-400">
-          Каждая загрузка — отдельный импорт; его можно отменить целиком.
-        </p>
+      <header className="mb-6 mt-2 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">Импорт выписки</h1>
+          <p className="text-sm text-slate-500 dark:text-neutral-400">
+            Каждая загрузка — отдельный импорт; его можно отменить целиком.
+          </p>
+        </div>
+        <Link
+          href="/transactions/sort"
+          className="rounded-full bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-200 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700"
+        >
+          Разнести по статьям →
+        </Link>
       </header>
+
+      {user && (
+        <div className="mb-6">
+          <StatementImportWizard teamId={team.id} userId={user.id} accounts={accounts ?? []} />
+        </div>
+      )}
 
       <div className="mb-6">
         {user && (
