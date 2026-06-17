@@ -10,6 +10,7 @@ import AgentCommissionRules, { type Rule } from "@/components/AgentCommissionRul
 import AgentPayouts, { type Payout } from "@/components/AgentPayouts";
 import OperationsTable from "@/components/OperationsTable";
 import type { TxData } from "@/components/EditableTransactionRow";
+import DeleteCounterpartyButton from "@/components/DeleteCounterpartyButton";
 
 export default async function CounterpartyPage({
   params,
@@ -27,7 +28,7 @@ export default async function CounterpartyPage({
 
   const { data: cp } = await supabase
     .from("counterparties")
-    .select("id, name, kind, kinds, inn, kpp, contact_person, phone, email, note, agent_id, contract_number, contract_date")
+    .select("id, name, kind, kinds, inn, kpp, contact_person, phone, email, note, agent_id, contract_number, contract_date, payment_method, payee_name, legal_status, bank_account, bank_name, bik, wallet_address, wallet_network")
     .eq("id", id)
     .maybeSingle();
 
@@ -154,7 +155,8 @@ export default async function CounterpartyPage({
       <Link href="/counterparties" className="text-sm text-slate-400 hover:text-brand">
         ← Контрагенты
       </Link>
-      <header className="mb-6 mt-2">
+      <header className="mb-6 mt-2 flex flex-wrap items-start justify-between gap-3">
+        <div>
         <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
           {cp.name}
         </h1>
@@ -163,6 +165,8 @@ export default async function CounterpartyPage({
           {agentName && <> · агент: <b>{agentName}</b></>}
           {cp.contract_number && <> · договор № {cp.contract_number}{cp.contract_date && ` от ${formatDate(cp.contract_date)}`}</>}
         </p>
+        </div>
+        {manage && <DeleteCounterpartyButton id={cp.id} name={cp.name} />}
       </header>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -178,6 +182,23 @@ export default async function CounterpartyPage({
             <Info label="Телефон" value={cp.phone} />
             <Info label="Email" value={cp.email} />
             <Info label="Заметка" value={cp.note} />
+            {(cp.bank_account || cp.payee_name || cp.wallet_address) && (
+              <div className="mt-2 space-y-2 border-t border-slate-100 pt-2 dark:border-white/[0.06]">
+                {cp.payment_method === "crypto" ? (
+                  <>
+                    <Info label="Кошелёк" value={cp.wallet_address} />
+                    <Info label="Сеть" value={cp.wallet_network} />
+                  </>
+                ) : (
+                  <>
+                    <Info label="Получатель" value={cp.payee_name} />
+                    <Info label="Р/С" value={cp.bank_account} />
+                    <Info label="Банк" value={cp.bank_name} />
+                    <Info label="БИК" value={cp.bik} />
+                  </>
+                )}
+              </div>
+            )}
           </dl>
           {manage && (
             <EditCounterpartyForm

@@ -4,6 +4,7 @@ import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import AddAccountForm from "@/components/AddAccountForm";
 import AccountsList from "@/components/AccountsList";
 import { type AccountFull } from "@/components/AccountCard";
+import { buildRateMap } from "@/lib/fx";
 
 export default async function AccountsPage() {
   const current = await getCurrentTeam();
@@ -27,15 +28,16 @@ export default async function AccountsPage() {
     .eq("team_id", team.id)
     .order("created_at", { ascending: true });
 
-  const { data: balances } = await supabase
-    .from("account_balances")
-    .select("account_id, balance")
-    .eq("team_id", team.id);
+  const [{ data: balances }, { data: fxRows }] = await Promise.all([
+    supabase.from("account_balances").select("account_id, balance").eq("team_id", team.id),
+    supabase.from("fx_rates").select("currency, rate, rate_date").eq("team_id", team.id),
+  ]);
 
   const balanceMap: Record<string, number> = {};
   for (const b of balances ?? []) balanceMap[b.account_id] = b.balance;
 
   const accounts = (allAccounts ?? []) as AccountFull[];
+  const rates = buildRateMap(fxRows ?? [], team.base_currency);
 
   return (
     <div className="p-6 sm:p-8">
@@ -54,7 +56,7 @@ export default async function AccountsPage() {
         {canEditFinance(role) && <AddAccountForm teamId={team.id} />}
       </header>
 
-      <AccountsList accounts={accounts} balances={balanceMap} canEdit={canEditFinance(role)} />
+      <AccountsList accounts={accounts} balances={balanceMap} canEdit={canEditFinance(role)} base={team.base_currency} rates={rates} />
     </div>
   );
 }

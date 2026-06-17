@@ -2,16 +2,21 @@
 
 import { useMemo, useState } from "react";
 import { formatMoney } from "@/lib/format";
+import { toBase, type RateMap } from "@/lib/fx";
 import AccountCard, { type AccountFull } from "@/components/AccountCard";
 
 export default function AccountsList({
   accounts,
   balances,
   canEdit,
+  base,
+  rates,
 }: {
   accounts: AccountFull[];
   balances: Record<string, number>;
   canEdit: boolean;
+  base: string;
+  rates: RateMap;
 }) {
   const [selected, setSelected] = useState<AccountFull | null>(null);
 
@@ -53,8 +58,39 @@ export default function AccountsList({
     );
   }
 
+  // Итоги: по валютам + всё в базовой по курсу
+  const totals = useMemo(() => {
+    const byCur = new Map<string, number>();
+    let baseTotal = 0;
+    for (const a of active) {
+      const bal = balances[a.id] ?? 0;
+      byCur.set(a.currency, (byCur.get(a.currency) ?? 0) + bal);
+      baseTotal += toBase(bal, a.currency, rates);
+    }
+    return { byCur: [...byCur.entries()], baseTotal };
+  }, [active, balances, rates]);
+
   return (
     <>
+      <div className="mb-6">
+        <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">Деньги на счетах</div>
+        <div className="flex flex-wrap gap-3">
+          <div className="rounded-3xl bg-brand/5 px-5 py-4 ring-1 ring-brand/20 dark:bg-brand/10">
+            <div className="text-[11px] text-slate-500 dark:text-neutral-400">Итого в {base} (по курсу)</div>
+            <div className="mt-0.5 text-2xl font-extrabold text-slate-900 dark:text-white">{formatMoney(totals.baseTotal, base)}</div>
+          </div>
+          {totals.byCur.map(([cur, sum]) => (
+            <div key={cur} className="rounded-3xl bg-white px-5 py-4 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
+              <div className="text-[11px] text-slate-500 dark:text-neutral-400">Итого {cur}</div>
+              <div className="mt-0.5 text-lg font-bold text-slate-800 dark:text-neutral-200">{formatMoney(sum, cur)}</div>
+              {cur !== base && (
+                <div className="text-[11px] text-slate-400">≈ {formatMoney(toBase(sum, cur, rates), base)}</div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
       {groups.length > 0 ? (
         <div className="space-y-8">
           {groups.map(([entity, list]) => (
