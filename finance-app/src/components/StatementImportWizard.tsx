@@ -1,17 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { formatMoney } from "@/lib/format";
 
 type Account = { id: string; name: string; currency: string };
+type Counterparty = { id: string; name: string; inn: string | null };
 
 type Rec = {
   accountNum: string;
   iso: string;
   type: "income" | "expense";
   amount: number; // минорные единицы
-  note: string;
+  note: string; // назначение платежа
+  cpName: string; // контрагент (для внешних операций)
+  cpInn: string; // ИНН контрагента
+  internal: boolean; // внутренний перевод между своими счетами
 };
 
 // Разбор одной CSV-строки с учётом кавычек
@@ -39,7 +43,7 @@ function norm(s: string): string {
 }
 
 function parseAmount(s: string): number {
-  const clean = (s || "").replace(/\s| /g, "").replace(",", ".");
+  const clean = (s || "").replace(/\s| /g, "").replace(",", ".");
   const v = parseFloat(clean);
   if (isNaN(v)) return NaN;
   return Math.round(v * 100);
@@ -57,10 +61,12 @@ export default function StatementImportWizard({
   teamId,
   userId,
   accounts,
+  counterparties,
 }: {
   teamId: string;
   userId: string;
   accounts: Account[];
+  counterparties: Counterparty[];
 }) {
   const [fileName, setFileName] = useState("");
   const [recs, setRecs] = useState<Rec[]>([]);
@@ -89,10 +95,12 @@ export default function StatementImportWizard({
       const col = (names: string[]) => header.findIndex((h) => names.some((n) => h.includes(n)));
       const ci = {
         date: col(["дата"]),
-        acct: col(["счет"]),
+        acct: col(["счет"]), // «Счет» идёт раньше «Контрагент / счет» — берётся первый
         dir: col(["направление"]),
         amount: col(["сумма"]),
+        optype: col(["тип"]),
         cp: col(["контрагент"]),
+        inn: col(["инн"]),
         purpose: col(["назначение"]),
       };
       if (ci.date < 0 || ci.acct < 0 || ci.dir < 0 || ci.amount < 0) {
@@ -112,11 +120,13 @@ export default function StatementImportWizard({
           dir.startsWith("списан") ? "expense" : dir.startsWith("поступ") ? "income" : null;
         if (!type) { bad++; continue; }
         if (!acctByName.has(accountNum)) missing.add(accountNum);
-        const cp = (ci.cp >= 0 ? c[ci.cp] : "") ?? "";
-        const purpose = (ci.purpose >= 0 ? c[ci.purpose] : "") ?? "";
-        let note = [cp.trim(), purpose.trim()].filter(Boolean).join(" · ");
-        if (note.length > 200) note = note.slice(0, 199) + "…";
-        out.push({ accountNum, iso, type, amount, note });
+        const optype = norm(ci.optype >= 0 ? c[ci.optype] ?? "" : "");
+        const internal = optype.includes("перевод");
+        const cpName = (ci.cp >= 0 ? c[ci.cp] ?? "" : "").trim();
+        const cpInn = (ci.inn >= 0 ? c[ci.inn] ?? "" : "").trim();
+        let note = (ci.purpose >= 0 ? c[ci.purpose] ?? "" : "").trim();
+        if (note.length > 300) note = note.slice(0, 299) + "…";
+        out.push({ accountNum, iso, type, amount, note, cpName, cpInn, internal });
       }
       setRecs(out);
       setMissingAccts([...missing]);
@@ -130,6 +140,13 @@ export default function StatementImportWizard({
   const expenseCount = recs.filter((r) => r.type === "expense").length;
   const incomeSum = recs.filter((r) => r.type === "income").reduce((s, r) => s + r.amount, 0);
   const expenseSum = recs.filter((r) => r.type === "expense").reduce((s, r) => s + r.amount, 0);
+
+  // Сколько уникальных внешних контрагентов в файле (для превью)
+  const extCpCount = useMemo(() => {
+    const s = new Set<string>();
+    for (const r of recs) if (!r.internal && r.cpName) s.add(r.cpInn || r.cpName.toLowerCase());
+    return s.size;
+  }, [recs]);
 
   async function doImport() {
     setBusy(true);
@@ -148,22 +165,59 @@ export default function StatementImportWizard({
         for (const a of created ?? []) nameToId.set(a.name.trim(), a as Account);
       }
 
-      // 2) Дедуп против уже существующих операций (по счёту/дате/сумме/типу)
+      // 2) Контрагенты: сматчить с существующими (по ИНН, затем имени), недостающих создать.
+      //    Для внутренних переводов контрагент не проставляется.
+      const cpByInn = new Map<string, string>();
+      const cpByName = new Map<string, string>();
+      for (const c of counterparties) {
+        if (c.inn) cpByInn.set(String(c.inn).trim(), c.id);
+        cpByName.set(c.name.trim().toLowerCase(), c.id);
+      }
+      const resolveCp = (r: Rec): string | null => {
+        if (r.internal || !r.cpName) return null;
+        if (r.cpInn && cpByInn.has(r.cpInn)) return cpByInn.get(r.cpInn)!;
+        return cpByName.get(r.cpName.toLowerCase()) ?? null;
+      };
+      const toCreate = new Map<string, { name: string; inn: string; kind: string }>();
+      for (const r of recs) {
+        if (r.internal || !r.cpName || resolveCp(r)) continue;
+        const key = r.cpInn ? "inn:" + r.cpInn : "name:" + r.cpName.toLowerCase();
+        if (!toCreate.has(key)) {
+          toCreate.set(key, { name: r.cpName, inn: r.cpInn, kind: r.type === "income" ? "client" : "supplier" });
+        }
+      }
+      let createdCps = 0;
+      if (toCreate.size > 0) {
+        const payload = [...toCreate.values()].map((c) => ({
+          team_id: teamId, name: c.name, inn: c.inn || null, kind: c.kind, kinds: [c.kind],
+        }));
+        const { data: created, error: ce } = await supabase
+          .from("counterparties").insert(payload).select("id, name, inn");
+        if (ce) throw ce;
+        createdCps = created?.length ?? 0;
+        for (const c of created ?? []) {
+          if (c.inn) cpByInn.set(String(c.inn).trim(), c.id);
+          cpByName.set((c.name as string).trim().toLowerCase(), c.id);
+        }
+      }
+
+      // 3) Дедуп против уже существующих операций (счёт/дата/сумма/тип/назначение).
+      //    Внутрифайловые повторы НЕ режем — это разные реальные операции.
       const ids = [...new Set(recs.map((r) => nameToId.get(r.accountNum)!.id))];
       const isos = recs.map((r) => r.iso).sort();
       const minD = isos[0];
       const maxD = isos[isos.length - 1];
       const { data: existing, error: e2 } = await supabase
         .from("transactions")
-        .select("account_id, occurred_on, amount, type")
+        .select("account_id, occurred_on, amount, type, note")
         .eq("team_id", teamId)
         .in("account_id", ids)
         .gte("occurred_on", minD)
         .lte("occurred_on", maxD);
       if (e2) throw e2;
-      const seen = new Set(
-        (existing ?? []).map((t) => `${t.account_id}|${t.occurred_on}|${t.amount}|${t.type}`)
-      );
+      const sig = (a: string, d: string, am: number | string, t: string, n: string | null) =>
+        `${a}|${d}|${am}|${t}|${n ?? ""}`;
+      const seen = new Set((existing ?? []).map((t) => sig(t.account_id, t.occurred_on, t.amount, t.type, t.note)));
 
       const rows = recs
         .map((r) => {
@@ -176,20 +230,16 @@ export default function StatementImportWizard({
             currency: acc.currency,
             occurred_on: r.iso,
             note: r.note || null,
+            counterparty_id: resolveCp(r),
             status: "actual" as const,
             created_by: userId,
           };
         })
-        .filter((row) => {
-          const k = `${row.account_id}|${row.occurred_on}|${row.amount}|${row.type}`;
-          if (seen.has(k)) return false;
-          seen.add(k); // не плодим точные дубли и внутри файла
-          return true;
-        });
+        .filter((row) => !seen.has(sig(row.account_id, row.occurred_on, row.amount, row.type, row.note)));
 
       const skipped = recs.length - rows.length;
 
-      // 3) Батч импорта
+      // 4) Батч импорта
       const { data: batch, error: e3 } = await supabase
         .from("import_batches")
         .insert({
@@ -205,7 +255,7 @@ export default function StatementImportWizard({
         .single();
       if (e3) throw e3;
 
-      // 4) Вставка пачками
+      // 5) Вставка пачками
       let inserted = 0;
       const CH = 500;
       for (let i = 0; i < rows.length; i += CH) {
@@ -218,6 +268,7 @@ export default function StatementImportWizard({
       setResult(
         `Загружено операций: ${inserted}. Пропущено дублей: ${skipped}. ` +
           (missingAccts.length ? `Создано счетов: ${missingAccts.length}. ` : "") +
+          (createdCps ? `Создано контрагентов: ${createdCps}. ` : "") +
           "Категории не проставлены — разнесите их на странице «Разнести»."
       );
       setRecs([]);
@@ -237,7 +288,8 @@ export default function StatementImportWizard({
       </h2>
       <p className="mt-1 text-xs text-slate-500 dark:text-neutral-400">
         Загрузите лист «Все операции» в формате CSV (Файл → Сохранить как → CSV). Все счета — за один
-        раз, переводы между своими счетами <b>не склеиваются</b>, категории не проставляются.
+        раз, переводы между своими счетами <b>не склеиваются</b>. Для внешних операций создаются
+        карточки контрагентов (по ИНН); категории не проставляются.
       </p>
 
       <label className="mt-4 inline-flex cursor-pointer items-center gap-2 rounded-full bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-200 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700">
@@ -263,12 +315,13 @@ export default function StatementImportWizard({
             <Mini title="Всего строк" value={String(recs.length)} />
             <Mini title="Поступления" value={`${incomeCount} · ${formatMoney(incomeSum, "RUB")}`} accent="emerald" />
             <Mini title="Списания" value={`${expenseCount} · ${formatMoney(expenseSum, "RUB")}`} accent="red" />
-            <Mini title="Пропущено строк" value={String(badRows)} />
+            <Mini title="Контрагентов в файле" value={String(extCpCount)} />
           </div>
 
-          {missingAccts.length > 0 && (
+          {(missingAccts.length > 0 || badRows > 0) && (
             <div className="mt-3 rounded-2xl bg-amber-50 px-4 py-3 text-xs text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
-              Будут созданы новые счета ({missingAccts.length}): {missingAccts.join(", ")}
+              {missingAccts.length > 0 && <div>Будут созданы новые счета ({missingAccts.length}): {missingAccts.join(", ")}</div>}
+              {badRows > 0 && <div>Пропущено нечитаемых строк: {badRows}</div>}
             </div>
           )}
 

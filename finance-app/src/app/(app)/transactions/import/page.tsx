@@ -64,7 +64,12 @@ export default async function ImportPage() {
 
       {user && (
         <div className="mb-6">
-          <StatementImportWizard teamId={team.id} userId={user.id} accounts={accounts ?? []} />
+          <StatementImportWizard
+            teamId={team.id}
+            userId={user.id}
+            accounts={accounts ?? []}
+            counterparties={(counterparties ?? []) as { id: string; name: string; inn: string | null }[]}
+          />
         </div>
       )}
 

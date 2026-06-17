@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam } from "@/lib/team";
 import Sidebar from "@/components/Sidebar";
+import MobileNav from "@/components/MobileNav";
 import SignOutButton from "@/components/SignOutButton";
 import Brand from "@/components/Brand";
 import ThemeToggle from "@/components/ThemeToggle";
@@ -92,9 +93,12 @@ export default async function AppLayout({
         <Toaster />
         <CommandPalette />
 
+        {/* Мобильное меню (только узкие экраны) */}
+        <MobileNav />
+
         {/* Тело */}
         <div className="flex flex-1">
-          <aside className="flex w-60 shrink-0 flex-col py-4">
+          <aside className="hidden w-60 shrink-0 flex-col py-4 md:flex">
             <Sidebar />
             <div className="mt-auto px-3 pt-3">
               <SignOutButton />
