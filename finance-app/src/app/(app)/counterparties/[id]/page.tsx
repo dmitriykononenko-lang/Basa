@@ -8,6 +8,8 @@ import { COUNTERPARTY_KIND_LABELS } from "@/lib/constants";
 import EditCounterpartyForm from "@/components/EditCounterpartyForm";
 import AgentCommissionRules, { type Rule } from "@/components/AgentCommissionRules";
 import AgentPayouts, { type Payout } from "@/components/AgentPayouts";
+import OperationsTable from "@/components/OperationsTable";
+import type { TxData } from "@/components/EditableTransactionRow";
 
 export default async function CounterpartyPage({
   params,
@@ -81,41 +83,62 @@ export default async function CounterpartyPage({
     });
   }
 
-  const [{ data: txs }, { data: obls }, { data: fxRows }] = await Promise.all([
+  const [{ data: txs }, { data: obls }, { data: fxRows }, { data: opAccounts }, { data: opCats }, { data: opProjects }, { data: opCps }] = await Promise.all([
     supabase
       .from("transactions")
-      .select("id, type, amount, currency, occurred_on, category:categories(name), project:projects(name)")
+      .select(`id, type, amount, currency, occurred_on, accrual_date, note, status,
+        account_id, transfer_account_id, category_id, counterparty_id, project_id, import_batch_id,
+        account:accounts!transactions_account_id_fkey(name),
+        to_account:accounts!transactions_transfer_account_id_fkey(name),
+        category:categories(name), counterparty:counterparties(name), project:projects(name)`)
       .eq("team_id", team.id)
       .eq("counterparty_id", id)
       .eq("status", "actual")
       .order("occurred_on", { ascending: false })
-      .limit(50),
+      .limit(100),
     supabase
       .from("obligation_balances")
       .select("id, type, amount, currency, outstanding, due_date")
       .eq("team_id", team.id)
       .eq("counterparty_id", id),
     supabase.from("fx_rates").select("currency, rate, rate_date").eq("team_id", team.id),
+    supabase.from("accounts").select("id, name, currency").eq("team_id", team.id).eq("archived", false).order("created_at"),
+    supabase.from("categories").select("id, name, kind").eq("team_id", team.id).eq("archived", false).order("name"),
+    supabase.from("projects").select("id, name").eq("team_id", team.id).eq("archived", false).order("name"),
+    supabase.from("counterparties").select("id, name, inn").eq("team_id", team.id).eq("archived", false).order("name"),
   ]);
 
   const rates = buildRateMap(fxRows ?? [], base);
-  const rows = (txs ?? []) as unknown as {
-    id: string;
-    type: "income" | "expense" | "transfer";
-    amount: number;
-    currency: string;
-    occurred_on: string;
-    category: { name: string } | null;
-    project: { name: string } | null;
+  const txRows = (txs ?? []) as unknown as {
+    id: string; type: "income" | "expense" | "transfer"; amount: number; currency: string;
+    occurred_on: string; accrual_date: string | null; note: string | null; status: string;
+    account_id: string | null; transfer_account_id: string | null; category_id: string | null;
+    counterparty_id: string | null; project_id: string | null; import_batch_id: string | null;
+    account: { name: string } | null; to_account: { name: string } | null;
+    category: { name: string } | null; counterparty: { name: string } | null; project: { name: string } | null;
   }[];
 
   let income = 0;
   let expense = 0;
-  for (const t of rows) {
+  for (const t of txRows) {
     const v = toBase(t.amount, t.currency, rates);
     if (t.type === "income") income += v;
     else if (t.type === "expense") expense += v;
   }
+
+  const opItems = txRows.map((t) => ({
+    editable: manage,
+    attachments: [] as [],
+    tx: {
+      id: t.id, type: t.type, amount: t.amount, currency: t.currency, occurred_on: t.occurred_on,
+      accrual_date: t.accrual_date, note: t.note, status: t.status, account_id: t.account_id,
+      transfer_account_id: t.transfer_account_id, category_id: t.category_id, counterparty_id: t.counterparty_id,
+      project_id: t.project_id, import_batch_id: t.import_batch_id,
+      accountName: t.account?.name ?? null, toAccountName: t.to_account?.name ?? null,
+      categoryName: t.category?.name ?? null, counterpartyName: t.counterparty?.name ?? null,
+      projectName: t.project?.name ?? null,
+    } as TxData,
+  }));
 
   let receivable = 0;
   let payable = 0;
@@ -228,30 +251,16 @@ export default async function CounterpartyPage({
         <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">
           Операции
         </h2>
-        {rows.length > 0 ? (
-          <div className="overflow-hidden rounded-3xl bg-white ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
-            <table className="w-full text-sm">
-              <tbody>
-                {rows.map((t) => (
-                  <tr key={t.id} className="border-b border-slate-50 last:border-0 dark:border-white/[0.05]">
-                    <td className="whitespace-nowrap px-5 py-3 text-slate-500 dark:text-neutral-400">
-                      {formatDate(t.occurred_on)}
-                    </td>
-                    <td className="px-5 py-3 text-slate-700 dark:text-neutral-300">
-                      {t.category?.name ?? (t.type === "transfer" ? "Перевод" : "—")}
-                      {t.project?.name && <span className="ml-2 text-xs text-slate-400">· {t.project.name}</span>}
-                    </td>
-                    <td className={`px-5 py-3 text-right font-semibold ${
-                      t.type === "income" ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"
-                    }`}>
-                      {t.type === "income" ? "+" : "−"}
-                      {formatMoney(t.amount, t.currency)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        {opItems.length > 0 ? (
+          <OperationsTable
+            items={opItems}
+            accounts={opAccounts ?? []}
+            categories={(opCats ?? []) as { id: string; name: string; kind: "income" | "expense" }[]}
+            counterparties={opCps ?? []}
+            projects={opProjects ?? []}
+            teamId={team.id}
+            userId={user?.id ?? ""}
+          />
         ) : (
           <p className="rounded-3xl bg-white p-6 text-sm text-slate-500 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:text-neutral-400 dark:ring-white/[0.07]">
             Операций с этим контрагентом пока нет.
