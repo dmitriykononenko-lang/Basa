@@ -29,6 +29,12 @@ export function canEditFinance(role: AppRole): boolean {
   return role === "owner" || role === "admin" || role === "manager";
 }
 
+// Кто видит финансовые показатели проекта (выручка/затраты/прибыль/операции).
+// Сейчас совпадает с правом редактирования финансов, но смысл отдельный.
+export function canViewFinance(role: AppRole): boolean {
+  return role === "owner" || role === "admin" || role === "manager";
+}
+
 export function canWriteTx(role: AppRole): boolean {
   return canEditFinance(role) || role === "employee";
 }

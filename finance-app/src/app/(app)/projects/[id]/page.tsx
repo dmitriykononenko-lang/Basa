@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentTeam, canEditFinance } from "@/lib/team";
+import { getCurrentTeam, canEditFinance, canViewFinance } from "@/lib/team";
 import { formatMoney, formatDate } from "@/lib/format";
 import { buildRateMap, toBase } from "@/lib/fx";
 import EditProjectForm from "@/components/EditProjectForm";
@@ -43,16 +43,9 @@ export default async function ProjectPage({
   const responsibleName =
     (employees ?? []).find((e) => e.id === project.responsible_counterparty_id)?.name ?? null;
   const manage = canEditFinance(role);
+  const showFinance = canViewFinance(role);
 
-  const [{ data: txs }, { data: obls }, { data: fxRows }] = await Promise.all([
-    supabase
-      .from("transactions")
-      .select("id, type, amount, currency, occurred_on, category:categories(name), counterparty:counterparties(name)")
-      .eq("team_id", team.id)
-      .eq("project_id", id)
-      .eq("status", "actual")
-      .order("occurred_on", { ascending: false })
-      .limit(100),
+  const [{ data: obls }, { data: fxRows }] = await Promise.all([
     supabase
       .from("obligation_balances")
       .select("type, amount, outstanding, currency, pay_part, counterparty:counterparties(name)")
@@ -60,6 +53,19 @@ export default async function ProjectPage({
       .eq("project_id", id),
     supabase.from("fx_rates").select("currency, rate, rate_date").eq("team_id", team.id),
   ]);
+
+  // Транзакции проекта (выручка/затраты/операции) выбираем только для финансовых ролей —
+  // аналитику (employee) эти суммы не уходят в браузер.
+  const { data: txs } = showFinance
+    ? await supabase
+        .from("transactions")
+        .select("id, type, amount, currency, occurred_on, category:categories(name), counterparty:counterparties(name)")
+        .eq("team_id", team.id)
+        .eq("project_id", id)
+        .eq("status", "actual")
+        .order("occurred_on", { ascending: false })
+        .limit(100)
+    : { data: [] as unknown[] };
 
   const rates = buildRateMap(fxRows ?? [], base);
   const rows = (txs ?? []) as unknown as {
@@ -149,7 +155,7 @@ export default async function ProjectPage({
             {project.name}
           </h1>
           <p className="text-sm text-slate-500 dark:text-neutral-400">
-            Финансы и маржинальность проекта
+            {showFinance ? "Финансы и маржинальность проекта" : "Сроки и мотивация по проекту"}
             {responsibleName && <> · ответственный: <b>{responsibleName}</b></>}
           </p>
         </div>
@@ -170,12 +176,14 @@ export default async function ProjectPage({
         )}
       </header>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Stat title="Выручка" value={formatMoney(revenue, base)} accent="emerald" />
-        <Stat title="Затраты" value={formatMoney(costs, base)} accent="red" />
-        <Stat title="Прибыль" value={formatMoney(profit, base)} accent={profit < 0 ? "red" : "emerald"} />
-        <Stat title="Маржинальность" value={`${margin.toFixed(1)}%`} accent={margin < 0 ? "red" : "brand"} />
-      </div>
+      {showFinance && (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Stat title="Выручка" value={formatMoney(revenue, base)} accent="emerald" />
+          <Stat title="Затраты" value={formatMoney(costs, base)} accent="red" />
+          <Stat title="Прибыль" value={formatMoney(profit, base)} accent={profit < 0 ? "red" : "emerald"} />
+          <Stat title="Маржинальность" value={`${margin.toFixed(1)}%`} accent={margin < 0 ? "red" : "brand"} />
+        </div>
+      )}
 
       {(receivable > 0 || payable > 0 || laborAccrued > 0) && (
         <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -230,6 +238,7 @@ export default async function ProjectPage({
         </p>
       </section>
 
+      {showFinance && (
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Структура затрат */}
         <section className="rounded-3xl bg-white p-6 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
@@ -300,6 +309,7 @@ export default async function ProjectPage({
           )}
         </section>
       </div>
+      )}
     </div>
   );
 }
