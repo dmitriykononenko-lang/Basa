@@ -31,9 +31,19 @@ export default async function TeamPage() {
 
   const { data: members } = await supabase
     .from("team_members")
-    .select("user_id, role, created_at, profiles(full_name)")
+    .select("user_id, role, created_at")
     .eq("team_id", team.id)
     .order("created_at", { ascending: true });
+
+  // Имена берём отдельным запросом: между team_members и profiles нет внешнего
+  // ключа, поэтому встраивание profiles(...) через PostgREST не работает.
+  const memberIds = (members ?? []).map((m) => m.user_id);
+  const { data: profilesData } = memberIds.length
+    ? await supabase.from("profiles").select("id, full_name").in("id", memberIds)
+    : { data: [] as { id: string; full_name: string | null }[] };
+  const nameById = new Map(
+    (profilesData ?? []).map((p) => [p.id, p.full_name])
+  );
 
   const { data: invites } = manage
     ? await supabase
@@ -83,9 +93,7 @@ export default async function TeamPage() {
           </thead>
           <tbody>
             {(members ?? []).map((m) => {
-              const profile = m.profiles as unknown as {
-                full_name: string | null;
-              } | null;
+              const fullName = nameById.get(m.user_id) ?? null;
               const isSelf = m.user_id === user?.id;
               return (
                 <tr
@@ -93,7 +101,7 @@ export default async function TeamPage() {
                   className="border-b border-slate-50 last:border-0 dark:border-white/[0.05]"
                 >
                   <td className="px-5 py-3 font-medium text-slate-800 dark:text-neutral-200">
-                    {profile?.full_name ?? "—"}
+                    {fullName ?? "—"}
                     {isSelf && (
                       <span className="ml-2 text-xs text-slate-400">(вы)</span>
                     )}
