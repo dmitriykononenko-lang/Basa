@@ -32,7 +32,7 @@ export default async function ImportPage() {
   const { data: { user } } = await supabase.auth.getUser();
 
   const [{ data: accounts }, { data: categories }, { data: counterparties }, { data: projects }, { data: batches }, { data: rules }] = await Promise.all([
-    supabase.from("accounts").select("id, name, currency").eq("team_id", team.id).eq("archived", false).order("created_at"),
+    supabase.from("accounts").select("id, name, currency, number").eq("team_id", team.id).eq("archived", false).order("created_at"),
     supabase.from("categories").select("id, name, kind").eq("team_id", team.id).eq("archived", false).order("name"),
     supabase.from("counterparties").select("id, name, inn").eq("team_id", team.id).eq("archived", false).order("name"),
     supabase.from("projects").select("id, name").eq("team_id", team.id).eq("archived", false).order("name"),

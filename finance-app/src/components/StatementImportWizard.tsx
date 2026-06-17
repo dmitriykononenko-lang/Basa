@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { formatMoney } from "@/lib/format";
 
-type Account = { id: string; name: string; currency: string };
+type Account = { id: string; name: string; currency: string; number?: string | null };
 type Counterparty = { id: string; name: string; inn: string | null };
 
 type Rec = {
@@ -76,7 +76,12 @@ export default function StatementImportWizard({
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
 
-  const acctByName = new Map(accounts.map((a) => [a.name.trim(), a]));
+  // сопоставление по номеру счёта (приоритет), с откатом на имя
+  const acctIndex = new Map<string, Account>();
+  for (const a of accounts) {
+    acctIndex.set(a.name.trim(), a);
+    if (a.number) acctIndex.set(a.number.trim(), a);
+  }
 
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     setError(null);
@@ -119,7 +124,7 @@ export default function StatementImportWizard({
         const type: "income" | "expense" | null =
           dir.startsWith("списан") ? "expense" : dir.startsWith("поступ") ? "income" : null;
         if (!type) { bad++; continue; }
-        if (!acctByName.has(accountNum)) missing.add(accountNum);
+        if (!acctIndex.has(accountNum)) missing.add(accountNum);
         const optype = norm(ci.optype >= 0 ? c[ci.optype] ?? "" : "");
         const internal = optype.includes("перевод");
         const cpName = (ci.cp >= 0 ? c[ci.cp] ?? "" : "").trim();
@@ -154,15 +159,18 @@ export default function StatementImportWizard({
     setResult(null);
     const supabase = createClient();
     try {
-      // 1) Создаём недостающие счета (номер = имя), RUB
-      const nameToId = new Map(acctByName);
+      // 1) Создаём недостающие счета (имя = номер = номер счёта), RUB
+      const nameToId = new Map(acctIndex);
       if (missingAccts.length > 0) {
         const { data: created, error: e1 } = await supabase
           .from("accounts")
-          .insert(missingAccts.map((n) => ({ team_id: teamId, name: n, currency: "RUB", kind: "bank" })))
-          .select("id, name, currency");
+          .insert(missingAccts.map((n) => ({ team_id: teamId, name: n, number: n, currency: "RUB", kind: "bank" })))
+          .select("id, name, currency, number");
         if (e1) throw e1;
-        for (const a of created ?? []) nameToId.set(a.name.trim(), a as Account);
+        for (const a of created ?? []) {
+          nameToId.set(a.name.trim(), a as Account);
+          if (a.number) nameToId.set(String(a.number).trim(), a as Account);
+        }
       }
 
       // 2) Контрагенты: сматчить с существующими (по ИНН, затем имени), недостающих создать.
