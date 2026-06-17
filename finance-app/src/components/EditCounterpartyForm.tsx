@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { COUNTERPARTY_KINDS } from "@/lib/constants";
+import DeleteCounterpartyButton from "@/components/DeleteCounterpartyButton";
 
 export type CounterpartyEdit = {
   id: string;
@@ -115,9 +116,10 @@ export default function EditCounterpartyForm({ initial, agents = [] }: { initial
         <div className="sm:col-span-2"><F label="Заметка"><input value={c.note} onChange={(e) => upd("note", e.target.value)} className="input" /></F></div>
       </div>
       {error && <p className="text-sm text-red-600">{error}</p>}
-      <div className="flex gap-2">
+      <div className="flex items-center gap-2">
         <button onClick={save} disabled={busy} className="btn-primary">{busy ? "…" : "Сохранить"}</button>
         <button onClick={() => setOpen(false)} className="btn-ghost">Отмена</button>
+        <span className="ml-auto"><DeleteCounterpartyButton id={c.id} name={c.name} /></span>
       </div>
     </div>
   );

@@ -10,7 +10,6 @@ import AgentCommissionRules, { type Rule } from "@/components/AgentCommissionRul
 import AgentPayouts, { type Payout } from "@/components/AgentPayouts";
 import OperationsTable from "@/components/OperationsTable";
 import type { TxData } from "@/components/EditableTransactionRow";
-import DeleteCounterpartyButton from "@/components/DeleteCounterpartyButton";
 
 export default async function CounterpartyPage({
   params,
@@ -166,7 +165,6 @@ export default async function CounterpartyPage({
           {cp.contract_number && <> · договор № {cp.contract_number}{cp.contract_date && ` от ${formatDate(cp.contract_date)}`}</>}
         </p>
         </div>
-        {manage && <DeleteCounterpartyButton id={cp.id} name={cp.name} />}
       </header>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">

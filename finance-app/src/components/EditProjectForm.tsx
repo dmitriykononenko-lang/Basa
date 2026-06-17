@@ -7,6 +7,7 @@ import { parseMoney } from "@/lib/format";
 import { CURRENCIES } from "@/lib/constants";
 import Combobox from "@/components/Combobox";
 import { addBusinessDays } from "@/lib/workdays";
+import DeleteProjectButton from "@/components/DeleteProjectButton";
 
 const STATUSES: { value: string; label: string }[] = [
   { value: "active", label: "Активный" },
@@ -144,9 +145,10 @@ export default function EditProjectForm({
       <p className="text-[11px] text-slate-400 dark:text-neutral-600">
         При статусе «Сдан» аналитику автоматически начисляется бонус за сдачу (с учётом просрочки по ступеням мотивации).
       </p>
-      <div className="flex gap-2">
+      <div className="flex items-center gap-2">
         <button type="submit" disabled={loading} className="btn-primary">{loading ? "…" : "Сохранить"}</button>
         <button type="button" onClick={() => setOpen(false)} className="btn-ghost">Отмена</button>
+        <span className="ml-auto"><DeleteProjectButton id={projectId} name={name} /></span>
       </div>
       {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950/40">{error}</p>}
     </form>
