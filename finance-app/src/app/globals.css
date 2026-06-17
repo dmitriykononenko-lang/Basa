@@ -165,9 +165,16 @@ button:focus-visible, a:focus-visible {
 
 /* ---------- Печатная форма (Сохранить в PDF) ---------- */
 @media print {
+  html, body { height: auto !important; overflow: visible !important; background: #fff !important; }
   body * { visibility: hidden !important; }
+  .no-print { display: none !important; }
   .print-area, .print-area * { visibility: visible !important; }
   .print-area { position: absolute; left: 0; top: 0; width: 100%; padding: 0; margin: 0; }
-  .no-print { display: none !important; }
-  body { background: #fff !important; }
+  /* снять обрезку/фиксированную высоту у оболочки приложения, иначе печать режется */
+  .surface, .surface > div, main, main > div, aside {
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+    position: static !important;
+  }
 }
