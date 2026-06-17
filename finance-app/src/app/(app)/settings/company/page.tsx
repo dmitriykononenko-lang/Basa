@@ -24,7 +24,7 @@ export default async function CompanyPage() {
     .from("teams")
     .select("id, name, base_currency, legal_name, inn, kpp, ogrn, address")
     .eq("id", team.id)
-    .single();
+    .maybeSingle();
 
   return (
     <div className="p-6 sm:p-8">

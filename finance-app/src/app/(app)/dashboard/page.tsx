@@ -90,7 +90,7 @@ export default async function DashboardPage() {
     supabase.from("fx_rates").select("currency, rate, rate_date").eq("team_id", team.id),
     team.base_currency === "RUB" ? fetchCbrRates() : Promise.resolve<CbrRates>({ rates: {}, date: null }),
     supabase.from("obligation_balances").select("outstanding, currency, due_date").eq("team_id", team.id).gt("outstanding", 0).lt("due_date", today),
-    supabase.from("budgets").select("amount, period, period_start, category_id").eq("team_id", team.id),
+    supabase.from("budgets").select("amount, currency, period, period_start, category_id").eq("team_id", team.id),
     supabase.from("transactions").select("category_id, amount, currency, occurred_on").eq("team_id", team.id).eq("type", "expense").eq("status", "actual").gte("occurred_on", yearStart),
     supabase.from("transactions").select("type, amount, currency, occurred_on").eq("team_id", team.id).eq("status", "actual").gte("occurred_on", sixStart),
     supabase.from("transactions").select("type, amount, currency, occurred_on, account_id, transfer_account_id").eq("team_id", team.id).eq("status", "planned").gte("occurred_on", today),
@@ -173,7 +173,7 @@ export default async function DashboardPage() {
         spent += toBase(t.amount, t.currency, rates);
       }
     }
-    if (spent > b.amount) overBudgets++;
+    if (spent > toBase(b.amount, b.currency, rates)) overBudgets++;
   }
 
   // ── Динамика остатка на счетах: факт + прогноз кассового разрыва ──

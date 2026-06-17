@@ -37,7 +37,7 @@ export default async function AppLayout({
     .from("profiles")
     .select("full_name")
     .eq("id", user.id)
-    .single();
+    .maybeSingle();
 
   const displayName = profile?.full_name ?? user.email ?? "Пользователь";
 

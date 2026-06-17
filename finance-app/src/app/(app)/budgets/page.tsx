@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import { formatMoney } from "@/lib/format";
+import { buildRateMap, toBase } from "@/lib/fx";
 import AddBudgetForm from "@/components/AddBudgetForm";
 
 const PERIOD_LABELS: Record<string, string> = {
@@ -40,7 +41,7 @@ export default async function BudgetsPage() {
     .toISOString()
     .slice(0, 10);
 
-  const [{ data: budgets }, { data: expenses }, { data: categories }] =
+  const [{ data: budgets }, { data: expenses }, { data: categories }, { data: fxRows }] =
     await Promise.all([
       supabase
         .from("budgets")
@@ -49,7 +50,7 @@ export default async function BudgetsPage() {
         .order("created_at", { ascending: false }),
       supabase
         .from("transactions")
-        .select("category_id, amount, occurred_on")
+        .select("category_id, amount, currency, occurred_on")
         .eq("team_id", team.id)
         .eq("type", "expense")
         .eq("status", "actual")
@@ -61,7 +62,14 @@ export default async function BudgetsPage() {
         .eq("kind", "expense")
         .eq("archived", false)
         .order("name"),
+      supabase
+        .from("fx_rates")
+        .select("currency, rate, rate_date")
+        .eq("team_id", team.id),
     ]);
+
+  // Курсы для приведения сумм в основную валюту команды
+  const rates = buildRateMap(fxRows ?? [], cur);
 
   type Budget = {
     id: string;
@@ -93,12 +101,14 @@ export default async function BudgetsPage() {
         t.occurred_on >= start &&
         t.occurred_on < end
       ) {
-        spent += t.amount;
+        spent += toBase(t.amount, t.currency, rates);
       }
     }
-    const pct = b.amount > 0 ? Math.min((spent / b.amount) * 100, 100) : 0;
-    const over = spent > b.amount;
-    return { ...b, spent, pct, over };
+    // Лимит приводим к базовой валюте, чтобы сравнение и прогресс были в одних единицах
+    const limit = toBase(b.amount, b.currency, rates);
+    const pct = limit > 0 ? Math.min((spent / limit) * 100, 100) : 0;
+    const over = spent > limit;
+    return { ...b, spent, limit, pct, over };
   });
 
   return (
@@ -162,7 +172,7 @@ export default async function BudgetsPage() {
                   {formatMoney(b.spent, cur)}
                 </span>
                 <span className="text-slate-400 dark:text-neutral-500">
-                  из {formatMoney(b.amount, b.currency)}
+                  из {formatMoney(b.limit, cur)}
                 </span>
               </div>
             </div>

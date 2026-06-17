@@ -27,7 +27,10 @@ export function parseMoney(input: string, minorUnit = 2): number {
 }
 
 export function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("ru-RU", {
+  // Дату-только («2026-03-01») парсим в локальной зоне, иначе в браузерах западнее UTC
+  // дата съезжает на день назад (UTC-полночь → предыдущие сутки локально).
+  const s = iso.length === 10 ? `${iso}T00:00:00` : iso;
+  return new Date(s).toLocaleDateString("ru-RU", {
     day: "2-digit",
     month: "short",
     year: "numeric",

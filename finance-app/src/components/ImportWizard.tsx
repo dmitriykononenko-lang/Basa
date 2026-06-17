@@ -34,7 +34,7 @@ type Resolved = {
   categoryName: string;
 };
 
-type ExistingTx = { id: string; account_id: string | null; occurred_on: string; amount: number; type: string };
+type ExistingTx = { id: string; account_id: string | null; occurred_on: string; amount: number; currency: string; type: string };
 
 const FIELD_LABELS: Record<FieldKey, string> = {
   date: "Дата *", amount: "Сумма *", amountIn: "Приход (сумма)", amountOut: "Расход (сумма)",
@@ -201,7 +201,7 @@ export default function ImportWizard({
         const hi = new Date(new Date(maxDate).getTime() + 3 * 86400000).toISOString().slice(0, 10);
         const { data } = await supabase
           .from("transactions")
-          .select("id, account_id, occurred_on, amount, type")
+          .select("id, account_id, occurred_on, amount, currency, type")
           .eq("team_id", teamId)
           .gte("occurred_on", lo).lte("occurred_on", hi);
         ex = (data ?? []) as ExistingTx[];
@@ -256,7 +256,7 @@ export default function ImportWizard({
       if (mergeTransfers) {
         const match = existing.find((e) =>
           !usedReconcile.has(e.id) && e.account_id && e.account_id !== account.id &&
-          e.amount === ta.amount && daysBetween(e.occurred_on, date) <= 3 &&
+          e.amount === ta.amount && e.currency === cur && daysBetween(e.occurred_on, date) <= 3 &&
           ((ta.type === "expense" && e.type === "income") || (ta.type === "income" && e.type === "expense"))
         );
         if (match) {
@@ -274,10 +274,10 @@ export default function ImportWizard({
       }
 
       // 3) Дубликаты
-      const key = `${account.id}|${date}|${ta.amount}|${ta.type}`;
+      const key = `${account.id}|${date}|${ta.amount}|${cur}|${ta.type}`;
       const inFile = fileKeys.has(key);
       fileKeys.add(key);
-      const inDb = existing.some((e) => e.account_id === account.id && e.occurred_on === date && e.amount === ta.amount && e.type === ta.type);
+      const inDb = existing.some((e) => e.account_id === account.id && e.occurred_on === date && e.amount === ta.amount && e.currency === cur && e.type === ta.type);
       const catLabel = mapping.category >= 0 ? (r[mapping.category] ?? "") : "";
       if (inFile || inDb) {
         out.push({ line, status: "dup", reason: inFile ? "дубль в файле" : "уже есть в базе", date,
