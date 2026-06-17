@@ -56,7 +56,7 @@ export default async function ProjectsPage() {
         )}
       </header>
 
-      <ProjectsView projects={projects} today={today} employees={employees ?? []} canEdit={canEditFinance(role)} />
+      <ProjectsView projects={projects} today={today} employees={employees ?? []} />
     </div>
   );
 }

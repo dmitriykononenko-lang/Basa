@@ -11,10 +11,11 @@ export default async function AgentReportPage({
   params, searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ from?: string; to?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; act?: string }>;
 }) {
   const { id } = await params;
-  const { from, to } = await searchParams;
+  const { from, to, act: actParam } = await searchParams;
+  const act = actParam === "1";
   const current = await getCurrentTeam();
   if (!current) notFound();
   const { team } = current;
@@ -39,35 +40,62 @@ export default async function AgentReportPage({
   const oblMap = new Map(commRows.map((o) => [o.id, o]));
   const oblIds = commRows.map((o) => o.id);
 
+  // Выплаты за период (для отчёта)
   let payQ = supabase.from("obligation_payments").select("obligation_id, amount, paid_on");
   if (oblIds.length) payQ = payQ.in("obligation_id", oblIds);
   if (from) payQ = payQ.gte("paid_on", from);
   if (to) payQ = payQ.lte("paid_on", to);
-  const { data: pays } = oblIds.length ? await payQ : { data: [] as { obligation_id: string; amount: number; paid_on: string }[] };
+  const { data: pays } = (!act && oblIds.length) ? await payQ : { data: [] as { obligation_id: string; amount: number; paid_on: string }[] };
 
-  const rows = (pays ?? [])
-    .map((p) => {
-      const o = oblMap.get(p.obligation_id);
-      const base = o?.source?.amount ?? 0;
-      return {
-        client: o?.source?.counterparty?.name ?? "—",
-        category: o?.source?.category?.name ?? "Без статьи",
-        sourceDate: o?.source?.occurred_on ?? null,
-        base, currency: o?.currency ?? team.base_currency,
-        percent: base > 0 ? Math.round(((o?.amount ?? 0) / base) * 1000) / 10 : 0,
-        commission: o?.amount ?? 0,
-        paid: p.amount, paidOn: p.paid_on,
-      };
-    })
-    .sort((a, b) => (a.paidOn < b.paidOn ? 1 : -1));
+  // Всего выплачено по каждому обязательству (для акта — остаток к выплате)
+  const paidByObl = new Map<string, number>();
+  if (act && oblIds.length) {
+    const { data: allPays } = await supabase.from("obligation_payments").select("obligation_id, amount").in("obligation_id", oblIds);
+    for (const p of allPays ?? []) paidByObl.set(p.obligation_id, (paidByObl.get(p.obligation_id) ?? 0) + p.amount);
+  }
 
-  const totalPaid = rows.reduce((s, r) => s + r.paid, 0);
+  const rows = act
+    ? commRows
+        .map((o) => {
+          const base = o.source?.amount ?? 0;
+          const outstanding = o.amount - (paidByObl.get(o.id) ?? 0);
+          return {
+            client: o.source?.counterparty?.name ?? "—",
+            category: o.source?.category?.name ?? "Без статьи",
+            sourceDate: o.source?.occurred_on ?? null,
+            base, currency: o.currency ?? team.base_currency,
+            percent: base > 0 ? Math.round((o.amount / base) * 1000) / 10 : 0,
+            value: outstanding, paidOn: null as string | null,
+          };
+        })
+        .filter((r) => r.value > 0)
+        .sort((a, b) => ((a.sourceDate ?? "") < (b.sourceDate ?? "") ? 1 : -1))
+    : (pays ?? [])
+        .map((p) => {
+          const o = oblMap.get(p.obligation_id);
+          const base = o?.source?.amount ?? 0;
+          return {
+            client: o?.source?.counterparty?.name ?? "—",
+            category: o?.source?.category?.name ?? "Без статьи",
+            sourceDate: o?.source?.occurred_on ?? null,
+            base, currency: o?.currency ?? team.base_currency,
+            percent: base > 0 ? Math.round(((o?.amount ?? 0) / base) * 1000) / 10 : 0,
+            value: p.amount, paidOn: p.paid_on as string | null,
+          };
+        })
+        .sort((a, b) => ((a.paidOn ?? "") < (b.paidOn ?? "") ? 1 : -1));
+
+  const totalPaid = rows.reduce((s, r) => s + r.value, 0);
   const cur = rows[0]?.currency ?? team.base_currency;
-  const periodLabel = from || to ? `за период ${from ? formatDate(from) : "…"} — ${to ? formatDate(to) : "…"}` : "за всё время";
+  const valueLabel = act ? "К выплате" : "Выплачено";
+  const docTitle = act ? "Акт на выплату агентского вознаграждения" : "Отчёт по агентским выплатам";
+  const periodLabel = act
+    ? "невыплаченное вознаграждение на сегодня"
+    : (from || to ? `за период ${from ? formatDate(from) : "…"} — ${to ? formatDate(to) : "…"}` : "за всё время");
 
   // Разбивка по статьям
   const byCat = new Map<string, number>();
-  for (const r of rows) byCat.set(r.category, (byCat.get(r.category) ?? 0) + r.paid);
+  for (const r of rows) byCat.set(r.category, (byCat.get(r.category) ?? 0) + r.value);
   const catRows = [...byCat.entries()].sort((a, b) => b[1] - a[1]);
 
   // Пресеты периода
@@ -87,6 +115,11 @@ export default async function AgentReportPage({
         <Link href={`/counterparties/${id}`} className="text-sm text-slate-400 hover:text-brand">← Агент</Link>
         <div className="flex flex-wrap items-center gap-2">
           <div className="inline-flex gap-1 rounded-full bg-slate-100 p-1 text-xs dark:bg-neutral-800">
+            <Link href={`/agents/${id}/report`} className={`rounded-full px-3 py-1 font-medium transition ${!act ? "bg-white text-brand shadow-sm dark:bg-neutral-700 dark:text-white" : "text-slate-500 hover:text-slate-700 dark:text-neutral-400"}`}>Отчёт</Link>
+            <Link href={`/agents/${id}/report?act=1`} className={`rounded-full px-3 py-1 font-medium transition ${act ? "bg-white text-brand shadow-sm dark:bg-neutral-700 dark:text-white" : "text-slate-500 hover:text-slate-700 dark:text-neutral-400"}`}>Акт к выплате</Link>
+          </div>
+          {!act && (
+          <div className="inline-flex gap-1 rounded-full bg-slate-100 p-1 text-xs dark:bg-neutral-800">
             {presets.map((p) => {
               const href = p.from ? `/agents/${id}/report?from=${p.from}&to=${p.to}` : `/agents/${id}/report`;
               return (
@@ -97,6 +130,7 @@ export default async function AgentReportPage({
               );
             })}
           </div>
+          )}
           <PrintButton />
         </div>
       </div>
@@ -104,7 +138,7 @@ export default async function AgentReportPage({
       <div className="print-area mx-auto max-w-3xl rounded-2xl bg-white p-8 text-slate-900 ring-1 ring-slate-200 print:rounded-none print:ring-0">
         <div className="mb-6 border-b border-slate-200 pb-4">
           <div className="text-xs uppercase tracking-wider text-slate-400">{team.name}</div>
-          <h1 className="mt-1 text-2xl font-bold">Отчёт по агентским выплатам</h1>
+          <h1 className="mt-1 text-2xl font-bold">{docTitle}</h1>
           <div className="mt-2 text-sm text-slate-600">
             Агент: <b>{agent.payee_name || agent.name}</b>
             {agent.inn && <> · ИНН {agent.inn}</>}
@@ -124,7 +158,7 @@ export default async function AgentReportPage({
                   <th className="py-2 pr-2">Приход</th>
                   <th className="py-2 pr-2 text-right">База</th>
                   <th className="py-2 pr-2 text-right">%</th>
-                  <th className="py-2 text-right">Выплачено</th>
+                  <th className="py-2 text-right">{valueLabel}</th>
                 </tr>
               </thead>
               <tbody>
@@ -136,13 +170,13 @@ export default async function AgentReportPage({
                     <td className="py-2 pr-2 text-slate-500">{r.sourceDate ? formatDate(r.sourceDate) : "—"}</td>
                     <td className="py-2 pr-2 text-right text-slate-500">{formatMoney(r.base, r.currency)}</td>
                     <td className="py-2 pr-2 text-right text-slate-500">{r.percent}%</td>
-                    <td className="py-2 text-right font-semibold">{formatMoney(r.paid, r.currency)} <span className="text-xs font-normal text-slate-400">({formatDate(r.paidOn)})</span></td>
+                    <td className="py-2 text-right font-semibold">{formatMoney(r.value, r.currency)}{r.paidOn && <span className="text-xs font-normal text-slate-400"> ({formatDate(r.paidOn)})</span>}</td>
                   </tr>
                 ))}
               </tbody>
               <tfoot>
                 <tr className="border-t-2 border-slate-300">
-                  <td colSpan={6} className="py-3 text-right font-bold">Итого выплачено:</td>
+                  <td colSpan={6} className="py-3 text-right font-bold">Итого {valueLabel.toLowerCase()}:</td>
                   <td className="py-3 text-right text-base font-bold">{formatMoney(totalPaid, cur)}</td>
                 </tr>
               </tfoot>

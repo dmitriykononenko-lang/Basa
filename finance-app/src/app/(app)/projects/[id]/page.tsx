@@ -5,6 +5,7 @@ import { getCurrentTeam, canEditFinance, canViewFinance } from "@/lib/team";
 import { formatMoney, formatDate } from "@/lib/format";
 import { buildRateMap, toBase } from "@/lib/fx";
 import EditProjectForm from "@/components/EditProjectForm";
+import DeleteProjectButton from "@/components/DeleteProjectButton";
 import { effectiveDue, businessDaysBetween, workdaysLabel } from "@/lib/workdays";
 
 export default async function ProjectPage({
@@ -160,19 +161,22 @@ export default async function ProjectPage({
           </p>
         </div>
         {manage && (
-          <EditProjectForm
-            projectId={project.id}
-            name={project.name}
-            status={project.status}
-            responsibleId={project.responsible_counterparty_id}
-            employees={employees ?? []}
-            startDate={project.start_date}
-            planWorkDays={project.plan_work_days}
-            dueDate={project.due_date}
-            completedOn={project.completed_on}
-            bonusAmount={project.bonus_amount}
-            bonusCurrency={project.bonus_currency}
-          />
+          <div className="flex items-center gap-2">
+            <EditProjectForm
+              projectId={project.id}
+              name={project.name}
+              status={project.status}
+              responsibleId={project.responsible_counterparty_id}
+              employees={employees ?? []}
+              startDate={project.start_date}
+              planWorkDays={project.plan_work_days}
+              dueDate={project.due_date}
+              completedOn={project.completed_on}
+              bonusAmount={project.bonus_amount}
+              bonusCurrency={project.bonus_currency}
+            />
+            <DeleteProjectButton id={project.id} name={project.name} />
+          </div>
         )}
       </header>
 

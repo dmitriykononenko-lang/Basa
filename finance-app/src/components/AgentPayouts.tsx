@@ -75,6 +75,9 @@ export default function AgentPayouts({
           <Link href={`/agents/${agentId}/report`} className="rounded-full bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-200 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700">
             Отчёт (PDF)
           </Link>
+          <Link href={`/agents/${agentId}/report?act=1`} className="rounded-full bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-200 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700">
+            Акт к выплате
+          </Link>
           {totalOut > 0 && (
             <button onClick={payAll} disabled={busy} className="rounded-full bg-brand px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50">
               {busy ? "Выплачиваем…" : `Выплатить всё · ${formatMoney(totalOut, mainCur)}`}

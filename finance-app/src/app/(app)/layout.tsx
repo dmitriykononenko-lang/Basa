@@ -105,7 +105,7 @@ export default async function AppLayout({
             </div>
           </aside>
 
-          <main className="flex-1 p-2 sm:p-3">
+          <main className="min-w-0 flex-1 p-2 sm:p-3">
             <div className="h-full overflow-y-auto rounded-3xl bg-slate-50 dark:bg-neutral-950/40">
               {children}
             </div>
