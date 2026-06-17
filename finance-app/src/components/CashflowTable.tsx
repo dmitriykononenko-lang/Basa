@@ -79,7 +79,7 @@ export default function CashflowTable({
       {drill && (
         <DrilldownModal
           open onClose={() => setDrill(null)} title={drill.title} filter={drill.filter}
-          teamId={teamId} userId={userId} canEdit={canEdit}
+          teamId={teamId} userId={userId} canEdit={canEdit} base={base}
         />
       )}
     </>

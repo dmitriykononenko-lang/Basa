@@ -8,6 +8,7 @@ import { toast } from "@/lib/toast";
 import Combobox, { type ComboOption } from "@/components/Combobox";
 import EditableTransactionRow, { type TxData } from "@/components/EditableTransactionRow";
 import type { Attachment } from "@/components/Attachments";
+import type { RateMap } from "@/lib/fx";
 
 function daysApart(a: string, b: string) {
   return Math.abs((new Date(a).getTime() - new Date(b).getTime()) / 86400000);
@@ -26,6 +27,8 @@ export default function OperationsTable({
   projects,
   teamId,
   userId,
+  displayBase,
+  rates,
 }: {
   items: Item[];
   accounts: Account[];
@@ -34,6 +37,9 @@ export default function OperationsTable({
   projects: Named[];
   teamId: string;
   userId: string;
+  // Показывать суммы в иной валюте в базовой (единообразие, напр. в drilldown ДДС).
+  displayBase?: string;
+  rates?: RateMap;
 }) {
   const router = useRouter();
   const [sel, setSel] = useState<Set<string>>(new Set());
@@ -320,6 +326,8 @@ export default function OperationsTable({
                     projects={projects}
                     selected={sel.has(it.tx.id)}
                     onToggle={it.editable ? () => toggle(it.tx.id) : undefined}
+                    displayBase={displayBase}
+                    rates={rates}
                   />
                 ))}
               </Fragment>

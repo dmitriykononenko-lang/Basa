@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import OperationsTable from "@/components/OperationsTable";
 import Modal from "@/components/Modal";
 import type { TxData } from "@/components/EditableTransactionRow";
+import { buildRateMap, type RateMap } from "@/lib/fx";
 
 export type DrillFilter = {
   dateFrom?: string;
@@ -38,7 +39,7 @@ const SELECT =
    category:categories(name), counterparty:counterparties(name), project:projects(name)`;
 
 export default function DrilldownModal({
-  open, onClose, title, filter, teamId, userId, canEdit,
+  open, onClose, title, filter, teamId, userId, canEdit, base,
 }: {
   open: boolean;
   onClose: () => void;
@@ -47,9 +48,12 @@ export default function DrilldownModal({
   teamId: string;
   userId: string;
   canEdit: boolean;
+  // Базовая валюта команды — суммы в иной валюте показываем в ней (единообразие с ДДС).
+  base?: string;
 }) {
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<{ tx: TxData; editable: boolean; attachments: [] }[]>([]);
+  const [rates, setRates] = useState<RateMap>({});
   const [refs, setRefs] = useState<{ accounts: Account[]; categories: Category[]; counterparties: Named[]; projects: Named[] }>({
     accounts: [], categories: [], counterparties: [], projects: [],
   });
@@ -71,14 +75,16 @@ export default function DrilldownModal({
       if (filter.status) q = q.eq("status", filter.status);
       q = q.order("occurred_on", { ascending: false }).limit(300);
 
-      const [{ data: txs }, { data: accounts }, { data: categories }, { data: counterparties }, { data: projects }] = await Promise.all([
+      const [{ data: txs }, { data: accounts }, { data: categories }, { data: counterparties }, { data: projects }, { data: fxRows }] = await Promise.all([
         q,
         supabase.from("accounts").select("id, name, currency").eq("team_id", teamId).eq("archived", false).order("created_at"),
         supabase.from("categories").select("id, name, kind").eq("team_id", teamId).eq("archived", false).order("name"),
         supabase.from("counterparties").select("id, name, inn").eq("team_id", teamId).eq("archived", false).order("name"),
         supabase.from("projects").select("id, name").eq("team_id", teamId).eq("archived", false).order("name"),
+        supabase.from("fx_rates").select("currency, rate, rate_date").eq("team_id", teamId),
       ]);
       if (cancelled) return;
+      setRates(buildRateMap((fxRows ?? []) as { currency: string; rate: number; rate_date: string }[], base ?? ""));
       const rows = (txs ?? []) as unknown as TxRow[];
       setItems(rows.map((t) => ({
         editable: canEdit,
@@ -118,6 +124,8 @@ export default function DrilldownModal({
           projects={refs.projects}
           teamId={teamId}
           userId={userId}
+          displayBase={base}
+          rates={rates}
         />
       ) : (
         <p className="py-10 text-center text-sm text-slate-400">Операций нет.</p>

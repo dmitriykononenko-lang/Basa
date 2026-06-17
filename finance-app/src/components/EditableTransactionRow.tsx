@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { formatMoney, formatDate, parseMoney } from "@/lib/format";
+import { toBase, type RateMap } from "@/lib/fx";
 import { toast } from "@/lib/toast";
 import Attachments, { type Attachment } from "@/components/Attachments";
 import Combobox, { type ComboOption } from "@/components/Combobox";
@@ -46,6 +47,8 @@ export default function EditableTransactionRow({
   projects,
   selected = false,
   onToggle,
+  displayBase,
+  rates,
 }: {
   tx: TxData;
   editable: boolean;
@@ -58,6 +61,9 @@ export default function EditableTransactionRow({
   projects: Named[];
   selected?: boolean;
   onToggle?: () => void;
+  // Когда заданы — суммы в иной валюте показываются в базовой (для единообразия, напр. в drilldown ДДС).
+  displayBase?: string;
+  rates?: RateMap;
 }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
@@ -143,6 +149,10 @@ export default function EditableTransactionRow({
     router.refresh();
   }
 
+  const converted =
+    displayBase && rates && tx.currency !== displayBase
+      ? toBase(tx.amount, tx.currency, rates)
+      : null;
   const sign = tx.type === "income" ? "+" : tx.type === "expense" ? "−" : "";
   const amountColor =
     tx.type === "income"
@@ -175,7 +185,16 @@ export default function EditableTransactionRow({
         </td>
         <td className={`whitespace-nowrap px-5 py-3 font-semibold ${amountColor}`}>
           {sign}
-          {formatMoney(tx.amount, tx.currency)}
+          {converted != null ? (
+            <>
+              {formatMoney(converted, displayBase!)}
+              <span className="ml-1 text-[11px] font-normal text-slate-400">
+                ({formatMoney(tx.amount, tx.currency)})
+              </span>
+            </>
+          ) : (
+            formatMoney(tx.amount, tx.currency)
+          )}
         </td>
         <td className="px-5 py-3">
           <div className="font-medium text-slate-800 dark:text-neutral-200">
