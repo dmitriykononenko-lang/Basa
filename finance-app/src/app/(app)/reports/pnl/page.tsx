@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import { formatMoney } from "@/lib/format";
 import { buildRateMap, toBase } from "@/lib/fx";
+import { fetchAllRows } from "@/lib/supabase/paginate";
 import PnlTable from "@/components/PnlTable";
 
 type Tx = {
@@ -63,25 +64,31 @@ export default async function PnlPage({
   const start = periodStart(period);
   const todayStr = new Date().toISOString().slice(0, 10);
 
-  const [{ data: txs }, { data: fxRows }] = await Promise.all([
+  const { data: fxRows } = await supabase.from("fx_rates").select("currency, rate, rate_date").eq("team_id", team.id);
+  const txs = await fetchAllRows((from, to) =>
     supabase
       .from("transactions")
       .select("id, type, amount, currency, occurred_on, accrual_date, project_id, category:categories(id, name, kind, cf_activity, pnl_treatment)")
       .eq("team_id", team.id)
       .eq("status", "actual")
-      .or(`occurred_on.gte.${start},accrual_date.gte.${start}`),
-    supabase.from("fx_rates").select("currency, rate, rate_date").eq("team_id", team.id),
-  ]);
+      .or(`occurred_on.gte.${start},accrual_date.gte.${start}`)
+      .order("occurred_on", { ascending: true })
+      .range(from, to)
+  );
 
   // Метод начисления: расход/доход признаём при начислении (обязательства), а не при оплате.
   // Поэтому: 1) оплаты обязательств исключаем из транзакций ОПиУ; 2) добавляем начисленные обязательства.
-  const [{ data: payRows }, { data: oblRows }] = await Promise.all([
-    supabase.from("obligation_payments").select("transaction_id").not("transaction_id", "is", null),
+  const payRows = await fetchAllRows((from, to) =>
+    supabase.from("obligation_payments").select("transaction_id").not("transaction_id", "is", null).order("transaction_id", { ascending: true }).range(from, to)
+  );
+  const oblRows = await fetchAllRows((from, to) =>
     supabase
       .from("obligations")
       .select("type, amount, currency, period_month, due_date, project_id, category:categories(id, name, cf_activity, pnl_treatment)")
-      .eq("team_id", team.id),
-  ]);
+      .eq("team_id", team.id)
+      .order("id", { ascending: true })
+      .range(from, to)
+  );
   const settledTx = new Set((payRows ?? []).map((p) => p.transaction_id as string));
 
   const rates = buildRateMap(fxRows ?? [], base);

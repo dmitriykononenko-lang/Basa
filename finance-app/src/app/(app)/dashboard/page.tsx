@@ -5,6 +5,7 @@ import { ROLE_LABELS, type AppRole } from "@/lib/types";
 import { formatMoney } from "@/lib/format";
 import { getCurrentTeam } from "@/lib/team";
 import { buildRateMap, toBase } from "@/lib/fx";
+import { fetchAllRows } from "@/lib/supabase/paginate";
 import { fetchCbrRates, type CbrRates } from "@/lib/cbr";
 import AcceptInviteButton from "@/components/AcceptInviteButton";
 import { IconTransactions, IconAccounts, IconReports } from "@/components/icons";
@@ -75,8 +76,6 @@ export default async function DashboardPage() {
     cbr,
     { data: overdue },
     { data: budgets },
-    { data: yearExp },
-    { data: histTx },
     { data: planTx },
     { data: futureObl },
   ] = await Promise.all([
@@ -91,11 +90,17 @@ export default async function DashboardPage() {
     team.base_currency === "RUB" ? fetchCbrRates() : Promise.resolve<CbrRates>({ rates: {}, date: null }),
     supabase.from("obligation_balances").select("outstanding, currency, due_date").eq("team_id", team.id).gt("outstanding", 0).lt("due_date", today),
     supabase.from("budgets").select("amount, currency, period, period_start, category_id").eq("team_id", team.id),
-    supabase.from("transactions").select("category_id, amount, currency, occurred_on").eq("team_id", team.id).eq("type", "expense").eq("status", "actual").gte("occurred_on", yearStart),
-    supabase.from("transactions").select("type, amount, currency, occurred_on").eq("team_id", team.id).eq("status", "actual").gte("occurred_on", sixStart),
     supabase.from("transactions").select("type, amount, currency, occurred_on, account_id, transfer_account_id").eq("team_id", team.id).eq("status", "planned").gte("occurred_on", today),
     supabase.from("obligation_balances").select("outstanding, currency, due_date").eq("team_id", team.id).gt("outstanding", 0).gte("due_date", today),
   ]);
+
+  // Годовые/полугодовые выборки — постранично (операций за период может быть >1000)
+  const yearExp = await fetchAllRows((from, to) =>
+    supabase.from("transactions").select("category_id, amount, currency, occurred_on").eq("team_id", team.id).eq("type", "expense").eq("status", "actual").gte("occurred_on", yearStart).order("occurred_on", { ascending: true }).range(from, to)
+  );
+  const histTx = await fetchAllRows((from, to) =>
+    supabase.from("transactions").select("type, amount, currency, occurred_on").eq("team_id", team.id).eq("status", "actual").gte("occurred_on", sixStart).order("occurred_on", { ascending: true }).range(from, to)
+  );
 
   const invites = (myInvites ?? []) as unknown as InviteRow[];
 

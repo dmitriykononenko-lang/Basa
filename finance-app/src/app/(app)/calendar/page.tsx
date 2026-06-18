@@ -4,6 +4,7 @@ import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import { formatMoney } from "@/lib/format";
 import { buildRateMap, toBase } from "@/lib/fx";
 import { fetchCbrRates } from "@/lib/cbr";
+import { fetchAllRows } from "@/lib/supabase/paginate";
 import CalendarGrid, { type Cell } from "@/components/CalendarGrid";
 
 const MONTHS_RU = [
@@ -50,7 +51,7 @@ export default async function CalendarPage({
 
   const todayStr = now.toISOString().slice(0, 10);
 
-  const [{ data: balances }, { data: obls }, { data: txs }, { data: fxRows }] = await Promise.all([
+  const [{ data: balances }, { data: obls }, { data: fxRows }] = await Promise.all([
     supabase.from("account_balances").select("balance, currency").eq("team_id", team.id),
     supabase
       .from("obligation_balances")
@@ -58,14 +59,18 @@ export default async function CalendarPage({
       .eq("team_id", team.id)
       .gt("outstanding", 0)
       .not("due_date", "is", null),
-    // И плановые, и фактические — чтобы видеть все приходы/выплаты и суммировать их по дням
+    supabase.from("fx_rates").select("currency, rate, rate_date").eq("team_id", team.id),
+  ]);
+  // И плановые, и фактические — постранично (операций может быть >1000)
+  const txs = await fetchAllRows((from, to) =>
     supabase
       .from("transactions")
       .select("type, amount, currency, occurred_on, status, obligation_id")
       .eq("team_id", team.id)
-      .in("status", ["actual", "planned"]),
-    supabase.from("fx_rates").select("currency, rate, rate_date").eq("team_id", team.id),
-  ]);
+      .in("status", ["actual", "planned"])
+      .order("occurred_on", { ascending: true })
+      .range(from, to)
+  );
 
   const rates = buildRateMap(fxRows ?? [], base);
   // Курс ЦБ РФ на сегодня для валют без ручного курса (USD/USDT) — иначе приход в валюте занижается

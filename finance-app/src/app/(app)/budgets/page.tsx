@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import { formatMoney } from "@/lib/format";
 import { buildRateMap, toBase } from "@/lib/fx";
+import { fetchAllRows } from "@/lib/supabase/paginate";
 import AddBudgetForm from "@/components/AddBudgetForm";
 
 const PERIOD_LABELS: Record<string, string> = {
@@ -41,20 +42,13 @@ export default async function BudgetsPage() {
     .toISOString()
     .slice(0, 10);
 
-  const [{ data: budgets }, { data: expenses }, { data: categories }, { data: fxRows }] =
+  const [{ data: budgets }, { data: categories }, { data: fxRows }] =
     await Promise.all([
       supabase
         .from("budgets")
         .select("id, amount, currency, period, period_start, category:categories(name)")
         .eq("team_id", team.id)
         .order("created_at", { ascending: false }),
-      supabase
-        .from("transactions")
-        .select("category_id, amount, currency, occurred_on")
-        .eq("team_id", team.id)
-        .eq("type", "expense")
-        .eq("status", "actual")
-        .gte("occurred_on", yearStart),
       supabase
         .from("categories")
         .select("id, name")
@@ -67,6 +61,18 @@ export default async function BudgetsPage() {
         .select("currency, rate, rate_date")
         .eq("team_id", team.id),
     ]);
+  // Расходы за год — постранично (может быть >1000)
+  const expenses = await fetchAllRows((from, to) =>
+    supabase
+      .from("transactions")
+      .select("category_id, amount, currency, occurred_on")
+      .eq("team_id", team.id)
+      .eq("type", "expense")
+      .eq("status", "actual")
+      .gte("occurred_on", yearStart)
+      .order("occurred_on", { ascending: true })
+      .range(from, to)
+  );
 
   // Курсы для приведения сумм в основную валюту команды
   const rates = buildRateMap(fxRows ?? [], cur);

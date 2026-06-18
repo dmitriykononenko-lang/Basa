@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import { formatMoney } from "@/lib/format";
 import { buildRateMap, toBase, missingRates } from "@/lib/fx";
+import { fetchAllRows } from "@/lib/supabase/paginate";
 import RatesEditor from "@/components/RatesEditor";
 import ExportButton from "@/components/ExportButton";
 
@@ -58,7 +59,8 @@ export default async function ReportsPage({
   const supabase = await createClient();
   const start = periodStart(period);
 
-  const [{ data: txs }, { data: fxRows }] = await Promise.all([
+  const { data: fxRows } = await supabase.from("fx_rates").select("currency, rate, rate_date").eq("team_id", team.id);
+  const txs = await fetchAllRows((from, to) =>
     supabase
       .from("transactions")
       .select(
@@ -71,9 +73,9 @@ export default async function ReportsPage({
       .eq("team_id", team.id)
       .eq("status", "actual")
       .gte("occurred_on", start)
-      .order("occurred_on", { ascending: false }),
-    supabase.from("fx_rates").select("currency, rate, rate_date").eq("team_id", team.id),
-  ]);
+      .order("occurred_on", { ascending: false })
+      .range(from, to)
+  );
 
   const rows = (txs ?? []) as unknown as Tx[];
   const rates = buildRateMap(fxRows ?? [], base);
