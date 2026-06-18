@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam } from "@/lib/team";
 import { formatMoney, formatDate } from "@/lib/format";
+import { rublesInWords } from "@/lib/money-words";
 import PrintButton from "@/components/PrintButton";
 
 const fmt = (d: Date) => d.toISOString().slice(0, 10);
@@ -27,6 +28,12 @@ export default async function AgentReportPage({
     .eq("id", id)
     .maybeSingle();
   if (!agent) notFound();
+
+  // Реквизиты Принципала (наша компания) — для акта
+  const { data: companyRow } = await supabase
+    .from("teams").select("legal_name, inn, kpp, ogrn, address").eq("id", team.id).maybeSingle();
+  const company = (companyRow ?? null) as { legal_name?: string | null; inn?: string | null; kpp?: string | null; ogrn?: string | null; address?: string | null } | null;
+  const principalName = company?.legal_name || team.name;
 
   const { data: comm } = await supabase
     .from("obligations")
@@ -108,6 +115,8 @@ export default async function AgentReportPage({
   ];
   const isActive = (p: { from?: string; to?: string }) => (p.from ?? "") === (from ?? "") && (p.to ?? "") === (to ?? "");
   const isCrypto = agent.payment_method === "crypto";
+  const actDateStr = fmt(new Date());
+  const actNo = `${actDateStr.replace(/-/g, "")}-${id.slice(0, 4).toUpperCase()}`;
 
   return (
     <div className="p-6 sm:p-8">
@@ -136,16 +145,35 @@ export default async function AgentReportPage({
       </div>
 
       <div className="print-area mx-auto max-w-3xl rounded-2xl bg-white p-8 text-slate-900 ring-1 ring-slate-200 print:rounded-none print:ring-0">
-        <div className="mb-6 border-b border-slate-200 pb-4">
-          <div className="text-xs uppercase tracking-wider text-slate-400">{team.name}</div>
-          <h1 className="mt-1 text-2xl font-bold">{docTitle}</h1>
-          <div className="mt-2 text-sm text-slate-600">
-            Агент: <b>{agent.payee_name || agent.name}</b>
-            {agent.inn && <> · ИНН {agent.inn}</>}
-            {agent.contract_number && <> · договор № {agent.contract_number}{agent.contract_date && ` от ${formatDate(agent.contract_date)}`}</>}
+        {act ? (
+          <div className="mb-5">
+            <div className="text-center">
+              <h1 className="text-xl font-bold">АКТ № {actNo}</h1>
+              <div className="text-sm text-slate-600">сдачи-приёмки оказанных услуг (агентское вознаграждение)</div>
+              <div className="mt-1 text-sm text-slate-500">
+                от {formatDate(actDateStr)}
+                {agent.contract_number && <> · к договору № {agent.contract_number}{agent.contract_date && ` от ${formatDate(agent.contract_date)}`}</>}
+              </div>
+            </div>
+            <p className="mt-5 text-sm leading-relaxed text-slate-700">
+              <b>{principalName}</b>{company?.inn && `, ИНН ${company.inn}`}{company?.kpp && `, КПП ${company.kpp}`}{company?.ogrn && `, ОГРН ${company.ogrn}`}{company?.address && `, ${company.address}`}, именуемое в дальнейшем «Принципал», с одной стороны, и <b>{agent.payee_name || agent.name}</b>{agent.inn && `, ИНН ${agent.inn}`}{agent.legal_status && ` (${agent.legal_status})`}, именуемый в дальнейшем «Агент», с другой стороны, составили настоящий акт о нижеследующем:
+            </p>
+            <p className="mt-3 text-sm text-slate-700">
+              1. Агент оказал Принципалу услуги по привлечению клиентов. Услуги оказаны полностью и в срок. Размер агентского вознаграждения, подлежащего выплате Принципалом Агенту:
+            </p>
           </div>
-          <div className="text-sm text-slate-500">{periodLabel}</div>
-        </div>
+        ) : (
+          <div className="mb-6 border-b border-slate-200 pb-4">
+            <div className="text-xs uppercase tracking-wider text-slate-400">{team.name}</div>
+            <h1 className="mt-1 text-2xl font-bold">{docTitle}</h1>
+            <div className="mt-2 text-sm text-slate-600">
+              Агент: <b>{agent.payee_name || agent.name}</b>
+              {agent.inn && <> · ИНН {agent.inn}</>}
+              {agent.contract_number && <> · договор № {agent.contract_number}{agent.contract_date && ` от ${formatDate(agent.contract_date)}`}</>}
+            </div>
+            <div className="text-sm text-slate-500">{periodLabel}</div>
+          </div>
+        )}
 
         {rows.length > 0 ? (
           <>
@@ -182,7 +210,18 @@ export default async function AgentReportPage({
               </tfoot>
             </table>
 
-            {catRows.length > 1 && (
+            {act && (
+              <>
+                <p className="mt-3 text-sm text-slate-700">
+                  Итого к выплате: <b>{formatMoney(totalPaid, cur)}</b> ({rublesInWords(totalPaid, cur)}).
+                </p>
+                <p className="mt-3 text-sm text-slate-700">
+                  2. Услуги оказаны в полном объёме и в установленный срок. Стороны взаимных претензий по объёму, качеству и срокам оказания услуг не имеют.
+                </p>
+              </>
+            )}
+
+            {!act && catRows.length > 1 && (
               <div className="mt-6">
                 <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">По статьям</div>
                 <table className="w-full max-w-sm text-sm">
@@ -199,7 +238,7 @@ export default async function AgentReportPage({
             )}
           </>
         ) : (
-          <p className="py-8 text-center text-slate-400">Выплат за выбранный период нет.</p>
+          <p className="py-8 text-center text-slate-400">{act ? "Невыплаченного вознаграждения нет." : "Выплат за выбранный период нет."}</p>
         )}
 
         {/* Реквизиты для оплаты агенту */}
@@ -219,8 +258,14 @@ export default async function AgentReportPage({
         )}
 
         <div className="mt-12 grid grid-cols-2 gap-8 text-sm">
-          <div><div className="border-t border-slate-400 pt-1 text-slate-500">Исполнитель / {team.name}</div></div>
-          <div><div className="border-t border-slate-400 pt-1 text-slate-500">Агент / {agent.payee_name || agent.name}</div></div>
+          <div>
+            <div className="border-t border-slate-400 pt-1 text-slate-600">{act ? "Принципал" : "Исполнитель"} / {act ? principalName : team.name}</div>
+            {act && <div className="mt-8 text-xs text-slate-400">подпись · М.П.</div>}
+          </div>
+          <div>
+            <div className="border-t border-slate-400 pt-1 text-slate-600">Агент / {agent.payee_name || agent.name}</div>
+            {act && <div className="mt-8 text-xs text-slate-400">подпись{isCrypto ? "" : " · М.П."}</div>}
+          </div>
         </div>
       </div>
     </div>
