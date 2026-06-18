@@ -58,6 +58,7 @@ export default function OperationCard({
   const [date, setDate] = useState(tx.occurred_on);
   const [accrualDate, setAccrualDate] = useState(tx.accrual_date ?? "");
   const [note, setNote] = useState(tx.note ?? "");
+  const [planned, setPlanned] = useState(tx.status === "planned");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -99,6 +100,7 @@ export default function OperationCard({
         occurred_on: date,
         accrual_date: isTransfer ? null : accrualDate || null,
         note: note || null,
+        status: planned ? "planned" : "actual",
       })
       .eq("id", tx.id);
     setBusy(false);
@@ -213,10 +215,18 @@ export default function OperationCard({
         </div>
       </div>
 
+      {canEdit && (
+        <label className="mt-4 flex w-fit items-center gap-2 text-sm text-slate-600 dark:text-neutral-300">
+          <input type="checkbox" checked={planned} onChange={(e) => setPlanned(e.target.checked)}
+            className="h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand" />
+          Плановая операция (не учитывается в фактических балансах и ДДС)
+        </label>
+      )}
+
       {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
 
       {canEdit && (
-        <div className="mt-5 flex items-center gap-3 border-t border-slate-200/70 pt-4 dark:border-white/[0.07]">
+        <div className="mt-4 flex items-center gap-3 border-t border-slate-200/70 pt-4 dark:border-white/[0.07]">
           <button onClick={save} disabled={busy} className="btn-primary">
             {busy ? "…" : "Сохранить"}
           </button>

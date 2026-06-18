@@ -40,19 +40,30 @@ export default async function CashflowPage() {
   const monthsCount = now.getMonth() + 1; // Январь..текущий месяц
   const yearStart = `${year}-01-01`;
 
-  const [{ data: txs }, { data: balances }, { data: fxRows }] = await Promise.all([
-    supabase
-      .from("transactions")
-      .select("type, amount, currency, occurred_on, category:categories(id, name)")
-      .eq("team_id", team.id)
-      .eq("status", "actual")
-      .gte("occurred_on", yearStart),
+  const [{ data: balances }, { data: fxRows }] = await Promise.all([
     supabase.from("account_balances").select("balance, currency").eq("team_id", team.id),
     supabase.from("fx_rates").select("currency, rate, rate_date").eq("team_id", team.id),
   ]);
 
+  // Операции за год — постранично: PostgREST отдаёт максимум 1000 строк за запрос,
+  // а фактических операций за год больше, иначе поздние месяцы выпадают из отчёта.
+  const PAGE = 1000;
+  const rows: Tx[] = [];
+  for (let offset = 0; ; offset += PAGE) {
+    const { data, error } = await supabase
+      .from("transactions")
+      .select("type, amount, currency, occurred_on, category:categories(id, name)")
+      .eq("team_id", team.id)
+      .eq("status", "actual")
+      .gte("occurred_on", yearStart)
+      .order("occurred_on", { ascending: true })
+      .range(offset, offset + PAGE - 1);
+    if (error || !data?.length) break;
+    rows.push(...(data as unknown as Tx[]));
+    if (data.length < PAGE) break;
+  }
+
   const rates = buildRateMap(fxRows ?? [], base);
-  const rows = (txs ?? []) as unknown as Tx[];
   const months = Array.from({ length: monthsCount }, (_, i) => i); // индексы 0..
 
   const incomeM = new Array(monthsCount).fill(0);
