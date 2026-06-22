@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { formatMoney, formatDate } from "@/lib/format";
@@ -154,7 +155,15 @@ export default function EditableTransactionRow({
           </div>
         )}
       </td>
-      <td className="px-5 py-3 text-slate-500 dark:text-neutral-400">{tx.projectName ?? "—"}</td>
+      <td className="px-5 py-3 text-slate-500 dark:text-neutral-400">
+        {tx.project_id && tx.projectName ? (
+          <Link href={`/projects/${tx.project_id}`} onClick={(e) => e.stopPropagation()} className="hover:text-brand hover:underline">
+            {tx.projectName}
+          </Link>
+        ) : (
+          tx.projectName ?? "—"
+        )}
+      </td>
       <td className="px-5 py-3 text-slate-500 dark:text-neutral-400">{tx.counterpartyName ?? "—"}</td>
       <td className="px-5 py-3 text-slate-500 dark:text-neutral-400">
         {isTransfer ? `${tx.accountName} → ${tx.toAccountName}` : tx.accountName}

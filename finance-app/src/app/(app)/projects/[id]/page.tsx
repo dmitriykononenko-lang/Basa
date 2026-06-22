@@ -6,6 +6,7 @@ import { formatMoney, formatDate } from "@/lib/format";
 import { buildRateMap, toBase } from "@/lib/fx";
 import EditProjectForm from "@/components/EditProjectForm";
 import DeleteProjectButton from "@/components/DeleteProjectButton";
+import ProjectOpsTable from "@/components/ProjectOpsTable";
 import { effectiveDue, businessDaysBetween, workdaysLabel } from "@/lib/workdays";
 
 export default async function ProjectPage({
@@ -19,6 +20,7 @@ export default async function ProjectPage({
   const { team, role } = current;
   const base = team.base_currency;
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
 
   const { data: project } = await supabase
     .from("projects")
@@ -62,7 +64,7 @@ export default async function ProjectPage({
   const { data: txs } = showFinance
     ? await supabase
         .from("transactions")
-        .select("id, type, amount, currency, occurred_on, category:categories(name), counterparty:counterparties(name)")
+        .select("id, type, amount, currency, occurred_on, accrual_date, note, status, account_id, transfer_account_id, category_id, counterparty_id, project_id, import_batch_id, category:categories(name), counterparty:counterparties(name), account:accounts!transactions_account_id_fkey(name), to_account:accounts!transactions_transfer_account_id_fkey(name)")
         .eq("team_id", team.id)
         .eq("project_id", id)
         .eq("status", "actual")
@@ -70,16 +72,34 @@ export default async function ProjectPage({
         .limit(100)
     : { data: [] as unknown[] };
 
+  // Справочники для карточки операции (открывается из списка операций проекта)
+  const [{ data: accountsRef }, { data: categoriesRef }, { data: counterpartiesRef }, { data: projectsRef }] = showFinance
+    ? await Promise.all([
+        supabase.from("accounts").select("id, name, currency").eq("team_id", team.id).eq("archived", false).order("created_at"),
+        supabase.from("categories").select("id, name, kind").eq("team_id", team.id).eq("archived", false).order("name"),
+        supabase.from("counterparties").select("id, name, inn").eq("team_id", team.id).eq("archived", false).order("name"),
+        supabase.from("projects").select("id, name").eq("team_id", team.id).eq("archived", false).order("name"),
+      ])
+    : [{ data: [] }, { data: [] }, { data: [] }, { data: [] }];
+
   const rates = buildRateMap(fxRows ?? [], base);
-  const rows = (txs ?? []) as unknown as {
-    id: string;
-    type: "income" | "expense" | "transfer";
-    amount: number;
-    currency: string;
-    occurred_on: string;
-    category: { name: string } | null;
-    counterparty: { name: string } | null;
-  }[];
+  type RawTx = {
+    id: string; type: "income" | "expense" | "transfer"; amount: number; currency: string;
+    occurred_on: string; accrual_date: string | null; note: string | null; status: string;
+    account_id: string | null; transfer_account_id: string | null; category_id: string | null;
+    counterparty_id: string | null; project_id: string | null; import_batch_id: string | null;
+    category: { name: string } | null; counterparty: { name: string } | null;
+    account: { name: string } | null; to_account: { name: string } | null;
+  };
+  const rows = ((txs ?? []) as unknown as RawTx[]).map((t) => ({
+    id: t.id, type: t.type, amount: t.amount, currency: t.currency, occurred_on: t.occurred_on,
+    accrual_date: t.accrual_date, note: t.note, status: t.status, account_id: t.account_id,
+    transfer_account_id: t.transfer_account_id, category_id: t.category_id, counterparty_id: t.counterparty_id,
+    project_id: t.project_id, import_batch_id: t.import_batch_id,
+    accountName: t.account?.name ?? null, toAccountName: t.to_account?.name ?? null,
+    categoryName: t.category?.name ?? null, counterpartyName: t.counterparty?.name ?? null,
+    projectName: null as string | null,
+  }));
 
   let revenue = 0;
   let costs = 0;
@@ -89,7 +109,7 @@ export default async function ProjectPage({
     if (t.type === "income") revenue += v;
     else if (t.type === "expense") {
       costs += v;
-      const c = t.category?.name ?? "Без статьи";
+      const c = t.categoryName ?? "Без статьи";
       costByCat.set(c, (costByCat.get(c) ?? 0) + v);
     }
   }
@@ -292,24 +312,16 @@ export default async function ProjectPage({
             Операции
           </h2>
           {rows.length > 0 ? (
-            <table className="w-full text-sm">
-              <tbody>
-                {rows.slice(0, 30).map((t) => (
-                  <tr key={t.id} className="border-b border-slate-50 last:border-0 dark:border-white/[0.05]">
-                    <td className="whitespace-nowrap px-5 py-3 text-slate-500 dark:text-neutral-400">{formatDate(t.occurred_on)}</td>
-                    <td className="px-5 py-3 text-slate-700 dark:text-neutral-300">
-                      {t.category?.name ?? "—"}
-                      {t.counterparty?.name && <span className="ml-2 text-xs text-slate-400">· {t.counterparty.name}</span>}
-                    </td>
-                    <td className={`px-5 py-3 text-right font-semibold ${
-                      t.type === "income" ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"
-                    }`}>
-                      {t.type === "income" ? "+" : "−"}{formatMoney(t.amount, t.currency)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <ProjectOpsTable
+              items={rows}
+              accounts={(accountsRef ?? []) as { id: string; name: string; currency: string }[]}
+              categories={(categoriesRef ?? []) as { id: string; name: string; kind: "income" | "expense" }[]}
+              counterparties={(counterpartiesRef ?? []) as { id: string; name: string; inn?: string | null }[]}
+              projects={(projectsRef ?? []) as { id: string; name: string }[]}
+              teamId={team.id}
+              userId={user?.id ?? ""}
+              canEdit={manage}
+            />
           ) : (
             <p className="px-5 py-4 text-sm text-slate-400">Операций нет.</p>
           )}
