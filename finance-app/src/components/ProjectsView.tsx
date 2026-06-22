@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { Select } from "@/components/ui/select";
 import Link from "next/link";
 import { formatDate } from "@/lib/format";
 import { effectiveDue, businessDaysBetween, workdaysLabel } from "@/lib/workdays";
@@ -68,10 +69,7 @@ export default function ProjectsView({
         <div className="flex flex-wrap items-end gap-2">
           <div>
             <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Ответственный</label>
-            <select value={resp} onChange={(e) => setResp(e.target.value)} className="input w-52 py-1.5 text-sm">
-              <option value="">Все</option>
-              {employees.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-            </select>
+            <Select className="w-52" value={resp} onChange={setResp} placeholder="Все" options={[{ value: "", label: "Все" }, ...employees.map((e) => ({ value: e.id, label: e.name }))]} />
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Старт с</label>

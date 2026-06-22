@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Select } from "@/components/ui/select";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
@@ -87,11 +88,7 @@ export default function CategoryRulesManager({
           <form onSubmit={add} className="flex flex-wrap items-end gap-2">
             <div>
               <label className="mb-1 block text-xs text-slate-500 dark:text-neutral-400">Где искать</label>
-              <select value={field} onChange={(e) => setField(e.target.value)} className="input w-32 py-1.5 text-sm">
-                <option value="any">везде</option>
-                <option value="counterparty">контрагент</option>
-                <option value="note">назначение</option>
-              </select>
+              <Select className="w-32" value={field} onChange={setField} options={[{ value: "any", label: "везде" }, { value: "counterparty", label: "контрагент" }, { value: "note", label: "назначение" }]} />
             </div>
             <div>
               <label className="mb-1 block text-xs text-slate-500 dark:text-neutral-400">Текст содержит</label>
@@ -99,17 +96,11 @@ export default function CategoryRulesManager({
             </div>
             <div>
               <label className="mb-1 block text-xs text-slate-500 dark:text-neutral-400">Статья</label>
-              <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className="input w-44 py-1.5 text-sm">
-                <option value="">— выберите —</option>
-                {categories.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.kind === "income" ? "дох" : "рас"})</option>)}
-              </select>
+              <Select className="w-44" value={categoryId} onChange={setCategoryId} placeholder="— выберите —" options={[{ value: "", label: "— выберите —" }, ...categories.map((c) => ({ value: c.id, label: `${c.name} (${c.kind === "income" ? "дох" : "рас"})` }))]} />
             </div>
             <div>
               <label className="mb-1 block text-xs text-slate-500 dark:text-neutral-400">Проект</label>
-              <select value={projectId} onChange={(e) => setProjectId(e.target.value)} className="input w-40 py-1.5 text-sm">
-                <option value="">— без проекта —</option>
-                {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
+              <Select className="w-40" value={projectId} onChange={setProjectId} placeholder="— без проекта —" options={[{ value: "", label: "— без проекта —" }, ...projects.map((p) => ({ value: p.id, label: p.name }))]} />
             </div>
             <button type="submit" disabled={busy} className="rounded-full bg-brand px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50">Добавить</button>
           </form>

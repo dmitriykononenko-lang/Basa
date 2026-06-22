@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Select } from "@/components/ui/select";
 import { useRouter } from "next/navigation";
 import { ROLE_LABELS, type AppRole } from "@/lib/types";
 
@@ -65,11 +66,7 @@ export default function InviteForm({
           <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">
             Роль
           </label>
-          <select value={role} onChange={(e) => setRole(e.target.value as AppRole)} className="input">
-            {INVITE_ROLES.map((r) => (
-              <option key={r} value={r}>{ROLE_LABELS[r]}</option>
-            ))}
-          </select>
+          <Select value={role} onChange={(v) => setRole(v as AppRole)} options={INVITE_ROLES.map((r) => ({ value: r, label: ROLE_LABELS[r] }))} />
         </div>
         <button type="submit" disabled={loading} className="btn-primary">
           {loading ? "Отправляем…" : "Пригласить"}

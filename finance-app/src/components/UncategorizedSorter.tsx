@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { Select } from "@/components/ui/select";
 import { createClient } from "@/lib/supabase/client";
 import { formatMoney, formatDate } from "@/lib/format";
 
@@ -100,17 +101,7 @@ export default function UncategorizedSorter({ rows, categories }: { rows: Row[];
                       </span>
                     </div>
                   </div>
-                  <select
-                    defaultValue=""
-                    disabled={busy === g.rows[0].id}
-                    onChange={(e) => assign(g, e.target.value)}
-                    className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm outline-none focus:border-brand dark:border-white/[0.1] dark:bg-neutral-900 dark:text-neutral-200"
-                  >
-                    <option value="">— выбрать статью для всей группы —</option>
-                    {cats.map((c) => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
-                  </select>
+                  <Select variant="pill" value="" disabled={busy === g.rows[0].id} onChange={(v) => assign(g, v)} placeholder="— выбрать статью для всей группы —" options={[{ value: "", label: "— выбрать статью для всей группы —" }, ...cats.map((c) => ({ value: c.id, label: c.name }))]} />
                 </div>
 
                 <div className="mt-3 max-h-44 overflow-y-auto border-t border-slate-100 pt-2 dark:border-white/[0.06]">

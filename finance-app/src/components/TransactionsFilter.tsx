@@ -43,6 +43,7 @@ export default function TransactionsFilter({
   return (
     <div className="mb-5 flex flex-wrap items-center gap-2">
       <Select
+        variant="pill"
         value={period}
         onChange={(v) => setParams({ period: v, from: "", to: "" })}
         options={[
@@ -64,6 +65,7 @@ export default function TransactionsFilter({
       )}
 
       <Select
+        variant="pill"
         value={sp.get("type") ?? "all"}
         onChange={(v) => setParam("type", v)}
         options={[
@@ -75,6 +77,7 @@ export default function TransactionsFilter({
       />
 
       <Select
+        variant="pill"
         value={sp.get("status") ?? "all"}
         onChange={(v) => setParam("status", v)}
         options={[

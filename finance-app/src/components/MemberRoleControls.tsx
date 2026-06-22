@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Select } from "@/components/ui/select";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { ROLE_LABELS, type AppRole } from "@/lib/types";
@@ -48,18 +49,13 @@ export default function MemberRoleControls({
 
   return (
     <div className="flex items-center justify-end gap-2">
-      <select
+      <Select
+        variant="pill"
         value={role}
         disabled={busy}
-        onChange={(e) => changeRole(e.target.value as AppRole)}
-        className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs outline-none focus:border-brand dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200"
-      >
-        {EDITABLE_ROLES.map((r) => (
-          <option key={r} value={r}>
-            {ROLE_LABELS[r]}
-          </option>
-        ))}
-      </select>
+        onChange={(v) => changeRole(v as AppRole)}
+        options={EDITABLE_ROLES.map((r) => ({ value: r, label: ROLE_LABELS[r] }))}
+      />
       <button
         onClick={remove}
         disabled={busy}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { Select } from "@/components/ui/select";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { parseMoney, formatMoney } from "@/lib/format";
@@ -481,12 +482,8 @@ export default function ImportWizard({
               <summary className="cursor-pointer text-xs text-brand">Создать новый счёт</summary>
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <input value={newAccName} onChange={(e) => setNewAccName(e.target.value)} placeholder="Название" className="input w-40 py-1.5 text-sm" />
-                <select value={newAccCur} onChange={(e) => setNewAccCur(e.target.value)} className="input w-24 py-1.5 text-sm">
-                  {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
-                <select value={newAccKind} onChange={(e) => setNewAccKind(e.target.value)} className="input w-28 py-1.5 text-sm">
-                  {ACCOUNT_KINDS.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
-                </select>
+                <Select className="w-24" value={newAccCur} onChange={setNewAccCur} options={CURRENCIES.map((c) => ({ value: c, label: c }))} />
+                <Select className="w-28" value={newAccKind} onChange={setNewAccKind} options={ACCOUNT_KINDS.map((k) => ({ value: k.value, label: k.label }))} />
                 <button onClick={createAccount} disabled={creatingAcc || !newAccName.trim()} className="rounded-full bg-slate-200 px-3 py-1.5 text-sm font-medium disabled:opacity-50 dark:bg-neutral-700">
                   {creatingAcc ? "…" : "Создать"}
                 </button>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Select } from "@/components/ui/select";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { EMPLOYMENT_TYPES, CURRENCIES } from "@/lib/constants";
@@ -85,14 +86,10 @@ export default function AddEmployeeForm({ teamId }: { teamId: string }) {
           <input value={department} onChange={(e) => setDepartment(e.target.value)} placeholder="Например, Маркетинг" className="input" />
         </F>
         <F label="Тип занятости">
-          <select value={type} onChange={(e) => setType(e.target.value)} className="input">
-            {EMPLOYMENT_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-          </select>
+          <Select value={type} onChange={setType} options={EMPLOYMENT_TYPES.map((t) => ({ value: t.value, label: t.label }))} />
         </F>
         <F label="Валюта выплат">
-          <select value={currency} onChange={(e) => setCur(e.target.value)} className="input">
-            {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
+          <Select value={currency} onChange={setCur} options={CURRENCIES.map((c) => ({ value: c, label: c }))} />
         </F>
       </div>
 

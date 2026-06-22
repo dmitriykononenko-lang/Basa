@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Select } from "@/components/ui/select";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { CURRENCIES } from "@/lib/constants";
@@ -64,17 +65,7 @@ export default function CreateTeamForm() {
         <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-neutral-300">
           Основная валюта
         </label>
-        <select
-          value={currency}
-          onChange={(e) => setCurrency(e.target.value)}
-          className="input"
-        >
-          {CURRENCIES.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </select>
+        <Select value={currency} onChange={setCurrency} options={CURRENCIES.map((c) => ({ value: c, label: c }))} />
         <p className="mt-1 text-xs text-slate-400 dark:text-neutral-500">
           Валюта для сводных отчётов. Счета могут быть в любых валютах.
         </p>

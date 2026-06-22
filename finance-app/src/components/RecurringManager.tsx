@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Select } from "@/components/ui/select";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { parseMoney, formatMoney } from "@/lib/format";
@@ -192,45 +193,28 @@ export default function RecurringManager({
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <F label="Сумма"><input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" placeholder="0,00" className="input" /></F>
             <F label={type === "transfer" ? "Со счёта" : "Счёт"}>
-              <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className="input">
-                {accounts.map((a) => <option key={a.id} value={a.id}>{a.name} ({a.currency})</option>)}
-              </select>
+              <Select value={accountId} onChange={setAccountId} options={accounts.map((a) => ({ value: a.id, label: `${a.name} (${a.currency})` }))} />
             </F>
             {type === "transfer" && (
               <F label="На счёт">
-                <select value={transferAccountId} onChange={(e) => setTransferAccountId(e.target.value)} className="input">
-                  <option value="">— выберите —</option>
-                  {accounts.filter((a) => a.id !== accountId).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-                </select>
+                <Select value={transferAccountId} onChange={setTransferAccountId} placeholder="— выберите —" options={[{ value: "", label: "— выберите —" }, ...accounts.filter((a) => a.id !== accountId).map((a) => ({ value: a.id, label: a.name }))]} />
               </F>
             )}
             {type !== "transfer" && (
               <F label="Статья">
-                <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className="input">
-                  <option value="">— без статьи —</option>
-                  {filteredCats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
+                <Select value={categoryId} onChange={setCategoryId} placeholder="— без статьи —" options={[{ value: "", label: "— без статьи —" }, ...filteredCats.map((c) => ({ value: c.id, label: c.name }))]} />
               </F>
             )}
             {type !== "transfer" && (
               <F label="Контрагент">
-                <select value={counterpartyId} onChange={(e) => setCounterpartyId(e.target.value)} className="input">
-                  <option value="">— не указан —</option>
-                  {counterparties.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
+                <Select value={counterpartyId} onChange={setCounterpartyId} placeholder="— не указан —" options={[{ value: "", label: "— не указан —" }, ...counterparties.map((c) => ({ value: c.id, label: c.name }))]} />
               </F>
             )}
             <F label="Проект">
-              <select value={projectId} onChange={(e) => setProjectId(e.target.value)} className="input">
-                <option value="">— без проекта —</option>
-                {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
+              <Select value={projectId} onChange={setProjectId} placeholder="— без проекта —" options={[{ value: "", label: "— без проекта —" }, ...projects.map((p) => ({ value: p.id, label: p.name }))]} />
             </F>
             <F label="Периодичность">
-              <select value={frequency} onChange={(e) => setFrequency(e.target.value)} className="input">
-                <option value="monthly">Ежемесячно</option>
-                <option value="weekly">Еженедельно</option>
-              </select>
+              <Select value={frequency} onChange={setFrequency} options={[{ value: "monthly", label: "Ежемесячно" }, { value: "weekly", label: "Еженедельно" }]} />
             </F>
             {frequency === "monthly" ? (
               <F label="День месяца">
@@ -238,9 +222,7 @@ export default function RecurringManager({
               </F>
             ) : (
               <F label="День недели">
-                <select value={weekday} onChange={(e) => setWeekday(Number(e.target.value))} className="input">
-                  {WEEKDAYS.map((w, i) => <option key={i} value={i}>{w}</option>)}
-                </select>
+                <Select value={String(weekday)} onChange={(v) => setWeekday(Number(v))} options={WEEKDAYS.map((w, i) => ({ value: String(i), label: w }))} />
               </F>
             )}
             <F label="Начало"><input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="input" /></F>

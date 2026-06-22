@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Select } from "@/components/ui/select";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { parseMoney } from "@/lib/format";
@@ -94,17 +95,7 @@ export default function AddBudgetForm({
         <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">
           Категория расхода
         </label>
-        <select
-          value={categoryId}
-          onChange={(e) => setCategoryId(e.target.value)}
-          className="input"
-        >
-          {categories.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
+        <Select value={categoryId} onChange={setCategoryId} options={categories.map((c) => ({ value: c.id, label: c.name }))} />
       </div>
       <div>
         <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">
@@ -124,17 +115,7 @@ export default function AddBudgetForm({
         <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">
           Период
         </label>
-        <select
-          value={period}
-          onChange={(e) => setPeriod(e.target.value)}
-          className="input"
-        >
-          {PERIODS.map((p) => (
-            <option key={p.value} value={p.value}>
-              {p.label}
-            </option>
-          ))}
-        </select>
+        <Select value={period} onChange={setPeriod} options={PERIODS.map((p) => ({ value: p.value, label: p.label }))} />
       </div>
       <div className="flex gap-2">
         <button type="submit" disabled={loading} className="btn-primary">

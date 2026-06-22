@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Select } from "@/components/ui/select";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/lib/toast";
@@ -111,10 +112,7 @@ export default function AgentWizard({
               <div key={r.key} className="flex flex-wrap items-end gap-2">
                 <div className="flex-1">
                   <label className="mb-1 block text-xs text-slate-500 dark:text-neutral-400">Статья</label>
-                  <select value={r.category_id} onChange={(e) => updRule(r.key, { category_id: e.target.value })} className="input">
-                    <option value="">Все статьи (по умолчанию)</option>
-                    {incomeCategories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
+                  <Select value={r.category_id} onChange={(v) => updRule(r.key, { category_id: v })} placeholder="Все статьи (по умолчанию)" options={[{ value: "", label: "Все статьи (по умолчанию)" }, ...incomeCategories.map((c) => ({ value: c.id, label: c.name }))]} />
                 </div>
                 <div className="w-24">
                   <label className="mb-1 block text-xs text-slate-500 dark:text-neutral-400">%</label>

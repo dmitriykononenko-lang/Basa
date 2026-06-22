@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Select } from "@/components/ui/select";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { CURRENCIES, ACCOUNT_KINDS } from "@/lib/constants";
@@ -70,33 +71,13 @@ export default function AddAccountForm({ teamId }: { teamId: string }) {
         <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">
           Валюта
         </label>
-        <select
-          value={currency}
-          onChange={(e) => setCurrency(e.target.value)}
-          className="input"
-        >
-          {CURRENCIES.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </select>
+        <Select value={currency} onChange={setCurrency} options={CURRENCIES.map((c) => ({ value: c, label: c }))} />
       </div>
       <div>
         <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">
           Тип
         </label>
-        <select
-          value={kind}
-          onChange={(e) => setKind(e.target.value)}
-          className="input"
-        >
-          {ACCOUNT_KINDS.map((k) => (
-            <option key={k.value} value={k.value}>
-              {k.label}
-            </option>
-          ))}
-        </select>
+        <Select value={kind} onChange={setKind} options={ACCOUNT_KINDS.map((k) => ({ value: k.value, label: k.label }))} />
       </div>
       <div className="flex gap-2">
         <button type="submit" disabled={loading} className="btn-primary">

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { Select } from "@/components/ui/select";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { parseMoney } from "@/lib/format";
@@ -223,52 +224,18 @@ export default function AddTransactionForm({
         </Field>
 
         <Field label={type === "transfer" ? "Со счёта" : "Счёт"}>
-          <select
-            value={accountId}
-            onChange={(e) => setAccountId(e.target.value)}
-            className="input"
-          >
-            {accounts.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name} ({a.currency})
-              </option>
-            ))}
-          </select>
+          <Select value={accountId} onChange={setAccountId} options={accounts.map((a) => ({ value: a.id, label: `${a.name} (${a.currency})` }))} />
         </Field>
 
         {type === "transfer" && (
           <Field label="На счёт">
-            <select
-              value={transferAccountId}
-              onChange={(e) => setTransferAccountId(e.target.value)}
-              className="input"
-            >
-              <option value="">— выберите —</option>
-              {accounts
-                .filter((a) => a.id !== accountId)
-                .map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name} ({a.currency})
-                  </option>
-                ))}
-            </select>
+            <Select value={transferAccountId} onChange={setTransferAccountId} placeholder="— выберите —" options={[{ value: "", label: "— выберите —" }, ...accounts.filter((a) => a.id !== accountId).map((a) => ({ value: a.id, label: `${a.name} (${a.currency})` }))]} />
           </Field>
         )}
 
         {type !== "transfer" && (
           <Field label="Категория">
-            <select
-              value={categoryId}
-              onChange={(e) => setCategoryId(e.target.value)}
-              className="input"
-            >
-              <option value="">— без категории —</option>
-              {filteredCategories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+            <Select value={categoryId} onChange={setCategoryId} placeholder="— без категории —" options={[{ value: "", label: "— без категории —" }, ...filteredCategories.map((c) => ({ value: c.id, label: c.name }))]} />
           </Field>
         )}
 
@@ -284,10 +251,7 @@ export default function AddTransactionForm({
               </div>
             ) : (
               <div className="flex gap-1">
-                <select value={counterpartyId} onChange={(e) => setCounterpartyId(e.target.value)} className="input">
-                  <option value="">— не указан —</option>
-                  {cps.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
+                <Select value={counterpartyId} onChange={setCounterpartyId} placeholder="— не указан —" options={[{ value: "", label: "— не указан —" }, ...cps.map((c) => ({ value: c.id, label: c.name }))]} />
                 <button type="button" onClick={() => setCpAdd(true)} title="Новый контрагент" className="shrink-0 rounded-xl border border-slate-200 px-3 text-sm text-brand transition hover:bg-brand/5 dark:border-white/10">
                   +
                 </button>
@@ -307,10 +271,7 @@ export default function AddTransactionForm({
             </div>
           ) : (
             <div className="flex gap-1">
-              <select value={projectId} onChange={(e) => setProjectId(e.target.value)} className="input">
-                <option value="">— без проекта —</option>
-                {projs.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
+              <Select value={projectId} onChange={setProjectId} placeholder="— без проекта —" options={[{ value: "", label: "— без проекта —" }, ...projs.map((p) => ({ value: p.id, label: p.name }))]} />
               <button type="button" onClick={() => setPrAdd(true)} title="Новый проект" className="shrink-0 rounded-xl border border-slate-200 px-3 text-sm text-brand transition hover:bg-brand/5 dark:border-white/10">
                 +
               </button>

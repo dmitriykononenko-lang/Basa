@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Select } from "@/components/ui/select";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { CF_ACTIVITIES, CF_ACTIVITY_LABELS, PNL_TREATMENTS } from "@/lib/constants";
@@ -121,12 +122,7 @@ export default function CategoryEditor({
         </div>
         <div>
           <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Группа</label>
-          <select value={parentId} onChange={(e) => setParentId(e.target.value)} className="input">
-            <option value="">— верхний уровень —</option>
-            {parents.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
+          <Select value={parentId} onChange={setParentId} placeholder="— верхний уровень —" options={[{ value: "", label: "— верхний уровень —" }, ...parents.map((p) => ({ value: p.id, label: p.name }))]} />
         </div>
         <div className="sm:col-span-2">
           <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Комментарий</label>
@@ -136,11 +132,7 @@ export default function CategoryEditor({
           <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">
             Вид деятельности (для ДДС)
           </label>
-          <select value={cf} onChange={(e) => setCf(e.target.value)} className="input">
-            {CF_ACTIVITIES.map((a) => (
-              <option key={a.value} value={a.value}>{a.label}</option>
-            ))}
-          </select>
+          <Select value={cf} onChange={setCf} options={CF_ACTIVITIES.map((a) => ({ value: a.value, label: a.label }))} />
           <p className="mt-1 text-[11px] text-slate-400">
             {CF_ACTIVITIES.find((a) => a.value === cf)?.hint}
           </p>
@@ -149,11 +141,7 @@ export default function CategoryEditor({
           <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">
             Учёт в ОПиУ
           </label>
-          <select value={pnl} onChange={(e) => setPnl(e.target.value)} className="input">
-            {PNL_TREATMENTS.map((p) => (
-              <option key={p.value} value={p.value}>{p.label}</option>
-            ))}
-          </select>
+          <Select value={pnl} onChange={setPnl} options={PNL_TREATMENTS.map((p) => ({ value: p.value, label: p.label }))} />
         </div>
       </div>
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Select } from "@/components/ui/select";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
@@ -100,12 +101,7 @@ export default function AddCategoryForm({
         <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">
           Группа (необяз.)
         </label>
-        <select value={parentId} onChange={(e) => setParentId(e.target.value)} className="input">
-          <option value="">— верхний уровень —</option>
-          {parents.map((c) => (
-            <option key={c.id} value={c.id}>{c.name}</option>
-          ))}
-        </select>
+        <Select value={parentId} onChange={setParentId} placeholder="— верхний уровень —" options={[{ value: "", label: "— верхний уровень —" }, ...parents.map((c) => ({ value: c.id, label: c.name }))]} />
       </div>
       <div className="flex gap-2">
         <button type="submit" disabled={loading} className="btn-primary">

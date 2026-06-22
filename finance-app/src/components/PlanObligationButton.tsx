@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Select } from "@/components/ui/select";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { parseMoney, formatMoney } from "@/lib/format";
@@ -122,17 +123,7 @@ export default function PlanObligationButton({
         title="Сумма (по умолчанию — весь остаток)"
       />
       {matching.length > 0 && (
-        <select
-          value={accountId}
-          onChange={(e) => setAccountId(e.target.value)}
-          className="rounded-full border border-slate-300 px-2 py-1 text-xs outline-none focus:border-brand dark:border-neutral-700 dark:bg-neutral-800"
-          title="Счёт (необязательно)"
-        >
-          <option value="">— счёт —</option>
-          {matching.map((a) => (
-            <option key={a.id} value={a.id}>{a.name}</option>
-          ))}
-        </select>
+        <Select variant="pill" value={accountId} onChange={setAccountId} placeholder="— счёт —" options={[{ value: "", label: "— счёт —" }, ...matching.map((a) => ({ value: a.id, label: a.name }))]} />
       )}
       <button type="submit" disabled={loading} className="rounded-full bg-brand px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-60">
         {loading ? "…" : "OK"}

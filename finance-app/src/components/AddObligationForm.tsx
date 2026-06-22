@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Select } from "@/components/ui/select";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { parseMoney } from "@/lib/format";
@@ -121,17 +122,7 @@ export default function AddObligationForm({
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field label="Контрагент">
-          <select
-            value={counterpartyId}
-            onChange={(e) => setCounterpartyId(e.target.value)}
-            className="input"
-          >
-            {counterparties.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
+          <Select value={counterpartyId} onChange={setCounterpartyId} options={counterparties.map((c) => ({ value: c.id, label: c.name }))} />
         </Field>
 
         <Field label="Сумма">
@@ -146,44 +137,18 @@ export default function AddObligationForm({
               placeholder="0,00"
               className="input"
             />
-            <select
-              value={currency}
-              onChange={(e) => setCurrency(e.target.value)}
-              className="input w-24"
-            >
-              {CURRENCIES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
+            <Select className="w-24" value={currency} onChange={setCurrency} options={CURRENCIES.map((c) => ({ value: c, label: c }))} />
           </div>
         </Field>
 
         {filteredCats.length > 0 && (
           <Field label="Статья (для ОПиУ)">
-            <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className="input">
-              <option value="">— без статьи —</option>
-              {filteredCats.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
+            <Select value={categoryId} onChange={setCategoryId} placeholder="— без статьи —" options={[{ value: "", label: "— без статьи —" }, ...filteredCats.map((c) => ({ value: c.id, label: c.name }))]} />
           </Field>
         )}
 
         <Field label="Проект">
-          <select
-            value={projectId}
-            onChange={(e) => setProjectId(e.target.value)}
-            className="input"
-          >
-            <option value="">— без проекта —</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
+          <Select value={projectId} onChange={setProjectId} placeholder="— без проекта —" options={[{ value: "", label: "— без проекта —" }, ...projects.map((p) => ({ value: p.id, label: p.name }))]} />
         </Field>
 
         <Field label="Срок">

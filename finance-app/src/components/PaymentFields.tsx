@@ -1,6 +1,7 @@
 "use client";
 
 import { PAYMENT_METHODS, LEGAL_STATUSES, WALLET_NETWORKS } from "@/lib/constants";
+import { Select } from "@/components/ui/select";
 
 export type PaymentData = {
   payment_method: string;
@@ -67,10 +68,7 @@ export default function PaymentFields({
             <input value={value.payee_name} onChange={(e) => upd("payee_name", e.target.value)} placeholder="Иванов Иван Иванович" className="input" />
           </F>
           <F label="Статус">
-            <select value={value.legal_status} onChange={(e) => upd("legal_status", e.target.value)} className="input">
-              <option value="">— не указан —</option>
-              {LEGAL_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
+            <Select value={value.legal_status ?? ""} onChange={(v) => upd("legal_status", v)} placeholder="— не указан —" options={[{ value: "", label: "— не указан —" }, ...LEGAL_STATUSES.map((s) => ({ value: s, label: s }))]} />
           </F>
           <F label="ИНН">
             <input value={value.inn} onChange={(e) => upd("inn", e.target.value)} placeholder="000000000000" className="input" />
@@ -91,9 +89,7 @@ export default function PaymentFields({
             <input value={value.wallet_address} onChange={(e) => upd("wallet_address", e.target.value)} placeholder="TXxxx…" className="input" />
           </F>
           <F label="Сеть">
-            <select value={value.wallet_network} onChange={(e) => upd("wallet_network", e.target.value)} className="input">
-              {WALLET_NETWORKS.map((n) => <option key={n} value={n}>{n}</option>)}
-            </select>
+            <Select value={value.wallet_network ?? ""} onChange={(v) => upd("wallet_network", v)} options={WALLET_NETWORKS.map((n) => ({ value: n, label: n }))} />
           </F>
         </div>
       )}

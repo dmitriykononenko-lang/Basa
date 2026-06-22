@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { Select } from "@/components/ui/select";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -94,10 +95,7 @@ export default function CounterpartiesTable({ items, canManage }: { items: Item[
     <div className="space-y-3">
       {/* Фильтры */}
       <div className="flex flex-wrap items-center gap-2">
-        <select value={kindFilter} onChange={(e) => setKindFilter(e.target.value)} className="input w-auto py-2 text-sm">
-          <option value="all">Все типы</option>
-          {COUNTERPARTY_KINDS.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
-        </select>
+        <Select className="w-auto" value={kindFilter} onChange={setKindFilter} options={[{ value: "all", label: "Все типы" }, ...COUNTERPARTY_KINDS.map((k) => ({ value: k.value, label: k.label }))]} />
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
@@ -111,10 +109,7 @@ export default function CounterpartiesTable({ items, canManage }: { items: Item[
       {canManage && sel.size > 0 && (
         <div className="flex flex-wrap items-center gap-2 rounded-2xl bg-brand/5 px-3 py-2 ring-1 ring-brand/20">
           <span className="text-sm font-medium text-slate-700 dark:text-neutral-200">Выбрано: {sel.size}</span>
-          <select value={bulkKind} onChange={(e) => setBulkKind(e.target.value)} className="input w-auto py-1.5 text-sm">
-            <option value="">Сменить тип…</option>
-            {COUNTERPARTY_KINDS.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
-          </select>
+          <Select className="w-auto" value={bulkKind} onChange={setBulkKind} placeholder="Сменить тип…" options={[{ value: "", label: "Сменить тип…" }, ...COUNTERPARTY_KINDS.map((k) => ({ value: k.value, label: k.label }))]} />
           <button onClick={applyKind} disabled={busy || !bulkKind} className="rounded-full bg-brand px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50">Применить</button>
           {sel.size >= 2 && (
             <button onClick={() => { setMergeTarget([...sel][0]); setMergeOpen((o) => !o); }} disabled={busy} className="rounded-full bg-white px-3 py-1.5 text-sm font-medium text-brand ring-1 ring-brand/30 disabled:opacity-50 dark:bg-white/[0.06]">Объединить</button>

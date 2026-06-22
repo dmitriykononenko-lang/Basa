@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Select } from "@/components/ui/select";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { parseMoney, formatMoney } from "@/lib/format";
@@ -125,9 +126,7 @@ export default function EditObligationForm({
               <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" className="input" />
             </Field>
             <Field label="Валюта">
-              <select value={currency} onChange={(e) => setCurrency(e.target.value)} className="input">
-                {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
+              <Select value={currency} onChange={setCurrency} options={CURRENCIES.map((c) => ({ value: c, label: c }))} />
             </Field>
 
             {mode === "accrual" ? (
@@ -136,17 +135,11 @@ export default function EditObligationForm({
                   <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="input" />
                 </Field>
                 <Field label="Часть">
-                  <select value={payPart} onChange={(e) => setPayPart(e.target.value as "fixed" | "variable")} className="input">
-                    <option value="fixed">Фиксированная</option>
-                    <option value="variable">Переменная</option>
-                  </select>
+                  <Select value={payPart} onChange={(v) => setPayPart(v as "fixed" | "variable")} options={[{ value: "fixed", label: "Фиксированная" }, { value: "variable", label: "Переменная" }]} />
                 </Field>
                 {projects.length > 0 && (
                   <Field label="Проект">
-                    <select value={projectId} onChange={(e) => setProjectId(e.target.value)} className="input">
-                      <option value="">— без проекта —</option>
-                      {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                    </select>
+                    <Select value={projectId} onChange={setProjectId} placeholder="— без проекта —" options={[{ value: "", label: "— без проекта —" }, ...projects.map((p) => ({ value: p.id, label: p.name }))]} />
                   </Field>
                 )}
               </>
@@ -158,10 +151,7 @@ export default function EditObligationForm({
 
             {expenseCats.length > 0 && (
               <Field label="Статья">
-                <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className="input">
-                  <option value="">— не указана —</option>
-                  {expenseCats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
+                <Select value={categoryId} onChange={setCategoryId} placeholder="— не указана —" options={[{ value: "", label: "— не указана —" }, ...expenseCats.map((c) => ({ value: c.id, label: c.name }))]} />
               </Field>
             )}
           </div>

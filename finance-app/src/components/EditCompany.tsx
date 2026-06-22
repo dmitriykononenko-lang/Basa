@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Select } from "@/components/ui/select";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { CURRENCIES } from "@/lib/constants";
@@ -62,9 +63,7 @@ export default function EditCompany({ initial }: { initial: Company }) {
           <input required value={c.name} onChange={(e) => upd("name", e.target.value)} className="input" />
         </F>
         <F label="Основная валюта">
-          <select value={c.base_currency} onChange={(e) => upd("base_currency", e.target.value)} className="input">
-            {CURRENCIES.map((x) => <option key={x} value={x}>{x}</option>)}
-          </select>
+          <Select value={c.base_currency} onChange={(v) => upd("base_currency", v)} options={CURRENCIES.map((x) => ({ value: x, label: x }))} />
         </F>
         <div className="sm:col-span-2">
           <F label="Юридическое наименование">

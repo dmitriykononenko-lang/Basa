@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Select } from "@/components/ui/select";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { COUNTERPARTY_KINDS } from "@/lib/constants";
@@ -101,10 +102,7 @@ export default function EditCounterpartyForm({ initial, agents = [] }: { initial
         <F label="Email"><input value={c.email} onChange={(e) => upd("email", e.target.value)} className="input" /></F>
         {!kinds.includes("agent") && !kinds.includes("employee") && (
           <F label="Пришёл от агента">
-            <select value={c.agent_id} onChange={(e) => upd("agent_id", e.target.value)} className="input">
-              <option value="">— нет —</option>
-              {agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-            </select>
+            <Select value={c.agent_id ?? ""} onChange={(v) => upd("agent_id", v)} placeholder="— нет —" options={[{ value: "", label: "— нет —" }, ...agents.map((a) => ({ value: a.id, label: a.name }))]} />
           </F>
         )}
         {kinds.includes("agent") && (

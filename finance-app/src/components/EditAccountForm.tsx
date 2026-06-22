@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Select } from "@/components/ui/select";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { ACCOUNT_KINDS } from "@/lib/constants";
@@ -57,9 +58,7 @@ export default function EditAccountForm({
         className="input w-full py-1.5 text-sm"
         placeholder="Название"
       />
-      <select value={kind} onChange={(e) => setKind(e.target.value)} className="input w-full py-1.5 text-sm">
-        {ACCOUNT_KINDS.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
-      </select>
+      <Select value={kind} onChange={setKind} options={ACCOUNT_KINDS.map((k) => ({ value: k.value, label: k.label }))} />
       <p className="text-[11px] text-slate-400">Валюта счёта не меняется, чтобы не нарушить историю операций.</p>
       <div className="flex gap-2">
         <button type="submit" disabled={loading} className="rounded-full bg-brand px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-50">

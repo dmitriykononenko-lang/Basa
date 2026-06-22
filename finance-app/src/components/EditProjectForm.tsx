@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Select } from "@/components/ui/select";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { parseMoney } from "@/lib/format";
@@ -97,9 +98,7 @@ export default function EditProjectForm({
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div>
           <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Статус</label>
-          <select value={status} onChange={(e) => setStatus(e.target.value)} className="input w-full">
-            {STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-          </select>
+          <Select value={status} onChange={setStatus} options={STATUSES.map((s) => ({ value: s.value, label: s.label }))} />
         </div>
         <div>
           <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Ответственный (аналитик)</label>
@@ -120,10 +119,7 @@ export default function EditProjectForm({
         <div className="sm:col-span-2">
           <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Срок сдачи</label>
           <div className="flex flex-wrap items-center gap-2">
-            <select value={mode} onChange={(e) => setMode(e.target.value as "days" | "date")} className="input w-auto">
-              <option value="days">Рабочих дней</option>
-              <option value="date">Дата</option>
-            </select>
+            <Select className="w-auto" value={mode} onChange={(v) => setMode(v as "days" | "date")} options={[{ value: "days", label: "Рабочих дней" }, { value: "date", label: "Дата" }]} />
             {mode === "days" ? (
               <input type="number" min={0} value={planDays} onChange={(e) => setPlanDays(e.target.value)} placeholder="напр. 20" className="input w-28" />
             ) : (
@@ -136,9 +132,7 @@ export default function EditProjectForm({
           <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Бонус аналитику за сдачу</label>
           <div className="flex gap-2">
             <input value={bonus} onChange={(e) => setBonus(e.target.value)} inputMode="decimal" placeholder="0,00" className="input w-40" />
-            <select value={bonusCur} onChange={(e) => setBonusCur(e.target.value)} className="input w-24">
-              {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
+            <Select className="w-24" value={bonusCur} onChange={setBonusCur} options={CURRENCIES.map((c) => ({ value: c, label: c }))} />
           </div>
         </div>
       </div>

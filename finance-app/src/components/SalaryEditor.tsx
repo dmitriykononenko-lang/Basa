@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { Select } from "@/components/ui/select";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { parseMoney, formatMoney, formatDate } from "@/lib/format";
@@ -129,9 +130,7 @@ export default function SalaryEditor({
         </div>
         <div>
           <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Валюта</label>
-          <select value={currency} onChange={(e) => setCurrency(e.target.value)} className="input w-24 py-1.5 text-sm">
-            {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
+          <Select className="w-24" value={currency} onChange={setCurrency} options={CURRENCIES.map((c) => ({ value: c, label: c }))} />
         </div>
         <button type="submit" disabled={busy} className="rounded-full bg-brand px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-50">Добавить</button>
       </form>

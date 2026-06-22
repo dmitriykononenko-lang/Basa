@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useMemo, useState } from "react";
+import { Select } from "@/components/ui/select";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { formatDate, formatMoney } from "@/lib/format";
@@ -274,11 +275,7 @@ export default function OperationsTable({
           <L label="Контрагент"><Combobox value={bCp} onChange={setBCp} placeholder="не менять" emptyLabel="не менять" options={cpOpts} /></L>
           <L label="Счёт"><Combobox value={bAcc} onChange={setBAcc} placeholder="не менять" emptyLabel="не менять" options={accounts.map((a) => ({ value: a.id, label: a.name }))} /></L>
           <L label="Статус">
-            <select value={bStatus} onChange={(e) => setBStatus(e.target.value)} className="input">
-              <option value="keep">не менять</option>
-              <option value="actual">Фактическая</option>
-              <option value="planned">Плановая</option>
-            </select>
+            <Select value={bStatus} onChange={setBStatus} options={[{ value: "keep", label: "не менять" }, { value: "actual", label: "Фактическая" }, { value: "planned", label: "Плановая" }]} />
           </L>
           <div className="col-span-2 sm:col-span-3 lg:col-span-5">
             <button onClick={applyBulk} disabled={busy} className="btn-primary">{busy ? "…" : `Применить к ${sel.size}`}</button>
