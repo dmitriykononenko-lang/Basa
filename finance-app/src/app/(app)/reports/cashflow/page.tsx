@@ -68,6 +68,7 @@ export default async function CashflowPage() {
 
   const incomeM = new Array(monthsCount).fill(0);
   const expenseM = new Array(monthsCount).fill(0);
+  const transferM = new Array(monthsCount).fill(0); // переводы между счетами — справочно, вне сальдо
   type CatAgg = { id: string | null; name: string; values: number[] };
   const incomeCat = new Map<string, CatAgg>();
   const expenseCat = new Map<string, CatAgg>();
@@ -89,6 +90,8 @@ export default async function CashflowPage() {
     } else if (t.type === "expense") {
       expenseM[mi] += v;
       bump(expenseCat, t.category?.id ?? null, t.category?.name ?? "Нераспределённые", mi, v);
+    } else if (t.type === "transfer") {
+      transferM[mi] += v;
     }
   }
 
@@ -130,6 +133,7 @@ export default async function CashflowPage() {
         incomeCats={incomeCats}
         expenseM={expenseM}
         expenseCats={expenseCats}
+        transferM={transferM}
         saldoM={saldoM}
         closing={closing}
         teamId={team.id}
@@ -140,6 +144,7 @@ export default async function CashflowPage() {
       <p className="mt-4 text-xs text-slate-400 dark:text-neutral-600">
         Клик по сумме открывает операции этого месяца. Строка «Нераспределённые» —
         операции без статьи: провалитесь в неё и проставьте статью прямо в списке.
+        «Переводы между счетами» показаны справочно и не входят в поступления, выплаты и сальдо.
       </p>
     </div>
   );

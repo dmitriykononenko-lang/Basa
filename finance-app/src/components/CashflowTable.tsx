@@ -7,7 +7,7 @@ import DrilldownModal, { type DrillFilter } from "@/components/DrilldownModal";
 type Cat = { id: string | null; name: string; values: number[] };
 
 export default function CashflowTable({
-  monthLabels, monthKeys, base, opening, incomeM, incomeCats, expenseM, expenseCats, saldoM, closing,
+  monthLabels, monthKeys, base, opening, incomeM, incomeCats, expenseM, expenseCats, transferM, saldoM, closing,
   teamId, userId, canEdit,
 }: {
   monthLabels: string[];
@@ -18,6 +18,7 @@ export default function CashflowTable({
   incomeCats: Cat[];
   expenseM: number[];
   expenseCats: Cat[];
+  transferM: number[];
   saldoM: number[];
   closing: number[];
   teamId: string;
@@ -43,6 +44,13 @@ export default function CashflowTable({
       filter: cat.id
         ? { categoryId: cat.id, dateFrom: from, dateTo: to, type, status: "actual" }
         : { uncategorized: true, dateFrom: from, dateTo: to, type, status: "actual" },
+    });
+  }
+  function openTransfers(mi: number) {
+    const { from, to } = monthRange(mi);
+    setDrill({
+      title: `Переводы между счетами · ${monthLabels[mi]}`,
+      filter: { type: "transfer", dateFrom: from, dateTo: to, status: "actual" },
     });
   }
 
@@ -72,6 +80,12 @@ export default function CashflowTable({
             ))}
             <Row label="Сальдо" values={saldoM} bold signed cell={cell} base={base} />
             <Row label="Деньги на конец периода" values={closing} bold muted cell={cell} base={base} />
+            <tr className="border-t-4 border-slate-100 dark:border-white/[0.06]">
+              <td className="sticky left-0 bg-white px-5 py-2 text-xs text-slate-400 dark:bg-[#15171c] dark:text-neutral-500" colSpan={monthLabels.length + 1}>
+                Справочно (не входит в сальдо):
+              </td>
+            </tr>
+            <Row label="Переводы между счетами" values={transferM} muted cell={cell} base={base} onCell={openTransfers} />
           </tbody>
         </table>
       </div>
@@ -106,10 +120,11 @@ function CatRow({ cat, cell, base, negate, onCell }: {
   );
 }
 
-function Row({ label, values, bold, muted, accent, signed, cell, base, toggle }: {
+function Row({ label, values, bold, muted, accent, signed, cell, base, toggle, onCell }: {
   label: string; values: number[]; bold?: boolean; muted?: boolean;
   accent?: "emerald" | "red"; signed?: boolean; cell: string; base: string;
   toggle?: { open: boolean; onClick: () => void; has: boolean };
+  onCell?: (mi: number) => void;
 }) {
   const labelColor = muted ? "text-slate-400 dark:text-neutral-500" : "text-slate-800 dark:text-neutral-200";
   function color(v: number) {
@@ -128,11 +143,15 @@ function Row({ label, values, bold, muted, accent, signed, cell, base, toggle }:
           </button>
         ) : label}
       </td>
-      {values.map((v, i) => (
-        <td key={i} className={`${cell} ${bold ? "font-semibold" : ""} ${color(v)}`}>
-          {v === 0 ? "—" : formatMoney(v, base)}
-        </td>
-      ))}
+      {values.map((v, i) => {
+        const clickable = onCell && v !== 0;
+        return (
+          <td key={i} className={`${cell} ${bold ? "font-semibold" : ""} ${color(v)} ${clickable ? "cursor-pointer hover:text-brand hover:underline" : ""}`}
+            onClick={clickable ? () => onCell!(i) : undefined}>
+            {v === 0 ? "—" : formatMoney(v, base)}
+          </td>
+        );
+      })}
     </tr>
   );
 }
