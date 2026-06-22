@@ -31,7 +31,7 @@ const GROUPS: [string, string][] = [
   ["counterparty", "Контрагенты"],
   ["project", "Проекты"],
 ];
-const ACTIVITY_LABEL: Record<string, string> = { operating: "Операционная", investing: "Инвестиционная", financing: "Финансовая" };
+const ACTIVITY_LABEL: Record<string, string> = { operating: "Операционная", investing: "Инвестиционная", financial: "Финансовая" };
 
 export default async function CashflowPage({
   searchParams,
@@ -125,6 +125,24 @@ export default async function CashflowPage({
     row.values[mi] += v;
   }
 
+  // Ключ группировки строки по выбранному измерению.
+  function keyOf(t: Tx): { id: string | null; name: string } {
+    switch (group) {
+      case "account":
+        return { id: t.account_id, name: t.account?.name ?? "Без счёта" };
+      case "counterparty":
+        return { id: t.counterparty_id, name: t.counterparty?.name ?? "Без контрагента" };
+      case "project":
+        return { id: t.project_id, name: t.project?.name ?? "Без проекта" };
+      case "activity": {
+        const a = t.category?.cf_activity ?? null;
+        return { id: a, name: a ? (ACTIVITY_LABEL[a] ?? a) : "Без вида деятельности" };
+      }
+      default:
+        return { id: t.category?.id ?? null, name: t.category?.name ?? "Нераспределённые" };
+    }
+  }
+
   // totalNetFetched — чистый поток ВСЕХ загруженных операций (>= начала диапазона),
   // нужен для расчёта остатка на начало диапазона от текущего остатка.
   let totalNetFetched = 0;
@@ -137,10 +155,12 @@ export default async function CashflowPage({
     if (mi === undefined) continue; // вне отображаемого диапазона (учтено в остатке на начало)
     if (t.type === "income") {
       incomeM[mi] += v;
-      bump(incomeCat, t.category?.id ?? null, t.category?.name ?? "Нераспределённые", mi, v);
+      const k = keyOf(t);
+      bump(incomeCat, k.id, k.name, mi, v);
     } else if (t.type === "expense") {
       expenseM[mi] += v;
-      bump(expenseCat, t.category?.id ?? null, t.category?.name ?? "Нераспределённые", mi, v);
+      const k = keyOf(t);
+      bump(expenseCat, k.id, k.name, mi, v);
     } else if (t.type === "transfer") {
       transferM[mi] += v;
     }
@@ -163,6 +183,18 @@ export default async function CashflowPage({
   const expenseCats = [...expenseCat.values()].sort((a, b) => sum(b) - sum(a));
   const monthKeys = monthsList.map((mm) => `${mm.y}-${pad2(mm.m + 1)}`);
   const monthLabels = monthsList.map((mm) => (multiYear ? `${MONTHS_RU[mm.m].slice(0, 3)} ${mm.y}` : MONTHS_RU[mm.m]));
+
+  // Ссылка на тот же отчёт с другой группировкой, сохраняя период.
+  const periodQS = new URLSearchParams();
+  if (period === "custom") periodQS.set("period", "custom");
+  if (spFrom) periodQS.set("from", spFrom);
+  if (spTo) periodQS.set("to", spTo);
+  const groupHref = (g: string) => {
+    const p = new URLSearchParams(periodQS);
+    if (g !== "article") p.set("group", g);
+    const qs = p.toString();
+    return `/reports/cashflow${qs ? `?${qs}` : ""}`;
+  };
 
   return (
     <div className="p-6 sm:p-8">
@@ -196,7 +228,25 @@ export default async function CashflowPage({
         {period === "custom" && <ReportRangePicker basePath="/reports/cashflow" from={spFrom} to={spTo} />}
       </div>
 
+      {/* Группировка статей отчёта по измерению */}
+      <div className="mb-4 flex flex-wrap items-center gap-1.5 border-b border-slate-200/70 pb-px dark:border-white/[0.07]">
+        {GROUPS.map(([g, label]) => (
+          <Link
+            key={g}
+            href={groupHref(g)}
+            className={`-mb-px rounded-t-lg border-b-2 px-3 py-2 text-sm font-medium transition ${
+              group === g
+                ? "border-brand text-brand"
+                : "border-transparent text-slate-500 hover:text-slate-700 dark:text-neutral-400 dark:hover:text-neutral-200"
+            }`}
+          >
+            {label}
+          </Link>
+        ))}
+      </div>
+
       <CashflowTable
+        group={group}
         monthLabels={monthLabels}
         monthKeys={monthKeys}
         base={base}
@@ -214,8 +264,9 @@ export default async function CashflowPage({
       />
 
       <p className="mt-4 text-xs text-slate-400 dark:text-neutral-600">
-        Клик по сумме открывает операции этого месяца. Строка «Нераспределённые» —
-        операции без статьи: провалитесь в неё и проставьте статью прямо в списке.
+        {group === "activity"
+          ? "Поступления и выплаты сгруппированы по виду деятельности (операционная / инвестиционная / финансовая). "
+          : "Клик по сумме открывает операции этого месяца в выбранном разрезе. "}
         «Переводы между счетами» показаны справочно и не входят в поступления, выплаты и сальдо.
       </p>
     </div>

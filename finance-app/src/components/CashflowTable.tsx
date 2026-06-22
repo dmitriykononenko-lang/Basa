@@ -6,9 +6,17 @@ import DrilldownModal, { type DrillFilter } from "@/components/DrilldownModal";
 
 type Cat = { id: string | null; name: string; values: number[] };
 
+const GROUP_HEADER: Record<string, string> = {
+  article: "Статья",
+  activity: "Вид деятельности",
+  account: "Счёт",
+  counterparty: "Контрагент",
+  project: "Проект",
+};
+
 export default function CashflowTable({
   monthLabels, monthKeys, base, opening, incomeM, incomeCats, expenseM, expenseCats, transferM, saldoM, closing,
-  teamId, userId, canEdit,
+  teamId, userId, canEdit, group = "article",
 }: {
   monthLabels: string[];
   monthKeys: string[];
@@ -24,6 +32,7 @@ export default function CashflowTable({
   teamId: string;
   userId: string;
   canEdit: boolean;
+  group?: string;
 }) {
   const [incOpen, setIncOpen] = useState(true);
   const [expOpen, setExpOpen] = useState(true);
@@ -38,14 +47,17 @@ export default function CashflowTable({
     return { from, to };
   }
   function openCat(cat: Cat, type: "income" | "expense", mi: number) {
+    if (group === "activity") return; // нет прямого фильтра операций по виду деятельности
     const { from, to } = monthRange(mi);
-    setDrill({
-      title: `${cat.name} · ${monthLabels[mi]}`,
-      filter: cat.id
-        ? { categoryId: cat.id, dateFrom: from, dateTo: to, type, status: "actual" }
-        : { uncategorized: true, dateFrom: from, dateTo: to, type, status: "actual" },
-    });
+    const b = { dateFrom: from, dateTo: to, type, status: "actual" as const };
+    let filter: DrillFilter;
+    if (group === "account") filter = cat.id ? { ...b, accountId: cat.id } : b;
+    else if (group === "counterparty") filter = cat.id ? { ...b, counterpartyId: cat.id } : { ...b, noCounterparty: true };
+    else if (group === "project") filter = cat.id ? { ...b, projectId: cat.id } : { ...b, noProject: true };
+    else filter = cat.id ? { ...b, categoryId: cat.id } : { ...b, uncategorized: true };
+    setDrill({ title: `${cat.name} · ${monthLabels[mi]}`, filter });
   }
+  const catClickable = group !== "activity";
   function openTransfers(mi: number) {
     const { from, to } = monthRange(mi);
     setDrill({
@@ -60,7 +72,7 @@ export default function CashflowTable({
         <table className="w-full min-w-[700px] text-sm">
           <thead>
             <tr className="border-b border-slate-100 text-xs uppercase tracking-wider text-slate-400 dark:border-white/[0.07] dark:text-neutral-500">
-              <th className="sticky left-0 bg-white px-5 py-3 text-left font-medium dark:bg-[#15171c]">Статья</th>
+              <th className="sticky left-0 bg-white px-5 py-3 text-left font-medium dark:bg-[#15171c]">{GROUP_HEADER[group] ?? "Статья"}</th>
               {monthLabels.map((m, i) => <th key={i} className="px-4 py-3 text-right font-medium">{m}</th>)}
             </tr>
           </thead>
@@ -70,13 +82,13 @@ export default function CashflowTable({
               toggle={{ open: incOpen, onClick: () => setIncOpen((o) => !o), has: incomeCats.length > 0 }} />
             {incOpen && incomeCats.map((c) => (
               <CatRow key={"i" + (c.id ?? c.name)} cat={c} cell={cell} base={base}
-                onCell={(mi) => openCat(c, "income", mi)} />
+                onCell={catClickable ? (mi) => openCat(c, "income", mi) : undefined} />
             ))}
             <Row label="Выплаты" values={expenseM.map((x) => -x)} bold accent="red" cell={cell} base={base}
               toggle={{ open: expOpen, onClick: () => setExpOpen((o) => !o), has: expenseCats.length > 0 }} />
             {expOpen && expenseCats.map((c) => (
               <CatRow key={"e" + (c.id ?? c.name)} cat={c} cell={cell} base={base} negate
-                onCell={(mi) => openCat(c, "expense", mi)} />
+                onCell={catClickable ? (mi) => openCat(c, "expense", mi) : undefined} />
             ))}
             <Row label="Сальдо" values={saldoM} bold signed cell={cell} base={base} />
             <Row label="Деньги на конец периода" values={closing} bold muted cell={cell} base={base} />

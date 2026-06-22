@@ -15,7 +15,10 @@ type Tx = {
   occurred_on: string;
   accrual_date: string | null;
   project_id: string | null;
+  counterparty_id: string | null;
   category: { id: string; name: string; kind: string; cf_activity: string; pnl_treatment: string } | null;
+  counterparty: { name: string } | null;
+  project: { name: string } | null;
 };
 type Obl = {
   type: "receivable" | "payable";
@@ -24,9 +27,18 @@ type Obl = {
   period_month: string | null;
   due_date: string | null;
   project_id: string | null;
+  counterparty_id: string | null;
   category: { id: string; name: string; cf_activity: string; pnl_treatment: string } | null;
+  counterparty: { name: string } | null;
+  project: { name: string } | null;
 };
 type CatAgg = { id: string | null; name: string; value: number };
+
+const GROUPS: [string, string][] = [
+  ["article", "Статьи"],
+  ["counterparty", "Контрагенты"],
+  ["project", "Проекты"],
+];
 
 function periodStart(period: string): string {
   const now = new Date();
@@ -39,10 +51,11 @@ function periodStart(period: string): string {
 export default async function PnlPage({
   searchParams,
 }: {
-  searchParams: Promise<{ period?: string; from?: string; to?: string }>;
+  searchParams: Promise<{ period?: string; from?: string; to?: string; group?: string }>;
 }) {
-  const { period: p, from: spFrom, to: spTo } = await searchParams;
+  const { period: p, from: spFrom, to: spTo, group: spGroup } = await searchParams;
   const period = p === "month" || p === "quarter" || p === "custom" ? p : "year";
+  const group = GROUPS.some(([g]) => g === spGroup) ? spGroup! : "article";
 
   const current = await getCurrentTeam();
   if (!current) {
@@ -70,7 +83,7 @@ export default async function PnlPage({
   const txs = await fetchAllRows((from, to) =>
     supabase
       .from("transactions")
-      .select("id, type, amount, currency, occurred_on, accrual_date, project_id, category:categories(id, name, kind, cf_activity, pnl_treatment)")
+      .select("id, type, amount, currency, occurred_on, accrual_date, project_id, counterparty_id, category:categories(id, name, kind, cf_activity, pnl_treatment), counterparty:counterparties(name), project:projects(name)")
       .eq("team_id", team.id)
       .eq("status", "actual")
       .or(`occurred_on.gte.${start},accrual_date.gte.${start}`)
@@ -86,7 +99,7 @@ export default async function PnlPage({
   const oblRows = await fetchAllRows((from, to) =>
     supabase
       .from("obligations")
-      .select("type, amount, currency, period_month, due_date, project_id, category:categories(id, name, cf_activity, pnl_treatment)")
+      .select("type, amount, currency, period_month, due_date, project_id, counterparty_id, category:categories(id, name, cf_activity, pnl_treatment), counterparty:counterparties(name), project:projects!obligations_project_id_fkey(name)")
       .eq("team_id", team.id)
       .order("id", { ascending: true })
       .range(from, to)
@@ -109,6 +122,17 @@ export default async function PnlPage({
     map.set(key, row);
   }
 
+  // Ключ строки разбивки по выбранному измерению (статья по умолчанию).
+  function keyFor(o: {
+    cpId: string | null; cpName: string | null;
+    prId: string | null; prName: string | null;
+    catId: string | null; catName: string;
+  }): { id: string | null; name: string } {
+    if (group === "counterparty") return { id: o.cpId, name: o.cpName ?? "Без контрагента" };
+    if (group === "project") return { id: o.prId, name: o.prName ?? "Без проекта" };
+    return { id: o.catId, name: o.catName };
+  }
+
   for (const t of rows) {
     if (t.type === "transfer") continue;
     if (settledTx.has(t.id)) continue; // оплата обязательства — расход уже признан при начислении
@@ -122,21 +146,21 @@ export default async function PnlPage({
     if (treatment === "excluded") continue;
     if (activity !== "operating") continue; // капвложения и финансовые потоки не входят в ОПиУ
     const v = toBase(t.amount, t.currency, rates);
-    const id = cat?.id ?? null;
-    const name = cat?.name ?? (t.type === "income" ? "Прочая выручка" : "Прочие расходы");
+    const articleName = cat?.name ?? (t.type === "income" ? "Прочая выручка" : "Прочие расходы");
+    const k = keyFor({ cpId: t.counterparty_id, cpName: t.counterparty?.name ?? null, prId: t.project_id, prName: t.project?.name ?? null, catId: cat?.id ?? null, catName: articleName });
 
     if (t.type === "income") {
       revenue += v;
-      add(revenueByCat, id, name, v);
+      add(revenueByCat, k.id, k.name, v);
     } else {
       const bucket =
         treatment === "direct" ? "direct"
         : treatment === "indirect" ? "indirect"
         : treatment === "other" ? "other"
         : t.project_id ? "direct" : "indirect"; // auto
-      if (bucket === "direct") { direct += v; add(directByCat, id, name, v); }
-      else if (bucket === "indirect") { indirect += v; add(indirectByCat, id, name, v); }
-      else { other += v; add(otherByCat, id, name, v); }
+      if (bucket === "direct") { direct += v; add(directByCat, k.id, k.name, v); }
+      else if (bucket === "indirect") { indirect += v; add(indirectByCat, k.id, k.name, v); }
+      else { other += v; add(otherByCat, k.id, k.name, v); }
     }
   }
   // Начисленные обязательства (в т.ч. неоплаченные) — по периоду начисления
@@ -150,20 +174,20 @@ export default async function PnlPage({
     if (treatment === "excluded") continue;
     if (activity !== "operating") continue;
     const v = toBase(o.amount, o.currency, rates);
-    const id = cat?.id ?? null;
     if (o.type === "receivable") {
       revenue += v;
-      add(revenueByCat, id, cat?.name ?? "Начисленная выручка", v);
+      const k = keyFor({ cpId: o.counterparty_id, cpName: o.counterparty?.name ?? null, prId: o.project_id, prName: o.project?.name ?? null, catId: cat?.id ?? null, catName: cat?.name ?? "Начисленная выручка" });
+      add(revenueByCat, k.id, k.name, v);
     } else {
       const bucket =
         treatment === "direct" ? "direct"
         : treatment === "indirect" ? "indirect"
         : treatment === "other" ? "other"
         : o.project_id ? "direct" : "indirect";
-      const name = cat?.name ?? "Оплата труда и начисления";
-      if (bucket === "direct") { direct += v; add(directByCat, id, name, v); }
-      else if (bucket === "indirect") { indirect += v; add(indirectByCat, id, name, v); }
-      else { other += v; add(otherByCat, id, name, v); }
+      const k = keyFor({ cpId: o.counterparty_id, cpName: o.counterparty?.name ?? null, prId: o.project_id, prName: o.project?.name ?? null, catId: cat?.id ?? null, catName: cat?.name ?? "Оплата труда и начисления" });
+      if (bucket === "direct") { direct += v; add(directByCat, k.id, k.name, v); }
+      else if (bucket === "indirect") { indirect += v; add(indirectByCat, k.id, k.name, v); }
+      else { other += v; add(otherByCat, k.id, k.name, v); }
     }
   }
 
@@ -175,6 +199,16 @@ export default async function PnlPage({
   const pct = (x: number) => (revenue > 0 ? `${((x / revenue) * 100).toFixed(1)}%` : "—");
 
   const PERIODS: [string, string][] = [["month", "Месяц"], ["quarter", "Квартал"], ["year", "Год"], ["custom", "Произвольный"]];
+
+  const groupSuffix = group !== "article" ? `&group=${group}` : "";
+  const groupHref = (g: string) => {
+    const qp = new URLSearchParams();
+    qp.set("period", period);
+    if (period === "custom" && spFrom) qp.set("from", spFrom);
+    if (period === "custom" && spTo) qp.set("to", spTo);
+    if (g !== "article") qp.set("group", g);
+    return `/reports/pnl?${qp.toString()}`;
+  };
 
   return (
     <div className="p-6 sm:p-8">
@@ -192,7 +226,7 @@ export default async function PnlPage({
           {PERIODS.map(([val, label]) => (
             <Link
               key={val}
-              href={`/reports/pnl?period=${val}`}
+              href={`/reports/pnl?period=${val}${groupSuffix}`}
               className={`rounded-full px-4 py-1.5 font-medium transition ${
                 period === val
                   ? "bg-white text-brand shadow-sm dark:bg-neutral-700 dark:text-white"
@@ -206,6 +240,23 @@ export default async function PnlPage({
         {period === "custom" && <ReportRangePicker basePath="/reports/pnl" from={spFrom} to={spTo} />}
       </div>
 
+      {/* Группировка разбивки по измерению */}
+      <div className="mb-6 flex flex-wrap items-center gap-1.5 border-b border-slate-200/70 pb-px dark:border-white/[0.07]">
+        {GROUPS.map(([g, label]) => (
+          <Link
+            key={g}
+            href={groupHref(g)}
+            className={`-mb-px rounded-t-lg border-b-2 px-3 py-2 text-sm font-medium transition ${
+              group === g
+                ? "border-brand text-brand"
+                : "border-transparent text-slate-500 hover:text-slate-700 dark:text-neutral-400 dark:hover:text-neutral-200"
+            }`}
+          >
+            {label}
+          </Link>
+        ))}
+      </div>
+
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Kpi title="Выручка" value={formatMoney(revenue, base)} accent="emerald" />
         <Kpi title="Валовая прибыль" value={formatMoney(gross, base)} sub={`маржа ${pct(gross)}`} accent={gross < 0 ? "red" : "slate"} />
@@ -215,6 +266,7 @@ export default async function PnlPage({
 
       <PnlTable
         base={base}
+        group={group}
         revenue={revenue} revenueCats={sortCats(revenueByCat)}
         direct={direct} directCats={sortCats(directByCat)}
         indirect={indirect} indirectCats={sortCats(indirectByCat)}

@@ -8,7 +8,7 @@ type Cat = { id: string | null; name: string; value: number };
 
 export default function PnlTable({
   base, revenue, revenueCats, direct, directCats, indirect, indirectCats,
-  other, otherCats, gross, operating, net, teamId, userId, canEdit, dateFrom, dateTo,
+  other, otherCats, gross, operating, net, teamId, userId, canEdit, dateFrom, dateTo, group = "article",
 }: {
   base: string;
   revenue: number; revenueCats: Cat[];
@@ -18,18 +18,19 @@ export default function PnlTable({
   gross: number; operating: number; net: number;
   teamId: string; userId: string; canEdit: boolean;
   dateFrom: string; dateTo: string;
+  group?: string;
 }) {
   const [open, setOpen] = useState<Record<string, boolean>>({ rev: true, dir: true, ind: true, oth: true });
   const [drill, setDrill] = useState<{ title: string; filter: DrillFilter } | null>(null);
   const t = (k: string) => setOpen((o) => ({ ...o, [k]: !o[k] }));
 
   function openCat(cat: Cat, type: "income" | "expense") {
-    setDrill({
-      title: cat.name,
-      filter: cat.id
-        ? { categoryId: cat.id, type, dateFrom, dateTo, status: "actual" }
-        : { uncategorized: true, type, dateFrom, dateTo, status: "actual" },
-    });
+    const b = { type, dateFrom, dateTo, status: "actual" as const };
+    let filter: DrillFilter;
+    if (group === "counterparty") filter = cat.id ? { ...b, counterpartyId: cat.id } : { ...b, noCounterparty: true };
+    else if (group === "project") filter = cat.id ? { ...b, projectId: cat.id } : { ...b, noProject: true };
+    else filter = cat.id ? { ...b, categoryId: cat.id } : { ...b, uncategorized: true };
+    setDrill({ title: cat.name, filter });
   }
 
   return (
