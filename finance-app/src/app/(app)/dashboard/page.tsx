@@ -12,6 +12,7 @@ import { IconTransactions, IconAccounts, IconReports } from "@/components/icons"
 import { type TrendPoint } from "@/components/TrendChart";
 import ProgressMetricCard from "@/components/ui/progress-metric-card";
 import TotalIncomeCard from "@/components/ui/total-income-card";
+import TotalIncomeRecharts from "@/components/ui/total-income-recharts-lazy";
 import DashboardWidgets, { type Widget } from "@/components/ui/dashboard-widgets";
 import PlannedReview from "@/components/PlannedReview";
 
@@ -542,9 +543,15 @@ export default async function DashboardPage() {
                       label: "Расходы",
                       node: <ProgressMetricCard size="sm" title="Расходы" accent="rose" unit={curSym} data={toPoints(expenseChart)} />,
                     },
+                    {
+                      id: "income_recharts",
+                      label: "Доходы (recharts)",
+                      node: <TotalIncomeRecharts points={toPoints(incomeChart)} sources={incomeSources} sym={curSym} />,
+                    },
                   ]
                 : []),
             ] satisfies Widget[]}
+            defaultHidden={["income_recharts"]}
           />
         </section>
       )}
