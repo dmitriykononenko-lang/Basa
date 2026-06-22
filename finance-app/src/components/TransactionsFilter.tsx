@@ -3,6 +3,7 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import Combobox, { type ComboOption } from "@/components/Combobox";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
 
 type Opt = { id: string; name: string; inn?: string | null };
 
@@ -50,11 +51,11 @@ export default function TransactionsFilter({
       </select>
 
       {period === "custom" && (
-        <>
-          <input type="date" value={sp.get("from") ?? ""} onChange={(e) => setParam("from", e.target.value)} className={cls} />
-          <span className="text-slate-400">—</span>
-          <input type="date" value={sp.get("to") ?? ""} onChange={(e) => setParam("to", e.target.value)} className={cls} />
-        </>
+        <DateRangePicker
+          from={sp.get("from") ?? undefined}
+          to={sp.get("to") ?? undefined}
+          onChange={(f, t) => setParams({ from: f, to: t })}
+        />
       )}
 
       <select value={sp.get("type") ?? "all"} onChange={(e) => setParam("type", e.target.value)} className={cls}>
