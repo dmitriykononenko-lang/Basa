@@ -15,15 +15,31 @@ type Tx = {
   amount: number;
   currency: string;
   occurred_on: string;
-  category: { id: string; name: string } | null;
+  account_id: string | null;
+  counterparty_id: string | null;
+  project_id: string | null;
+  category: { id: string; name: string; cf_activity: string | null } | null;
+  account: { name: string } | null;
+  counterparty: { name: string } | null;
+  project: { name: string } | null;
 };
+
+const GROUPS: [string, string][] = [
+  ["article", "Статьи"],
+  ["activity", "Виды деятельности"],
+  ["account", "Счета"],
+  ["counterparty", "Контрагенты"],
+  ["project", "Проекты"],
+];
+const ACTIVITY_LABEL: Record<string, string> = { operating: "Операционная", investing: "Инвестиционная", financing: "Финансовая" };
 
 export default async function CashflowPage({
   searchParams,
 }: {
-  searchParams: Promise<{ period?: string; from?: string; to?: string }>;
+  searchParams: Promise<{ period?: string; from?: string; to?: string; group?: string }>;
 }) {
-  const { period, from: spFrom, to: spTo } = await searchParams;
+  const { period, from: spFrom, to: spTo, group: spGroup } = await searchParams;
+  const group = GROUPS.some(([g]) => g === spGroup) ? spGroup! : "article";
   const current = await getCurrentTeam();
   if (!current) {
     return (
@@ -81,7 +97,7 @@ export default async function CashflowPage({
   for (let offset = 0; ; offset += PAGE) {
     const { data, error } = await supabase
       .from("transactions")
-      .select("type, amount, currency, occurred_on, category:categories(id, name)")
+      .select("type, amount, currency, occurred_on, account_id, counterparty_id, project_id, category:categories(id, name, cf_activity), account:accounts!transactions_account_id_fkey(name), counterparty:counterparties(name), project:projects(name)")
       .eq("team_id", team.id)
       .eq("status", "actual")
       .gte("occurred_on", startDate)
