@@ -14,6 +14,7 @@ import ProgressMetricCard from "@/components/ui/progress-metric-card";
 import TotalIncomeCard from "@/components/ui/total-income-card";
 import TotalIncomeRecharts from "@/components/ui/total-income-recharts-lazy";
 import DashboardWidgets, { type Widget } from "@/components/ui/dashboard-widgets";
+import CashflowHero from "@/components/CashflowHero";
 import PlannedReview from "@/components/PlannedReview";
 
 const MONTHS_SHORT = [
@@ -58,7 +59,7 @@ export default async function DashboardPage() {
   const curY = now.getFullYear();
   const curM = now.getMonth();
   const curKey = curY * 12 + curM;
-  const PAST = 5; // месяцев истории до текущего
+  const PAST = 11; // месяцев истории до текущего (для периодов 3M/6M/12M)
   const FUT = 3; // месяцев прогноза вперёд
   const today = now.toISOString().slice(0, 10);
   const monthStartStr = new Date(curY, curM, 1).toISOString().slice(0, 10);
@@ -256,26 +257,9 @@ export default async function DashboardPage() {
     });
   }
 
-  // Кассовый разрыв: минимальная прогнозная точка ниже нуля
-  let gapValue = 0;
-  let gapLabel = "";
-  for (const p of trendPoints) {
-    if (p.forecast && p.value < gapValue) {
-      gapValue = p.value;
-      gapLabel = p.label;
-    }
-  }
-  const hasGap = gapValue < 0;
+  // Кассовый разрыв и сам график теперь рисует CashflowHero из trendPoints.
   const showTrend = (accounts?.length ?? 0) > 0;
-
-  // Данные для графика (в основной валюте, мажорные единицы)
-  const trendChart = trendPoints.map((p, i) => ({
-    date: p.label,
-    total: Math.round(p.value / 100),
-    change: i === 0 ? 0 : Math.round((p.value - trendPoints[i - 1].value) / 100),
-  }));
   const curSym = team.base_currency === "RUB" ? "₽" : team.base_currency;
-  const gapText = formatMoney(gapValue, team.base_currency);
 
   // Доходы и расходы по месяцам (факт, без переводов) — для пары графиков
   const monthSeries = (src: Map<number, number>) => {
@@ -460,6 +444,13 @@ export default async function DashboardPage() {
         </p>
       </header>
 
+      {/* Широкий график денежных средств с прогнозом кассового разрыва */}
+      {showTrend && (
+        <div className="mb-7">
+          <CashflowHero points={trendPoints} base={team.base_currency} />
+        </div>
+      )}
+
       {/* Быстрые действия */}
       <div className="mb-7 grid grid-cols-1 gap-3 sm:grid-cols-3">
         <ActionCard
@@ -535,31 +526,11 @@ export default async function DashboardPage() {
         </Metric>
       </div>
 
-      {/* Карточки-метрики: динамика остатка + доходы/расходы по месяцам */}
+      {/* Карточки-метрики: доходы/расходы/прибыль по месяцам */}
       {showTrend && (
         <section className="mt-6">
-          {hasGap && (
-            <div className="mb-4 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-800 ring-1 ring-amber-200/70 dark:bg-amber-950/30 dark:text-amber-200 dark:ring-amber-900/40">
-              ⚠️ Прогноз: в {gapLabel} остаток уходит в минус ({gapText}). Запланируйте поступления или перевод между счетами.
-            </div>
-          )}
           <DashboardWidgets
             widgets={[
-              {
-                id: "balance",
-                label: "Остаток на счетах",
-                span: 2,
-                node: (
-                  <ProgressMetricCard
-                    size="md"
-                    title="Остаток на счетах"
-                    unit={curSym}
-                    data={toPoints(trendChart)}
-                    period="12 месяцев"
-                    periodOptions={[{ label: "6 месяцев", points: 6 }, { label: "12 месяцев" }]}
-                  />
-                ),
-              },
               ...(hasFlows
                 ? [
                     {
