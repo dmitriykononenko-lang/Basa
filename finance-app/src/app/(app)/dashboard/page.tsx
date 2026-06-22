@@ -10,7 +10,7 @@ import { fetchCbrRates, type CbrRates } from "@/lib/cbr";
 import AcceptInviteButton from "@/components/AcceptInviteButton";
 import { IconTransactions, IconAccounts, IconReports } from "@/components/icons";
 import { type TrendPoint } from "@/components/TrendChart";
-import DashboardCharts from "@/components/DashboardCharts";
+import ProgressMetricCard from "@/components/ui/progress-metric-card";
 import PlannedReview from "@/components/PlannedReview";
 
 const MONTHS_SHORT = [
@@ -276,6 +276,8 @@ export default async function DashboardPage() {
   const incomeChart = monthSeries(factInc);
   const expenseChart = monthSeries(factExp);
   const hasFlows = incomeChart.some((p) => p.total > 0) || expenseChart.some((p) => p.total > 0);
+  // Преобразование месячных рядов в точки для карточек-метрик
+  const toPoints = (arr: { date: string; total: number }[]) => arr.map((p) => ({ value: p.total, date: p.date }));
 
   // ── Прогноз по каждому счёту: где не хватит и нужен перевод ──
   type PlanEv = { occurred_on: string; type: string; amount: number; currency: string; account_id: string | null; transfer_account_id: string | null };
@@ -485,20 +487,31 @@ export default async function DashboardPage() {
         </Metric>
       </div>
 
-      {/* Графики: динамика остатка + доходы/расходы по месяцам */}
+      {/* Карточки-метрики: динамика остатка + доходы/расходы по месяцам */}
       {showTrend && (
-        <DashboardCharts
-          curSym={curSym}
-          baseCurrency={team.base_currency}
-          past={PAST}
-          trend={trendChart}
-          hasGap={hasGap}
-          gapLabel={gapLabel}
-          gapText={gapText}
-          income={incomeChart}
-          expense={expenseChart}
-          showFlows={hasFlows}
-        />
+        <section className="mt-6">
+          {hasGap && (
+            <div className="mb-4 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-800 ring-1 ring-amber-200/70 dark:bg-amber-950/30 dark:text-amber-200 dark:ring-amber-900/40">
+              ⚠️ Прогноз: в {gapLabel} остаток уходит в минус ({gapText}). Запланируйте поступления или перевод между счетами.
+            </div>
+          )}
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <ProgressMetricCard
+              size="sm"
+              title="Остаток на счетах"
+              unit={curSym}
+              data={toPoints(trendChart)}
+              period="12 месяцев"
+              periodOptions={[{ label: "6 месяцев", points: 6 }, { label: "12 месяцев" }]}
+            />
+            {hasFlows && (
+              <ProgressMetricCard size="sm" title="Доходы" accent="emerald" unit={curSym} data={toPoints(incomeChart)} />
+            )}
+            {hasFlows && (
+              <ProgressMetricCard size="sm" title="Расходы" accent="rose" unit={curSym} data={toPoints(expenseChart)} />
+            )}
+          </div>
+        </section>
       )}
 
       {/* Счета */}
