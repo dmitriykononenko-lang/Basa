@@ -24,7 +24,7 @@ export default async function ProjectsPage() {
   const [{ data: items }, { data: employees }] = await Promise.all([
     supabase
       .from("projects")
-      .select("id, name, status, start_date, plan_work_days, due_date, completed_on, responsible_counterparty_id, bonus_amount, bonus_currency")
+      .select("id, name, status, start_date, plan_work_days, due_date, completed_on, responsible_counterparty_id, manager_counterparty_id, bonus_amount, bonus_currency")
       .eq("team_id", team.id)
       .eq("archived", false)
       .order("created_at", { ascending: false }),

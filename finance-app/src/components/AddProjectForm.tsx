@@ -25,6 +25,7 @@ export default function AddProjectForm({
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [responsibleId, setResponsibleId] = useState("");
+  const [managerId, setManagerId] = useState("");
   const [startDate, setStartDate] = useState(today);
   const [mode, setMode] = useState<"days" | "date">("days");
   const [planDays, setPlanDays] = useState("");
@@ -47,6 +48,7 @@ export default function AddProjectForm({
       team_id: teamId,
       name,
       responsible_counterparty_id: responsibleId || null,
+      manager_counterparty_id: managerId || null,
       start_date: startDate,
       plan_work_days: mode === "days" ? planNum : null,
       due_date: mode === "date" ? dueDate || null : null,
@@ -59,7 +61,7 @@ export default function AddProjectForm({
       setLoading(false);
       return;
     }
-    setName(""); setResponsibleId(""); setPlanDays(""); setDueDate(""); setBonus("");
+    setName(""); setResponsibleId(""); setManagerId(""); setPlanDays(""); setDueDate(""); setBonus("");
     setOpen(false);
     setLoading(false);
     router.refresh();
@@ -84,6 +86,10 @@ export default function AddProjectForm({
         </F>
         <F label="Ответственный (аналитик)">
           <Combobox value={responsibleId} onChange={setResponsibleId} placeholder="— не выбран —" emptyLabel="— не выбран —"
+            options={employees.map((e) => ({ value: e.id, label: e.name }))} />
+        </F>
+        <F label="Менеджер">
+          <Combobox value={managerId} onChange={setManagerId} placeholder="— не выбран —" emptyLabel="— не выбран —"
             options={employees.map((e) => ({ value: e.id, label: e.name }))} />
         </F>
         <F label="Дата старта">

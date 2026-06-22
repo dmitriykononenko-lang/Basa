@@ -21,6 +21,7 @@ export default function EditProjectForm({
   name: initialName,
   status: initialStatus,
   responsibleId,
+  managerId,
   employees,
   startDate: initialStart,
   planWorkDays,
@@ -33,6 +34,7 @@ export default function EditProjectForm({
   name: string;
   status: string;
   responsibleId: string | null;
+  managerId: string | null;
   employees: { id: string; name: string }[];
   startDate: string;
   planWorkDays: number | null;
@@ -47,6 +49,7 @@ export default function EditProjectForm({
   const [name, setName] = useState(initialName);
   const [status, setStatus] = useState(initialStatus);
   const [responsible, setResponsible] = useState(responsibleId ?? "");
+  const [manager, setManager] = useState(managerId ?? "");
   const [startDate, setStartDate] = useState(initialStart ?? today);
   const [mode, setMode] = useState<"days" | "date">(planWorkDays != null ? "days" : initialDue ? "date" : "days");
   const [planDays, setPlanDays] = useState(planWorkDays != null ? String(planWorkDays) : "");
@@ -71,6 +74,7 @@ export default function EditProjectForm({
         name: name.trim(),
         status,
         responsible_counterparty_id: responsible || null,
+        manager_counterparty_id: manager || null,
         start_date: startDate,
         plan_work_days: mode === "days" ? planNum : null,
         due_date: mode === "date" ? dueDate || null : null,
@@ -103,6 +107,12 @@ export default function EditProjectForm({
         <div>
           <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Ответственный (аналитик)</label>
           <Combobox value={responsible} onChange={setResponsible}
+            options={employees.map((e) => ({ value: e.id, label: e.name }))}
+            placeholder="— не назначен —" emptyLabel="— не назначен —" />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Менеджер</label>
+          <Combobox value={manager} onChange={setManager}
             options={employees.map((e) => ({ value: e.id, label: e.name }))}
             placeholder="— не назначен —" emptyLabel="— не назначен —" />
         </div>

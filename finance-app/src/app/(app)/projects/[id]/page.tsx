@@ -22,7 +22,7 @@ export default async function ProjectPage({
 
   const { data: project } = await supabase
     .from("projects")
-    .select("id, name, status, responsible_counterparty_id, start_date, plan_work_days, due_date, completed_on, bonus_amount, bonus_currency")
+    .select("id, name, status, responsible_counterparty_id, manager_counterparty_id, start_date, plan_work_days, due_date, completed_on, bonus_amount, bonus_currency")
     .eq("id", id)
     .maybeSingle();
   if (!project) notFound();
@@ -43,6 +43,8 @@ export default async function ProjectPage({
   ]);
   const responsibleName =
     (employees ?? []).find((e) => e.id === project.responsible_counterparty_id)?.name ?? null;
+  const managerName =
+    (employees ?? []).find((e) => e.id === project.manager_counterparty_id)?.name ?? null;
   const manage = canEditFinance(role);
   const showFinance = canViewFinance(role);
 
@@ -157,7 +159,8 @@ export default async function ProjectPage({
           </h1>
           <p className="text-sm text-slate-500 dark:text-neutral-400">
             {showFinance ? "Финансы и маржинальность проекта" : "Сроки и мотивация по проекту"}
-            {responsibleName && <> · ответственный: <b>{responsibleName}</b></>}
+            {responsibleName && <> · аналитик: <b>{responsibleName}</b></>}
+            {managerName && <> · менеджер: <b>{managerName}</b></>}
           </p>
         </div>
         {manage && (
@@ -166,6 +169,7 @@ export default async function ProjectPage({
             name={project.name}
             status={project.status}
             responsibleId={project.responsible_counterparty_id}
+            managerId={project.manager_counterparty_id}
             employees={employees ?? []}
             startDate={project.start_date}
             planWorkDays={project.plan_work_days}
@@ -220,7 +224,8 @@ export default async function ProjectPage({
           ) : (
             <Field label="Срок" value="не задан" />
           )}
-          <Field label="Ответственный" value={responsibleName ?? "не назначен"} />
+          <Field label="Аналитик" value={responsibleName ?? "не назначен"} />
+          <Field label="Менеджер" value={managerName ?? "не назначен"} />
           <Field label="Базовый бонус" value={project.bonus_amount > 0 ? formatMoney(project.bonus_amount, project.bonus_currency) : "—"} />
           {project.bonus_amount > 0 && (
             <Field
