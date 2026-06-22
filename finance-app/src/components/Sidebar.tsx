@@ -17,6 +17,7 @@ import {
   IconChevronDown,
   IconWallet,
   IconRepeat,
+  IconTag,
 } from "./icons";
 
 type Item = {
@@ -33,6 +34,7 @@ const NAV: Item[] = [
   { href: "/counterparties", label: "Контрагенты", Icon: IconCounterparties },
   { href: "/agents", label: "Агенты", Icon: IconCounterparties },
   { href: "/projects", label: "Проекты", Icon: IconProjects },
+  { href: "/licenses", label: "Лицензии", Icon: IconTag },
   { href: "/employees", label: "Сотрудники", Icon: IconEmployees },
   { href: "/payroll", label: "Зарплата", Icon: IconWallet },
   { href: "/budgets", label: "Бюджеты", Icon: IconBudgets },
