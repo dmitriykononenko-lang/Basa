@@ -11,6 +11,8 @@ import AcceptInviteButton from "@/components/AcceptInviteButton";
 import { IconTransactions, IconAccounts, IconReports } from "@/components/icons";
 import { type TrendPoint } from "@/components/TrendChart";
 import ProgressMetricCard from "@/components/ui/progress-metric-card";
+import TotalIncomeCard from "@/components/ui/total-income-card";
+import DashboardWidgets, { type Widget } from "@/components/ui/dashboard-widgets";
 import PlannedReview from "@/components/PlannedReview";
 
 const MONTHS_SHORT = [
@@ -100,6 +102,10 @@ export default async function DashboardPage() {
   );
   const histTx = await fetchAllRows((from, to) =>
     supabase.from("transactions").select("type, amount, currency, occurred_on").eq("team_id", team.id).eq("status", "actual").gte("occurred_on", sixStart).order("occurred_on", { ascending: true }).range(from, to)
+  );
+  // Доход по счетам за год — для разбивки «источники дохода» в виджете
+  const incByAccRows = await fetchAllRows<{ account_id: string | null; amount: number; currency: string }>((from, to) =>
+    supabase.from("transactions").select("account_id, amount, currency").eq("team_id", team.id).eq("type", "income").eq("status", "actual").gte("occurred_on", yearStart).order("occurred_on", { ascending: true }).range(from, to)
   );
 
   const invites = (myInvites ?? []) as unknown as InviteRow[];
@@ -278,6 +284,19 @@ export default async function DashboardPage() {
   const hasFlows = incomeChart.some((p) => p.total > 0) || expenseChart.some((p) => p.total > 0);
   // Преобразование месячных рядов в точки для карточек-метрик
   const toPoints = (arr: { date: string; total: number }[]) => arr.map((p) => ({ value: p.total, date: p.date }));
+
+  // Источники дохода: доход по счетам за год (в базовой валюте, мажорные единицы)
+  const accNameById = new Map((accounts ?? []).map((a) => [a.id, a.name]));
+  const incByAcc = new Map<string, number>();
+  for (const r of incByAccRows ?? []) {
+    const key = r.account_id ?? "—";
+    incByAcc.set(key, (incByAcc.get(key) ?? 0) + toBase(r.amount, r.currency, rates));
+  }
+  const incTotalYear = [...incByAcc.values()].reduce((s, v) => s + v, 0) || 1;
+  const incomeSources = [...incByAcc.entries()]
+    .map(([id, v]) => ({ name: accNameById.get(id) ?? "Прочее", amount: Math.round(v / 100), share: v / incTotalYear }))
+    .sort((a, b) => b.amount - a.amount)
+    .slice(0, 4);
 
   // ── Прогноз по каждому счёту: где не хватит и нужен перевод ──
   type PlanEv = { occurred_on: string; type: string; amount: number; currency: string; account_id: string | null; transfer_account_id: string | null };
@@ -495,22 +514,38 @@ export default async function DashboardPage() {
               ⚠️ Прогноз: в {gapLabel} остаток уходит в минус ({gapText}). Запланируйте поступления или перевод между счетами.
             </div>
           )}
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-            <ProgressMetricCard
-              size="sm"
-              title="Остаток на счетах"
-              unit={curSym}
-              data={toPoints(trendChart)}
-              period="12 месяцев"
-              periodOptions={[{ label: "6 месяцев", points: 6 }, { label: "12 месяцев" }]}
-            />
-            {hasFlows && (
-              <ProgressMetricCard size="sm" title="Доходы" accent="emerald" unit={curSym} data={toPoints(incomeChart)} />
-            )}
-            {hasFlows && (
-              <ProgressMetricCard size="sm" title="Расходы" accent="rose" unit={curSym} data={toPoints(expenseChart)} />
-            )}
-          </div>
+          <DashboardWidgets
+            widgets={[
+              {
+                id: "balance",
+                label: "Остаток на счетах",
+                node: (
+                  <ProgressMetricCard
+                    size="sm"
+                    title="Остаток на счетах"
+                    unit={curSym}
+                    data={toPoints(trendChart)}
+                    period="12 месяцев"
+                    periodOptions={[{ label: "6 месяцев", points: 6 }, { label: "12 месяцев" }]}
+                  />
+                ),
+              },
+              ...(hasFlows
+                ? [
+                    {
+                      id: "income",
+                      label: "Доходы (с источниками)",
+                      node: <TotalIncomeCard points={toPoints(incomeChart)} sources={incomeSources} sym={curSym} />,
+                    },
+                    {
+                      id: "expense",
+                      label: "Расходы",
+                      node: <ProgressMetricCard size="sm" title="Расходы" accent="rose" unit={curSym} data={toPoints(expenseChart)} />,
+                    },
+                  ]
+                : []),
+            ] satisfies Widget[]}
+          />
         </section>
       )}
 
