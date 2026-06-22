@@ -209,6 +209,14 @@ export default async function DashboardPage() {
     else factExp.set(key, (factExp.get(key) ?? 0) + v);
   }
 
+  // Сравнение с прошлым месяцем (тот же набор: факт, без переводов)
+  const prevKey = curKey - 1;
+  const prevIncome = factInc.get(prevKey) ?? 0;
+  const prevExpense = factExp.get(prevKey) ?? 0;
+  const prevFlow = prevIncome - prevExpense;
+  const momPct = (cur: number, prev: number): number | null =>
+    prev !== 0 ? ((cur - prev) / Math.abs(prev)) * 100 : null;
+
   const fcNet = new Map<number, number>();
   for (const t of planTx ?? []) {
     if (t.type === "transfer") continue;
@@ -500,6 +508,7 @@ export default async function DashboardPage() {
         <Metric
           title="Доход за месяц"
           accent="emerald"
+          compare={{ pct: momPct(income, prevIncome), prevLabel: formatMoney(prevIncome, team.base_currency), goodWhenUp: true }}
           sub={plannedIncome > 0 ? `план: +${formatMoney(plannedIncome, team.base_currency)}` : undefined}
         >
           {formatMoney(income, team.base_currency)}
@@ -507,6 +516,7 @@ export default async function DashboardPage() {
         <Metric
           title="Расход за месяц"
           accent="red"
+          compare={{ pct: momPct(expense, prevExpense), prevLabel: formatMoney(prevExpense, team.base_currency), goodWhenUp: false }}
           sub={plannedExpense > 0 ? `план: −${formatMoney(plannedExpense, team.base_currency)}` : undefined}
         >
           {formatMoney(expense, team.base_currency)}
@@ -514,6 +524,7 @@ export default async function DashboardPage() {
         <Metric
           title="Денежный поток"
           accent="brand"
+          compare={{ pct: momPct(income - expense, prevFlow), prevLabel: formatMoney(prevFlow, team.base_currency), goodWhenUp: true }}
           sub={
             plannedIncome > 0 || plannedExpense > 0
               ? `с планом: ${formatMoney(income + plannedIncome - expense - plannedExpense, team.base_currency)}`
@@ -714,23 +725,42 @@ function Metric({
   children,
   accent,
   sub,
+  compare,
 }: {
   title: string;
   children: React.ReactNode;
   accent: "emerald" | "red" | "brand";
   sub?: string;
+  compare?: { pct: number | null; prevLabel: string; goodWhenUp: boolean };
 }) {
   const accentMap = {
     emerald: "text-emerald-600 dark:text-emerald-400",
     red: "text-red-600 dark:text-red-400",
     brand: "text-brand dark:text-brand",
   };
+  const up = compare?.pct != null && compare.pct >= 0;
+  const good = compare?.pct != null && (up === compare.goodWhenUp);
+  const cmpColor = good ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400";
   return (
     <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
       <div className="text-sm text-slate-500 dark:text-neutral-400">{title}</div>
       <div className={`mt-2 text-2xl font-bold ${accentMap[accent]}`}>
         {children}
       </div>
+      {compare && (
+        <div className="mt-1.5 flex items-center gap-1.5 text-xs">
+          {compare.pct != null ? (
+            <>
+              <span className={`inline-flex items-center gap-0.5 font-semibold ${cmpColor}`}>
+                {up ? "▲" : "▼"} {Math.abs(compare.pct).toFixed(0)}%
+              </span>
+              <span className="text-slate-400 dark:text-neutral-500">к прошлому месяцу ({compare.prevLabel})</span>
+            </>
+          ) : (
+            <span className="text-slate-400 dark:text-neutral-500">в прошлом месяце — нет данных</span>
+          )}
+        </div>
+      )}
       {sub && <div className="mt-1 text-xs font-medium text-violet-500 dark:text-violet-400">{sub}</div>}
     </div>
   );
