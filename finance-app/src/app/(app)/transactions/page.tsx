@@ -7,6 +7,7 @@ import EmptyState from "@/components/EmptyState";
 import PlannedReview from "@/components/PlannedReview";
 import ExportButton from "@/components/ExportButton";
 import OperationsTable from "@/components/OperationsTable";
+import { PaginationNav } from "@/components/ui/pagination";
 
 type TxRow = {
   id: string;
@@ -81,32 +82,58 @@ export default async function TransactionsPage({
     supabase.from("transactions").select("id", { count: "exact", head: true }).eq("team_id", team.id).eq("status", "planned"),
   ]);
 
-  let query = supabase
-    .from("transactions")
-    .select(
-      `id, type, amount, currency, occurred_on, accrual_date, note, status,
-       account_id, transfer_account_id, category_id, counterparty_id, project_id, created_by, import_batch_id,
-       account:accounts!transactions_account_id_fkey(name),
-       to_account:accounts!transactions_transfer_account_id_fkey(name),
-       category:categories(name),
-       counterparty:counterparties(name),
-       project:projects(name)`
-    )
-    .eq("team_id", team.id);
-
   const { gte, lte } = periodRange(period, sp.from, sp.to);
-  if (gte) query = query.gte("occurred_on", gte);
-  if (lte) query = query.lte("occurred_on", lte);
-  if (fType !== "all") query = query.eq("type", fType);
-  if (fStatus !== "all") query = query.eq("status", fStatus);
-  if (fAccount !== "all") query = query.or(`account_id.eq.${fAccount},transfer_account_id.eq.${fAccount}`);
-  if (fProject !== "all") query = query.eq("project_id", fProject);
-  if (fCp !== "all") query = query.eq("counterparty_id", fCp);
-  if (fCat !== "all") query = query.eq("category_id", fCat);
-  if (q) query = query.ilike("note", `%${q}%`);
-  query = query.order("occurred_on", { ascending: false }).order("created_at", { ascending: false }).limit(300);
+  const PAGE_SIZE = 50;
+  const page = Math.max(1, Number(sp.page) || 1);
 
-  const { data: txs } = await query;
+  // Одни и те же фильтры применяем и к выборке страницы, и к подсчёту total.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const applyFilters = (qb: any) => {
+    if (gte) qb = qb.gte("occurred_on", gte);
+    if (lte) qb = qb.lte("occurred_on", lte);
+    if (fType !== "all") qb = qb.eq("type", fType);
+    if (fStatus !== "all") qb = qb.eq("status", fStatus);
+    if (fAccount !== "all") qb = qb.or(`account_id.eq.${fAccount},transfer_account_id.eq.${fAccount}`);
+    if (fProject !== "all") qb = qb.eq("project_id", fProject);
+    if (fCp !== "all") qb = qb.eq("counterparty_id", fCp);
+    if (fCat !== "all") qb = qb.eq("category_id", fCat);
+    if (q) qb = qb.ilike("note", `%${q}%`);
+    return qb;
+  };
+
+  const { count: totalCount } = await applyFilters(
+    supabase.from("transactions").select("id", { count: "exact", head: true }).eq("team_id", team.id),
+  );
+  const totalPages = Math.max(1, Math.ceil((totalCount ?? 0) / PAGE_SIZE));
+
+  const { data: txs } = await applyFilters(
+    supabase
+      .from("transactions")
+      .select(
+        `id, type, amount, currency, occurred_on, accrual_date, note, status,
+         account_id, transfer_account_id, category_id, counterparty_id, project_id, created_by, import_batch_id,
+         account:accounts!transactions_account_id_fkey(name),
+         to_account:accounts!transactions_transfer_account_id_fkey(name),
+         category:categories(name),
+         counterparty:counterparties(name),
+         project:projects(name)`,
+      )
+      .eq("team_id", team.id),
+  )
+    .order("occurred_on", { ascending: false })
+    .order("created_at", { ascending: false })
+    .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1);
+
+  // Ссылки пагинации сохраняют текущие фильтры.
+  const buildHref = (p: number) => {
+    const params = new URLSearchParams();
+    for (const [k, v] of Object.entries(sp)) {
+      if (v != null && v !== "" && k !== "page") params.set(k, String(v));
+    }
+    if (p > 1) params.set("page", String(p));
+    const qs = params.toString();
+    return qs ? `/transactions?${qs}` : "/transactions";
+  };
   const rows = (txs ?? []) as unknown as TxRow[];
   const writable = canWriteTx(role) && (accounts?.length ?? 0) > 0;
   const cats = (categories ?? []) as { id: string; name: string; kind: "income" | "expense" }[];
@@ -201,6 +228,8 @@ export default async function TransactionsPage({
           teamId={team.id}
           userId={user?.id ?? ""}
         />
+      ) : page > 1 ? (
+        <p className="py-10 text-center text-sm text-slate-500 dark:text-neutral-400">На этой странице операций нет.</p>
       ) : (
         <EmptyState
           icon="🧾"
@@ -209,6 +238,13 @@ export default async function TransactionsPage({
           ctaLabel="Импорт выписки"
           ctaHref="/transactions/import"
         />
+      )}
+
+      <PaginationNav page={page} totalPages={totalPages} hrefFor={buildHref} />
+      {totalCount != null && totalCount > 0 && (
+        <p className="mt-2 text-center text-xs text-slate-400 dark:text-neutral-600">
+          Страница {page} из {totalPages} · всего операций: {totalCount}
+        </p>
       )}
     </div>
   );
