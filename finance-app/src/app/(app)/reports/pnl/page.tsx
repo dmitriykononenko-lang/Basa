@@ -5,6 +5,7 @@ import { formatMoney } from "@/lib/format";
 import { buildRateMap, toBase } from "@/lib/fx";
 import { fetchAllRows } from "@/lib/supabase/paginate";
 import PnlTable from "@/components/PnlTable";
+import ReportRangePicker from "@/components/ReportRangePicker";
 
 type Tx = {
   id: string;
@@ -38,10 +39,10 @@ function periodStart(period: string): string {
 export default async function PnlPage({
   searchParams,
 }: {
-  searchParams: Promise<{ period?: string }>;
+  searchParams: Promise<{ period?: string; from?: string; to?: string }>;
 }) {
-  const { period: p } = await searchParams;
-  const period = p === "month" || p === "quarter" ? p : "year";
+  const { period: p, from: spFrom, to: spTo } = await searchParams;
+  const period = p === "month" || p === "quarter" || p === "custom" ? p : "year";
 
   const current = await getCurrentTeam();
   if (!current) {
@@ -61,7 +62,8 @@ export default async function PnlPage({
   const base = team.base_currency;
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  const start = periodStart(period);
+  const start = period === "custom" && spFrom ? spFrom : periodStart(period);
+  const end = period === "custom" ? spTo : undefined;
   const todayStr = new Date().toISOString().slice(0, 10);
 
   const { data: fxRows } = await supabase.from("fx_rates").select("currency, rate, rate_date").eq("team_id", team.id);
@@ -113,6 +115,7 @@ export default async function PnlPage({
     // Метод начисления: операция относится к периоду по дате начисления (если задана)
     const eff = t.accrual_date ?? t.occurred_on;
     if (eff < start) continue;
+    if (end && eff > end) continue;
     const cat = t.category;
     const treatment = cat?.pnl_treatment ?? "auto";
     const activity = cat?.cf_activity ?? "operating";
@@ -140,6 +143,7 @@ export default async function PnlPage({
   for (const o of (oblRows ?? []) as unknown as Obl[]) {
     const eff = o.period_month ?? o.due_date;
     if (!eff || eff < start) continue;
+    if (end && eff > end) continue;
     const cat = o.category;
     const treatment = cat?.pnl_treatment ?? "auto";
     const activity = cat?.cf_activity ?? "operating";
@@ -170,7 +174,7 @@ export default async function PnlPage({
   const net = operating - other;
   const pct = (x: number) => (revenue > 0 ? `${((x / revenue) * 100).toFixed(1)}%` : "—");
 
-  const PERIODS: [string, string][] = [["month", "Месяц"], ["quarter", "Квартал"], ["year", "Год"]];
+  const PERIODS: [string, string][] = [["month", "Месяц"], ["quarter", "Квартал"], ["year", "Год"], ["custom", "Произвольный"]];
 
   return (
     <div className="p-6 sm:p-8">
@@ -183,20 +187,23 @@ export default async function PnlPage({
         </p>
       </header>
 
-      <div className="mb-6 inline-flex gap-1 rounded-full bg-slate-100 p-1 text-sm dark:bg-neutral-800">
-        {PERIODS.map(([val, label]) => (
-          <Link
-            key={val}
-            href={`/reports/pnl?period=${val}`}
-            className={`rounded-full px-4 py-1.5 font-medium transition ${
-              period === val
-                ? "bg-white text-brand shadow-sm dark:bg-neutral-700 dark:text-white"
-                : "text-slate-500 hover:text-slate-700 dark:text-neutral-400"
-            }`}
-          >
-            {label}
-          </Link>
-        ))}
+      <div className="mb-6 flex flex-wrap items-center gap-3">
+        <div className="inline-flex gap-1 rounded-full bg-slate-100 p-1 text-sm dark:bg-neutral-800">
+          {PERIODS.map(([val, label]) => (
+            <Link
+              key={val}
+              href={`/reports/pnl?period=${val}`}
+              className={`rounded-full px-4 py-1.5 font-medium transition ${
+                period === val
+                  ? "bg-white text-brand shadow-sm dark:bg-neutral-700 dark:text-white"
+                  : "text-slate-500 hover:text-slate-700 dark:text-neutral-400"
+              }`}
+            >
+              {label}
+            </Link>
+          ))}
+        </div>
+        {period === "custom" && <ReportRangePicker basePath="/reports/pnl" from={spFrom} to={spTo} />}
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">

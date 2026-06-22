@@ -1,7 +1,9 @@
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import { buildRateMap, toBase } from "@/lib/fx";
 import CashflowTable from "@/components/CashflowTable";
+import ReportRangePicker from "@/components/ReportRangePicker";
 
 const MONTHS_RU = [
   "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
@@ -16,7 +18,12 @@ type Tx = {
   category: { id: string; name: string } | null;
 };
 
-export default async function CashflowPage() {
+export default async function CashflowPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ period?: string; from?: string; to?: string }>;
+}) {
+  const { period, from: spFrom, to: spTo } = await searchParams;
   const current = await getCurrentTeam();
   if (!current) {
     return (
@@ -36,9 +43,31 @@ export default async function CashflowPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   const now = new Date();
-  const year = now.getFullYear();
-  const monthsCount = now.getMonth() + 1; // Январь..текущий месяц
-  const yearStart = `${year}-01-01`;
+  const pad2 = (n: number) => String(n).padStart(2, "0");
+  const isCustom = period === "custom" && !!spFrom && !!spTo;
+
+  // Диапазон месяцев: по умолчанию — текущий год (Янв..текущий месяц), иначе произвольный
+  let startY: number, startM: number, endY: number, endM: number;
+  if (isCustom) {
+    const [fy, fm] = spFrom!.split("-").map(Number);
+    const [ty, tm] = spTo!.split("-").map(Number);
+    startY = fy; startM = (fm || 1) - 1;
+    endY = ty; endM = (tm || 1) - 1;
+    if (endY < startY || (endY === startY && endM < startM)) { endY = startY; endM = startM; }
+  } else {
+    startY = now.getFullYear(); startM = 0;
+    endY = now.getFullYear(); endM = now.getMonth();
+  }
+  const startDate = `${startY}-${pad2(startM + 1)}-01`;
+  const multiYear = startY !== endY;
+
+  const monthsList: { y: number; m: number }[] = [];
+  for (let y = startY, m = startM; y < endY || (y === endY && m <= endM); ) {
+    monthsList.push({ y, m });
+    m++; if (m > 11) { m = 0; y++; }
+  }
+  const monthsCount = monthsList.length;
+  const idxByKey = new Map(monthsList.map((mm, i) => [`${mm.y}-${mm.m}`, i]));
 
   const [{ data: balances }, { data: fxRows }] = await Promise.all([
     supabase.from("account_balances").select("balance, currency").eq("team_id", team.id),
@@ -55,7 +84,7 @@ export default async function CashflowPage() {
       .select("type, amount, currency, occurred_on, category:categories(id, name)")
       .eq("team_id", team.id)
       .eq("status", "actual")
-      .gte("occurred_on", yearStart)
+      .gte("occurred_on", startDate)
       .order("occurred_on", { ascending: true })
       .range(offset, offset + PAGE - 1);
     if (error || !data?.length) break;
@@ -80,10 +109,16 @@ export default async function CashflowPage() {
     row.values[mi] += v;
   }
 
+  // totalNetFetched — чистый поток ВСЕХ загруженных операций (>= начала диапазона),
+  // нужен для расчёта остатка на начало диапазона от текущего остатка.
+  let totalNetFetched = 0;
   for (const t of rows) {
-    const mi = new Date(t.occurred_on).getMonth();
-    if (mi >= monthsCount) continue;
+    const d = new Date(t.occurred_on);
     const v = toBase(t.amount, t.currency, rates);
+    if (t.type === "income") totalNetFetched += v;
+    else if (t.type === "expense") totalNetFetched -= v;
+    const mi = idxByKey.get(`${d.getFullYear()}-${d.getMonth()}`);
+    if (mi === undefined) continue; // вне отображаемого диапазона (учтено в остатке на начало)
     if (t.type === "income") {
       incomeM[mi] += v;
       bump(incomeCat, t.category?.id ?? null, t.category?.name ?? "Нераспределённые", mi, v);
@@ -96,9 +131,8 @@ export default async function CashflowPage() {
   }
 
   const saldoM = months.map((i) => incomeM[i] - expenseM[i]);
-  const netYTD = saldoM.reduce((s, x) => s + x, 0);
   const currentBalance = (balances ?? []).reduce((s, b) => s + toBase(b.balance, b.currency, rates), 0);
-  const openingFirst = currentBalance - netYTD;
+  const openingFirst = currentBalance - totalNetFetched;
   const opening = new Array(monthsCount).fill(0);
   const closing = new Array(monthsCount).fill(0);
   let run = openingFirst;
@@ -111,7 +145,8 @@ export default async function CashflowPage() {
   const sum = (a: CatAgg) => a.values.reduce((s, x) => s + x, 0);
   const incomeCats = [...incomeCat.values()].sort((a, b) => sum(b) - sum(a));
   const expenseCats = [...expenseCat.values()].sort((a, b) => sum(b) - sum(a));
-  const monthKeys = months.map((i) => `${year}-${String(i + 1).padStart(2, "0")}`);
+  const monthKeys = monthsList.map((mm) => `${mm.y}-${pad2(mm.m + 1)}`);
+  const monthLabels = monthsList.map((mm) => (multiYear ? `${MONTHS_RU[mm.m].slice(0, 3)} ${mm.y}` : MONTHS_RU[mm.m]));
 
   return (
     <div className="p-6 sm:p-8">
@@ -120,12 +155,33 @@ export default async function CashflowPage() {
           Движение денежных средств
         </h1>
         <p className="text-sm text-slate-500 dark:text-neutral-400">
-          По месяцам, {year} год · в {base} (только фактические операции)
+          {isCustom
+            ? `${MONTHS_RU[startM]} ${startY} — ${MONTHS_RU[endM]} ${endY}`
+            : `${startY} год`}{" "}
+          · в {base} (только фактические операции)
         </p>
       </header>
 
+      <div className="mb-5 flex flex-wrap items-center gap-3">
+        <div className="inline-flex gap-1 rounded-full bg-slate-100 p-1 text-sm dark:bg-neutral-800">
+          <Link
+            href="/reports/cashflow"
+            className={`rounded-full px-4 py-1.5 font-medium transition ${!isCustom ? "bg-white text-brand shadow-sm dark:bg-neutral-700 dark:text-white" : "text-slate-500 hover:text-slate-700 dark:text-neutral-400"}`}
+          >
+            Текущий год
+          </Link>
+          <Link
+            href="/reports/cashflow?period=custom"
+            className={`rounded-full px-4 py-1.5 font-medium transition ${isCustom ? "bg-white text-brand shadow-sm dark:bg-neutral-700 dark:text-white" : "text-slate-500 hover:text-slate-700 dark:text-neutral-400"}`}
+          >
+            Произвольный
+          </Link>
+        </div>
+        {period === "custom" && <ReportRangePicker basePath="/reports/cashflow" from={spFrom} to={spTo} />}
+      </div>
+
       <CashflowTable
-        monthLabels={months.map((i) => MONTHS_RU[i])}
+        monthLabels={monthLabels}
         monthKeys={monthKeys}
         base={base}
         opening={opening}
