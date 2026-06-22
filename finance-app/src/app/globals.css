@@ -178,3 +178,34 @@ button:focus-visible, a:focus-visible {
     position: static !important;
   }
 }
+
+/* ---------- Анимации экрана входа (components/ui/sign-in) ---------- */
+@keyframes fadeSlideIn   { to { opacity: 1; filter: blur(0); transform: translateY(0); } }
+@keyframes slideRightIn  { to { opacity: 1; filter: blur(0); transform: translateX(0); } }
+@keyframes testimonialIn { to { opacity: 1; filter: blur(0); transform: translateY(0) scale(1); } }
+
+.animate-element     { opacity: 0; filter: blur(4px); transform: translateY(12px);            animation: fadeSlideIn 0.6s ease-out forwards; }
+.animate-slide-right { opacity: 0; filter: blur(8px); transform: translateX(28px);            animation: slideRightIn 0.8s ease-out forwards; }
+.animate-testimonial { opacity: 0; filter: blur(6px); transform: translateY(16px) scale(0.98); animation: testimonialIn 0.8s ease-out forwards; }
+
+.animate-delay-100  { animation-delay: 0.1s }
+.animate-delay-200  { animation-delay: 0.2s }
+.animate-delay-300  { animation-delay: 0.3s }
+.animate-delay-400  { animation-delay: 0.4s }
+.animate-delay-500  { animation-delay: 0.5s }
+.animate-delay-600  { animation-delay: 0.6s }
+.animate-delay-700  { animation-delay: 0.7s }
+.animate-delay-800  { animation-delay: 0.8s }
+.animate-delay-900  { animation-delay: 0.9s }
+.animate-delay-1000 { animation-delay: 1.0s }
+.animate-delay-1200 { animation-delay: 1.2s }
+.animate-delay-1400 { animation-delay: 1.4s }
+
+/* Чекбокс «запомнить меня» */
+.custom-checkbox { width: 1rem; height: 1rem; border-radius: 0.3rem; accent-color: #2f6df6; cursor: pointer; }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-element, .animate-slide-right, .animate-testimonial {
+    animation: none; opacity: 1; filter: none; transform: none;
+  }
+}
