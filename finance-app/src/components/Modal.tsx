@@ -2,14 +2,22 @@
 
 import { useEffect } from "react";
 
+const SIZES: Record<string, string> = {
+  md: "max-w-lg",
+  lg: "max-w-2xl",
+  xl: "max-w-3xl",
+  wide: "max-w-5xl",
+};
+
 export default function Modal({
-  open, onClose, title, children, wide = false,
+  open, onClose, title, children, wide = false, size,
 }: {
   open: boolean;
   onClose: () => void;
   title?: React.ReactNode;
   children: React.ReactNode;
   wide?: boolean;
+  size?: "md" | "lg" | "xl" | "wide";
 }) {
   useEffect(() => {
     if (!open) return;
@@ -25,7 +33,7 @@ export default function Modal({
   return (
     <div className="modal-backdrop" onClick={onClose} role="dialog" aria-modal="true">
       <div
-        className={`animate-scale-in w-full ${wide ? "max-w-5xl" : "max-w-lg"} rounded-3xl bg-slate-50 p-5 shadow-2xl ring-1 ring-black/5 dark:bg-[#101116] dark:ring-white/10 sm:p-6`}
+        className={`animate-scale-in w-full ${SIZES[size ?? (wide ? "wide" : "md")]} rounded-3xl bg-slate-50 p-5 shadow-2xl ring-1 ring-black/5 dark:bg-[#101116] dark:ring-white/10 sm:p-6`}
         onClick={(e) => e.stopPropagation()}
       >
         {title !== undefined && (
