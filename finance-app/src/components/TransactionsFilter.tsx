@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import Combobox, { type ComboOption } from "@/components/Combobox";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
+import { Select } from "@/components/ui/select";
 
 type Opt = { id: string; name: string; inn?: string | null };
 
@@ -41,14 +42,18 @@ export default function TransactionsFilter({
 
   return (
     <div className="mb-5 flex flex-wrap items-center gap-2">
-      <select value={period} onChange={(e) => setParams({ period: e.target.value, from: "", to: "" })} className={cls}>
-        <option value="month">Текущий месяц</option>
-        <option value="last_month">Прошлый месяц</option>
-        <option value="quarter">Квартал</option>
-        <option value="year">Год</option>
-        <option value="all">Всё время</option>
-        <option value="custom">Произвольный период</option>
-      </select>
+      <Select
+        value={period}
+        onChange={(v) => setParams({ period: v, from: "", to: "" })}
+        options={[
+          { value: "month", label: "Текущий месяц" },
+          { value: "last_month", label: "Прошлый месяц" },
+          { value: "quarter", label: "Квартал" },
+          { value: "year", label: "Год" },
+          { value: "all", label: "Всё время" },
+          { value: "custom", label: "Произвольный период" },
+        ]}
+      />
 
       {period === "custom" && (
         <DateRangePicker
@@ -58,18 +63,26 @@ export default function TransactionsFilter({
         />
       )}
 
-      <select value={sp.get("type") ?? "all"} onChange={(e) => setParam("type", e.target.value)} className={cls}>
-        <option value="all">Все типы</option>
-        <option value="income">Приход</option>
-        <option value="expense">Расход</option>
-        <option value="transfer">Перевод</option>
-      </select>
+      <Select
+        value={sp.get("type") ?? "all"}
+        onChange={(v) => setParam("type", v)}
+        options={[
+          { value: "all", label: "Все типы" },
+          { value: "income", label: "Приход" },
+          { value: "expense", label: "Расход" },
+          { value: "transfer", label: "Перевод" },
+        ]}
+      />
 
-      <select value={sp.get("status") ?? "all"} onChange={(e) => setParam("status", e.target.value)} className={cls}>
-        <option value="all">План и факт</option>
-        <option value="actual">Только факт</option>
-        <option value="planned">Только план</option>
-      </select>
+      <Select
+        value={sp.get("status") ?? "all"}
+        onChange={(v) => setParam("status", v)}
+        options={[
+          { value: "all", label: "План и факт" },
+          { value: "actual", label: "Только факт" },
+          { value: "planned", label: "Только план" },
+        ]}
+      />
 
       <Combobox className="min-w-[150px]" value={sp.get("account") ?? ""} onChange={(v) => setParam("account", v)} options={toOpts(accounts)} placeholder="Все счета" emptyLabel="Все счета" />
       <Combobox className="min-w-[150px]" value={sp.get("project") ?? ""} onChange={(v) => setParam("project", v)} options={toOpts(projects)} placeholder="Все проекты" emptyLabel="Все проекты" />
