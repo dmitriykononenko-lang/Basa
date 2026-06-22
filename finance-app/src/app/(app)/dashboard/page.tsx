@@ -537,9 +537,10 @@ export default async function DashboardPage() {
               {
                 id: "balance",
                 label: "Остаток на счетах",
+                span: 2,
                 node: (
                   <ProgressMetricCard
-                    size="sm"
+                    size="md"
                     title="Остаток на счетах"
                     unit={curSym}
                     data={toPoints(trendChart)}

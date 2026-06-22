@@ -2,7 +2,7 @@
 
 import * as React from "react";
 
-export type Widget = { id: string; label: string; node: React.ReactNode };
+export type Widget = { id: string; label: string; node: React.ReactNode; span?: 1 | 2 };
 
 /**
  * Сетка дашборд-виджетов: выбор видимости + перетаскивание (порядок).
@@ -119,7 +119,7 @@ export default function DashboardWidgets({
                 key={id}
                 onDragOver={(e) => { e.preventDefault(); reorder(id); }}
                 onDrop={(e) => e.preventDefault()}
-                className={`group relative transition ${dragId === id ? "opacity-50" : ""}`}
+                className={`group relative transition ${w.span === 2 ? "lg:col-span-2" : ""} ${dragId === id ? "opacity-50" : ""}`}
               >
                 <button
                   type="button"

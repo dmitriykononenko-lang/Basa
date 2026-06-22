@@ -76,10 +76,19 @@ export function MetricChart({
 
   const { min, max } = React.useMemo(() => {
     const all = series.flatMap((s) => s.data.map((d) => d.value));
-    const lo = Math.min(0, ...all);
-    const hi = Math.max(...all, lo + 1);
-    return { min: lo, max: hi };
-  }, [series]);
+    if (all.length === 0) return { min: 0, max: 1 };
+    const dataMin = Math.min(...all);
+    const dataMax = Math.max(...all);
+    if (view === "bar") {
+      // Столбцы должны расти от нуля — иначе высота вводит в заблуждение
+      const lo = Math.min(0, dataMin);
+      return { min: lo, max: Math.max(dataMax, lo + 1) };
+    }
+    // Кривая: плотный диапазон с небольшим отступом, чтобы колебания были видны,
+    // а не сплющивались в полоску у края (например, остаток 6,0–6,4 млн).
+    const range = dataMax - dataMin || Math.abs(dataMax) || 1;
+    return { min: dataMin - range * 0.12, max: dataMax + range * 0.12 };
+  }, [series, view]);
 
   const xOf = (i: number) => (n <= 1 ? 50 : (i / (n - 1)) * 100);
   const yOf = (v: number) => PAD_Y + (1 - (v - min) / (max - min || 1)) * (100 - 2 * PAD_Y);
