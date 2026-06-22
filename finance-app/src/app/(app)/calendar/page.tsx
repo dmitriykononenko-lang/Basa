@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import { formatMoney } from "@/lib/format";
@@ -6,11 +5,7 @@ import { buildRateMap, toBase } from "@/lib/fx";
 import { fetchCbrRates } from "@/lib/cbr";
 import { fetchAllRows } from "@/lib/supabase/paginate";
 import CalendarGrid, { type Cell } from "@/components/CalendarGrid";
-
-const MONTHS_RU = [
-  "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
-  "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
-];
+import { MonthPicker } from "@/components/ui/month-picker";
 
 function ym(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
@@ -27,8 +22,6 @@ export default async function CalendarPage({
     .split("-")
     .map(Number);
   const monthStart = new Date(y, m - 1, 1);
-  const prev = ym(new Date(y, m - 2, 1));
-  const next = ym(new Date(y, m, 1));
 
   const current = await getCurrentTeam();
   if (!current) {
@@ -176,13 +169,7 @@ export default async function CalendarPage({
         <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
           Платёжный календарь
         </h1>
-        <div className="flex items-center gap-2">
-          <Link href={`/calendar?month=${prev}`} className="btn-ghost px-3">←</Link>
-          <span className="min-w-[140px] text-center text-sm font-semibold text-slate-700 dark:text-neutral-200">
-            {MONTHS_RU[m - 1]} {y}
-          </span>
-          <Link href={`/calendar?month=${next}`} className="btn-ghost px-3">→</Link>
-        </div>
+        <MonthPicker year={y} month={m} />
       </header>
 
       {hasGap && (
