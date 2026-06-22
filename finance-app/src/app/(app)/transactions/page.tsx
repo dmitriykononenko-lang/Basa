@@ -178,6 +178,14 @@ export default async function TransactionsPage({
           )}
           {writable && user && (
             <Link
+              href="/transactions/categorize"
+              className="inline-flex items-center gap-2 rounded-full bg-brand/10 px-4 py-2 text-sm font-medium text-brand transition hover:bg-brand/20"
+            >
+              ✨ Распределить статьи
+            </Link>
+          )}
+          {writable && user && (
+            <Link
               href="/transactions/import"
               className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-200 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700"
             >
