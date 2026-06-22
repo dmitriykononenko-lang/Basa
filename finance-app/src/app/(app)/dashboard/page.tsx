@@ -108,6 +108,7 @@ export default async function DashboardPage() {
   const incByAccRows = await fetchAllRows<{ account_id: string | null; amount: number; currency: string }>((from, to) =>
     supabase.from("transactions").select("account_id, amount, currency").eq("team_id", team.id).eq("type", "income").eq("status", "actual").gte("occurred_on", yearStart).order("occurred_on", { ascending: true }).range(from, to)
   );
+  const { data: catRows } = await supabase.from("categories").select("id, name").eq("team_id", team.id);
 
   const invites = (myInvites ?? []) as unknown as InviteRow[];
 
@@ -298,6 +299,22 @@ export default async function DashboardPage() {
     .map(([id, v]) => ({ name: accNameById.get(id) ?? "Прочее", amount: Math.round(v / 100), share: v / incTotalYear }))
     .sort((a, b) => b.amount - a.amount)
     .slice(0, 4);
+
+  // Расходы по статьям за год (топ-источники) — для виджета
+  const catNameById = new Map((catRows ?? []).map((c) => [c.id, c.name]));
+  const expByCat = new Map<string, number>();
+  for (const t of yearExp ?? []) {
+    const key = t.category_id ?? "—";
+    expByCat.set(key, (expByCat.get(key) ?? 0) + toBase(t.amount, t.currency, rates));
+  }
+  const expTotalYear = [...expByCat.values()].reduce((s, v) => s + v, 0) || 1;
+  const expenseCats = [...expByCat.entries()]
+    .map(([id, v]) => ({ name: catNameById.get(id) ?? "Без статьи", amount: Math.round(v / 100), share: v / expTotalYear }))
+    .sort((a, b) => b.amount - a.amount)
+    .slice(0, 4);
+
+  // Прибыль по месяцам = доходы − расходы
+  const profitChart = incomeChart.map((p, i) => ({ date: p.date, total: p.total - (expenseChart[i]?.total ?? 0) }));
 
   // ── Прогноз по каждому счёту: где не хватит и нужен перевод ──
   type PlanEv = { occurred_on: string; type: string; amount: number; currency: string; account_id: string | null; transfer_account_id: string | null };
@@ -534,24 +551,34 @@ export default async function DashboardPage() {
               ...(hasFlows
                 ? [
                     {
+                      id: "income_recharts",
+                      label: "Доходы (recharts, с источниками)",
+                      node: <TotalIncomeRecharts points={toPoints(incomeChart)} sources={incomeSources} sym={curSym} />,
+                    },
+                    {
+                      id: "profit",
+                      label: "Прибыль",
+                      node: <ProgressMetricCard size="sm" title="Прибыль" unit={curSym} data={toPoints(profitChart)} />,
+                    },
+                    {
+                      id: "expense_cat",
+                      label: "Расходы по статьям",
+                      node: <TotalIncomeCard title="Расходы по статьям" color="#f43f5e" points={toPoints(expenseChart)} sources={expenseCats} sym={curSym} />,
+                    },
+                    {
                       id: "income",
-                      label: "Доходы (с источниками)",
+                      label: "Доходы (лёгкий график)",
                       node: <TotalIncomeCard points={toPoints(incomeChart)} sources={incomeSources} sym={curSym} />,
                     },
                     {
                       id: "expense",
-                      label: "Расходы",
+                      label: "Расходы (просто)",
                       node: <ProgressMetricCard size="sm" title="Расходы" accent="rose" unit={curSym} data={toPoints(expenseChart)} />,
-                    },
-                    {
-                      id: "income_recharts",
-                      label: "Доходы (recharts)",
-                      node: <TotalIncomeRecharts points={toPoints(incomeChart)} sources={incomeSources} sym={curSym} />,
                     },
                   ]
                 : []),
             ] satisfies Widget[]}
-            defaultHidden={["income_recharts"]}
+            defaultHidden={["income", "expense"]}
           />
         </section>
       )}

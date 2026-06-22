@@ -12,19 +12,20 @@ const PERIODS = [
   { label: "12М", points: 12 },
 ];
 
-const EMERALD = "#10b981";
-
 export default function TotalIncomeCard({
   points,
   sources,
   sym = "₽",
   title = "Доходы",
+  color = "#10b981",
 }: {
   points: SeriesPoint[];
   sources: Source[];
   sym?: string;
   title?: string;
+  color?: string;
 }) {
+  const EMERALD = color;
   const [period, setPeriod] = React.useState(PERIODS[1]); // 6М
   const money = (n: number) => `${Math.round(n).toLocaleString("ru-RU")} ${sym}`;
 
