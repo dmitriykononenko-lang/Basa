@@ -39,6 +39,18 @@ export default function AgentPayouts({
   const totalOut = outstanding.reduce((s, p) => s + p.outstanding, 0);
   const mainCur = payouts[0]?.currency ?? "RUB";
 
+  async function removePosition(id: string) {
+    if (!confirm("Удалить эту комиссию из выплат?")) return;
+    setBusy(true); setError(null);
+    const supabase = createClient();
+    await supabase.from("obligation_payments").delete().eq("obligation_id", id);
+    const { error } = await supabase.from("obligations").delete().eq("id", id);
+    setBusy(false);
+    if (error) { setError(error.message); return; }
+    toast.success("Позиция удалена");
+    router.refresh();
+  }
+
   async function payAll() {
     if (outstanding.length === 0) return;
     if (!confirm(`Выплатить все комиссии (${outstanding.length})? Будут созданы расходные операции.`)) return;
@@ -99,6 +111,7 @@ export default function AgentPayouts({
                 <th className="px-3 py-2 text-right font-medium">%</th>
                 <th className="px-3 py-2 text-right font-medium">Комиссия</th>
                 <th className="px-3 py-2 text-right font-medium">Статус</th>
+                <th className="px-3 py-2"></th>
               </tr>
             </thead>
             <tbody>
@@ -120,6 +133,12 @@ export default function AgentPayouts({
                       accounts={accounts}
                       ops={ops}
                     />
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    <button onClick={() => removePosition(p.id)} disabled={busy} title="Удалить позицию"
+                      className="rounded-full px-2 py-1 text-xs text-slate-400 transition hover:bg-red-50 hover:text-red-500 disabled:opacity-50 dark:hover:bg-red-950/40">
+                      ✕
+                    </button>
                   </td>
                 </tr>
               ))}
