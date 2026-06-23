@@ -22,7 +22,7 @@ export type DealView = {
   projectId: string | null;
   clientName: string | null;
   projectName: string | null;
-  purchases: { id: string; amount: number; currency: string; purchased_on: string; vendorName: string | null; note: string | null; baseAmount: number }[];
+  purchases: { id: string; amount: number; currency: string; purchased_on: string; vendorName: string | null; note: string | null; baseAmount: number; linked: boolean }[];
   saleBase: number;
   purchasedBase: number;
   expectedBase: number | null;
@@ -30,6 +30,12 @@ export type DealView = {
   marginBase: number;
   isOpen: boolean;
   fullyPurchased: boolean;
+  incomeLinked: boolean;
+};
+
+export type OpOption = {
+  id: string; amount: number; currency: string; occurred_on: string;
+  counterpartyId: string | null; counterpartyName: string | null;
 };
 
 type Named = { id: string; name: string };
@@ -41,11 +47,13 @@ const TABS: { key: string; label: string }[] = [
 ];
 
 export default function LicensesView({
-  deals, counterparties, projects, teamId, userId, base, canEdit,
+  deals, counterparties, projects, incomeOps, expenseOps, teamId, userId, base, canEdit,
 }: {
   deals: DealView[];
   counterparties: Named[];
   projects: Named[];
+  incomeOps: OpOption[];
+  expenseOps: OpOption[];
   teamId: string;
   userId: string;
   base: string;
@@ -90,7 +98,7 @@ export default function LicensesView({
 
       {adding && canEdit && (
         <AddDealForm
-          counterparties={counterparties} projects={projects} teamId={teamId} userId={userId} base={base}
+          counterparties={counterparties} projects={projects} incomeOps={incomeOps} teamId={teamId} userId={userId} base={base}
           onDone={() => setAdding(false)}
         />
       )}
@@ -103,7 +111,7 @@ export default function LicensesView({
         <div className="space-y-3">
           {filtered.map((d) => (
             <DealCard key={d.id} deal={d} base={base} teamId={teamId} userId={userId} canEdit={canEdit}
-              counterparties={counterparties} open={expanded.has(d.id)} onToggle={() => toggle(d.id)} />
+              counterparties={counterparties} expenseOps={expenseOps} open={expanded.has(d.id)} onToggle={() => toggle(d.id)} />
           ))}
         </div>
       )}
@@ -118,10 +126,10 @@ function statusPill(d: DealView): { label: string; cls: string } {
 }
 
 function DealCard({
-  deal, base, teamId, userId, canEdit, counterparties, open, onToggle,
+  deal, base, teamId, userId, canEdit, counterparties, expenseOps, open, onToggle,
 }: {
   deal: DealView; base: string; teamId: string; userId: string; canEdit: boolean;
-  counterparties: Named[]; open: boolean; onToggle: () => void;
+  counterparties: Named[]; expenseOps: OpOption[]; open: boolean; onToggle: () => void;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -165,7 +173,11 @@ function DealCard({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-5 text-right">
-          <Metric label="Продажа" value={formatMoney(deal.saleBase, base)} />
+          <Metric
+            label="Продажа"
+            value={formatMoney(deal.saleAmount, deal.currency)}
+            sub={deal.currency !== base ? `≈ ${formatMoney(deal.saleBase, base)}` : undefined}
+          />
           <Metric label="Закуплено" value={formatMoney(deal.purchasedBase, base)} />
           <Metric label="Осталось" value={deal.remaining != null ? formatMoney(deal.remaining, base) : "—"} muted={deal.remaining == null} />
           <Metric label="Маржа" value={formatMoney(deal.marginBase, base)} accent={deal.marginBase < 0 ? "red" : "emerald"} />
@@ -181,10 +193,14 @@ function DealCard({
               {deal.purchases.map((p) => (
                 <li key={p.id} className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2 dark:bg-white/[0.03]">
                   <span className="text-slate-600 dark:text-neutral-300">
+                    {p.linked && <span title="Привязана к операции">🔗 </span>}
                     {formatDate(p.purchased_on)}{p.vendorName && <> · {p.vendorName}</>}{p.note && <span className="text-slate-400"> · {p.note}</span>}
                   </span>
                   <span className="flex items-center gap-3">
-                    <b className="text-slate-800 dark:text-neutral-100">{formatMoney(p.baseAmount, base)}</b>
+                    <span className="text-right">
+                      <b className="text-slate-800 dark:text-neutral-100">{formatMoney(p.amount, p.currency)}</b>
+                      {p.currency !== base && <span className="block text-[10px] text-slate-400">≈ {formatMoney(p.baseAmount, base)}</span>}
+                    </span>
                     {canEdit && <button onClick={() => removePurchase(p.id)} disabled={busy} className="text-xs text-slate-400 hover:text-red-500" title="Удалить">✕</button>}
                   </span>
                 </li>
@@ -195,7 +211,7 @@ function DealCard({
           )}
 
           {canEdit && (
-            <AddPurchaseForm dealId={deal.id} teamId={teamId} userId={userId} defaultCurrency={deal.currency} counterparties={counterparties} />
+            <AddPurchaseForm dealId={deal.id} teamId={teamId} userId={userId} defaultCurrency={deal.currency} counterparties={counterparties} expenseOps={expenseOps} />
           )}
 
           {canEdit && (
@@ -214,20 +230,21 @@ function DealCard({
   );
 }
 
-function Metric({ label, value, accent, muted }: { label: string; value: string; accent?: "red" | "emerald"; muted?: boolean }) {
+function Metric({ label, value, sub, accent, muted }: { label: string; value: string; sub?: string; accent?: "red" | "emerald"; muted?: boolean }) {
   const color = accent === "red" ? "text-red-600 dark:text-red-400" : accent === "emerald" ? "text-emerald-600 dark:text-emerald-400" : muted ? "text-slate-400 dark:text-neutral-500" : "text-slate-800 dark:text-neutral-100";
   return (
     <div className="hidden sm:block">
       <div className="text-[10px] uppercase tracking-wide text-slate-400 dark:text-neutral-500">{label}</div>
       <div className={`text-sm font-semibold tabular-nums ${color}`}>{value}</div>
+      {sub && <div className="text-[10px] tabular-nums text-slate-400 dark:text-neutral-500">{sub}</div>}
     </div>
   );
 }
 
 function AddDealForm({
-  counterparties, projects, teamId, userId, base, onDone,
+  counterparties, projects, incomeOps, teamId, userId, base, onDone,
 }: {
-  counterparties: Named[]; projects: Named[]; teamId: string; userId: string; base: string; onDone: () => void;
+  counterparties: Named[]; projects: Named[]; incomeOps: OpOption[]; teamId: string; userId: string; base: string; onDone: () => void;
 }) {
   const router = useRouter();
   const today = new Date().toISOString().slice(0, 10);
@@ -239,8 +256,20 @@ function AddDealForm({
   const [soldOn, setSoldOn] = useState(today);
   const [expected, setExpected] = useState("");
   const [note, setNote] = useState("");
+  const [incomeTxId, setIncomeTxId] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const opById = useMemo(() => new Map(incomeOps.map((o) => [o.id, o])), [incomeOps]);
+  function pickOp(id: string) {
+    setIncomeTxId(id);
+    const o = opById.get(id);
+    if (!o) return;
+    setSale(toAmountStr(o.amount));
+    setCurrency(o.currency);
+    setSoldOn(o.occurred_on);
+    if (o.counterpartyId) setClientId(o.counterpartyId);
+  }
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -257,6 +286,7 @@ function AddDealForm({
       currency,
       sold_on: soldOn,
       expected_cost: expected.trim() ? parseMoney(expected) : null,
+      income_transaction_id: incomeTxId || null,
       note: note.trim() || null,
     });
     setBusy(false);
@@ -268,6 +298,13 @@ function AddDealForm({
 
   return (
     <form onSubmit={save} className="mb-4 space-y-3 rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
+      {incomeOps.length > 0 && (
+        <div>
+          <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Из операции (поступление от клиента)</label>
+          <Combobox value={incomeTxId} onChange={pickOp} placeholder="— ввести вручную —" emptyLabel="— ввести вручную —"
+            options={incomeOps.map((o) => ({ value: o.id, label: opLabel(o) }))} />
+        </div>
+      )}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <F label="Что продали" wide>
           <input autoFocus required value={title} onChange={(e) => setTitle(e.target.value)} placeholder="напр. amoCRM 10 лиц., 1 год" className="input" />
@@ -306,9 +343,9 @@ function AddDealForm({
 }
 
 function AddPurchaseForm({
-  dealId, teamId, userId, defaultCurrency, counterparties,
+  dealId, teamId, userId, defaultCurrency, counterparties, expenseOps,
 }: {
-  dealId: string; teamId: string; userId: string; defaultCurrency: string; counterparties: Named[];
+  dealId: string; teamId: string; userId: string; defaultCurrency: string; counterparties: Named[]; expenseOps: OpOption[];
 }) {
   const router = useRouter();
   const today = new Date().toISOString().slice(0, 10);
@@ -317,8 +354,20 @@ function AddPurchaseForm({
   const [purchasedOn, setPurchasedOn] = useState(today);
   const [vendorId, setVendorId] = useState("");
   const [note, setNote] = useState("");
+  const [expenseTxId, setExpenseTxId] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const opById = useMemo(() => new Map(expenseOps.map((o) => [o.id, o])), [expenseOps]);
+  function pickOp(id: string) {
+    setExpenseTxId(id);
+    const o = opById.get(id);
+    if (!o) return;
+    setAmount(toAmountStr(o.amount));
+    setCurrency(o.currency);
+    setPurchasedOn(o.occurred_on);
+    if (o.counterpartyId) setVendorId(o.counterpartyId);
+  }
 
   async function add(e: React.FormEvent) {
     e.preventDefault();
@@ -334,17 +383,25 @@ function AddPurchaseForm({
       currency,
       purchased_on: purchasedOn,
       vendor_counterparty_id: vendorId || null,
+      expense_transaction_id: expenseTxId || null,
       note: note.trim() || null,
     });
     setBusy(false);
     if (error) return setError(error.message);
-    setAmount(""); setNote(""); setVendorId("");
+    setAmount(""); setNote(""); setVendorId(""); setExpenseTxId("");
     toast.success("Закупка добавлена");
     router.refresh();
   }
 
   return (
     <form onSubmit={add} className="flex flex-wrap items-end gap-2 rounded-2xl bg-slate-50 p-3 dark:bg-white/[0.03]">
+      {expenseOps.length > 0 && (
+        <div className="min-w-[200px] flex-1 basis-full">
+          <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Из операции (закупка у вендора)</label>
+          <Combobox value={expenseTxId} onChange={pickOp} placeholder="— ввести вручную —" emptyLabel="— ввести вручную —"
+            options={expenseOps.map((o) => ({ value: o.id, label: opLabel(o) }))} />
+        </div>
+      )}
       <div>
         <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Сумма закупки</label>
         <div className="flex gap-2">
@@ -378,4 +435,11 @@ function F({ label, children, wide }: { label: string; children: React.ReactNode
       {children}
     </div>
   );
+}
+
+function toAmountStr(minor: number): string {
+  return (minor / 100).toFixed(2).replace(".", ",");
+}
+function opLabel(o: OpOption): string {
+  return `${formatDate(o.occurred_on)} · ${formatMoney(o.amount, o.currency)}${o.counterpartyName ? ` · ${o.counterpartyName}` : ""}`;
 }
