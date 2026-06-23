@@ -94,7 +94,7 @@ export default async function DashboardPage() {
     team.base_currency === "RUB" ? fetchCbrRates() : Promise.resolve<CbrRates>({ rates: {}, date: null }),
     supabase.from("obligation_balances").select("outstanding, currency, due_date").eq("team_id", team.id).gt("outstanding", 0).lt("due_date", today),
     supabase.from("budgets").select("amount, currency, period, period_start, category_id").eq("team_id", team.id),
-    supabase.from("transactions").select("type, amount, currency, occurred_on, account_id, transfer_account_id").eq("team_id", team.id).eq("status", "planned").gte("occurred_on", today),
+    supabase.from("transactions").select("type, amount, currency, occurred_on, account_id, transfer_account_id").eq("team_id", team.id).eq("status", "planned"),
     supabase.from("obligation_balances").select("outstanding, currency, due_date").eq("team_id", team.id).gt("outstanding", 0).gte("due_date", today),
   ]);
 
@@ -218,10 +218,12 @@ export default async function DashboardPage() {
   const momPct = (cur: number, prev: number): number | null =>
     prev !== 0 ? ((cur - prev) / Math.abs(prev)) * 100 : null;
 
+  // Плановые операции в прошлом (просроченные планы) ещё не исполнены — относим их
+  // к текущему месяцу, иначе они выпадают и из факта (не actual), и из прогноза.
   const fcNet = new Map<number, number>();
   for (const t of planTx ?? []) {
     if (t.type === "transfer") continue;
-    const d = new Date(t.occurred_on);
+    const d = new Date(t.occurred_on < today ? today : t.occurred_on);
     const key = d.getFullYear() * 12 + d.getMonth();
     const v = toBase(t.amount, t.currency, rates);
     fcNet.set(key, (fcNet.get(key) ?? 0) + (t.type === "income" ? v : -v));
@@ -319,9 +321,10 @@ export default async function DashboardPage() {
   }
   for (const t of (planTx ?? []) as PlanEv[]) {
     const v = toBase(t.amount, t.currency, rates);
-    if (t.type === "income") pushEv(t.account_id, t.occurred_on, v);
-    else if (t.type === "expense") pushEv(t.account_id, t.occurred_on, -v);
-    else if (t.type === "transfer") { pushEv(t.account_id, t.occurred_on, -v); pushEv(t.transfer_account_id, t.occurred_on, v); }
+    const dt = t.occurred_on < today ? today : t.occurred_on; // просроченный план — к сегодня
+    if (t.type === "income") pushEv(t.account_id, dt, v);
+    else if (t.type === "expense") pushEv(t.account_id, dt, -v);
+    else if (t.type === "transfer") { pushEv(t.account_id, dt, -v); pushEv(t.transfer_account_id, dt, v); }
   }
 
   // Проекция минимального остатка по каждому счёту (в базовой валюте)
