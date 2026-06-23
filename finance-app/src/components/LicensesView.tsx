@@ -24,6 +24,8 @@ export type DealView = {
   projectName: string | null;
   purchases: { id: string; amount: number; currency: string; purchased_on: string; vendorName: string | null; note: string | null; baseAmount: number; linked: boolean }[];
   payments: { id: string; amount: number; currency: string; paid_on: string; note: string | null; baseAmount: number; linked: boolean }[];
+  items: { id: string; name: string; qty: number; plannedCost: number | null; isPurchased: boolean }[];
+  itemsPlannedTotal: number | null;
   saleBase: number;
   purchasedBase: number;
   receivedBase: number;
@@ -202,7 +204,10 @@ function DealCard({
 
       {open && (
         <div className="border-t border-slate-100 px-5 py-4 dark:border-white/[0.06]">
-          <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">Оплаты клиента</div>
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">Позиции сделки</div>
+          <DealItems deal={deal} teamId={teamId} userId={userId} canEdit={canEdit} />
+
+          <div className="mb-2 mt-5 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">Оплаты клиента</div>
           {deal.payments.length > 0 ? (
             <ul className="mb-3 space-y-1.5 text-sm">
               {deal.payments.map((p) => (
@@ -230,7 +235,11 @@ function DealCard({
 
           <div className="mb-2 mt-5 flex items-center justify-between gap-3">
             <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">Закупки у вендора</span>
-            {canEdit && <PlannedCostEditor dealId={deal.id} expectedCost={deal.expectedCost} currency={deal.currency} />}
+            {deal.itemsPlannedTotal != null ? (
+              <span className="text-xs text-slate-500 dark:text-neutral-400">План из позиций: {formatMoney(deal.itemsPlannedTotal, deal.currency)}</span>
+            ) : (
+              canEdit && <PlannedCostEditor dealId={deal.id} expectedCost={deal.expectedCost} currency={deal.currency} />
+            )}
           </div>
           {deal.purchases.length > 0 ? (
             <ul className="mb-3 space-y-1.5 text-sm">
@@ -463,6 +472,109 @@ function AddPaymentForm({
       <button type="submit" disabled={busy} className="rounded-full bg-emerald-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">{busy ? "…" : "+ Оплата"}</button>
       {error && <p className="w-full text-sm text-red-600 dark:text-red-400">{error}</p>}
     </form>
+  );
+}
+
+function DealItems({
+  deal, teamId, userId, canEdit,
+}: {
+  deal: DealView; teamId: string; userId: string; canEdit: boolean;
+}) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [name, setName] = useState("");
+  const [qty, setQty] = useState("1");
+  const [plan, setPlan] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  async function toggle(id: string, val: boolean) {
+    const supabase = createClient();
+    await supabase.from("license_deal_items").update({ is_purchased: val }).eq("id", id);
+    router.refresh();
+  }
+  async function remove(id: string) {
+    setBusy(true);
+    const supabase = createClient();
+    await supabase.from("license_deal_items").delete().eq("id", id);
+    setBusy(false);
+    router.refresh();
+  }
+  async function add(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name.trim()) return setError("Укажите название позиции");
+    setBusy(true); setError(null);
+    const supabase = createClient();
+    const { error } = await supabase.from("license_deal_items").insert({
+      team_id: teamId, deal_id: deal.id, created_by: userId,
+      name: name.trim(),
+      qty: Math.max(1, parseInt(qty, 10) || 1),
+      planned_cost: plan.trim() ? parseMoney(plan) : null,
+      sort: deal.items.length,
+    });
+    setBusy(false);
+    if (error) return setError(error.message);
+    setName(""); setQty("1"); setPlan("");
+    toast.success("Позиция добавлена");
+    router.refresh();
+  }
+
+  return (
+    <>
+      {deal.items.length > 0 ? (
+        <ul className="mb-3 space-y-1.5 text-sm">
+          {deal.items.map((it) => (
+            <li key={it.id} className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2 dark:bg-white/[0.03]">
+              <label className="flex min-w-0 flex-1 items-center gap-2.5">
+                <input
+                  type="checkbox"
+                  checked={it.isPurchased}
+                  disabled={!canEdit || busy}
+                  onChange={(e) => toggle(it.id, e.target.checked)}
+                  className="size-4 shrink-0 accent-emerald-600"
+                />
+                <span className={`truncate ${it.isPurchased ? "text-slate-400 line-through dark:text-neutral-500" : "text-slate-700 dark:text-neutral-200"}`}>
+                  {it.name}{it.qty > 1 && <span className="text-slate-400"> ×{it.qty}</span>}
+                </span>
+              </label>
+              <span className="flex shrink-0 items-center gap-3">
+                <span className="tabular-nums text-slate-500 dark:text-neutral-400">
+                  {it.plannedCost != null ? formatMoney(it.plannedCost, deal.currency) : "—"}
+                </span>
+                {canEdit && <button onClick={() => remove(it.id)} disabled={busy} className="text-xs text-slate-400 hover:text-red-500" title="Удалить позицию">✕</button>}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mb-3 text-sm text-slate-400">Позиций ещё нет.</p>
+      )}
+
+      {deal.itemsPlannedTotal != null && (
+        <div className="mb-3 flex justify-between rounded-xl bg-slate-100/60 px-3 py-1.5 text-sm font-medium dark:bg-white/[0.04]">
+          <span className="text-slate-500 dark:text-neutral-400">Итого план закупки</span>
+          <span className="tabular-nums text-slate-700 dark:text-neutral-100">{formatMoney(deal.itemsPlannedTotal, deal.currency)}</span>
+        </div>
+      )}
+
+      {canEdit && (
+        <form onSubmit={add} className="flex flex-wrap items-end gap-2 rounded-2xl bg-slate-50 p-3 dark:bg-white/[0.03]">
+          <div className="min-w-[160px] flex-1">
+            <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Позиция</label>
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="напр. amoCRM 5 польз." className="input py-1.5 text-sm" />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Кол-во</label>
+            <input value={qty} onChange={(e) => setQty(e.target.value)} inputMode="numeric" className="input w-20 py-1.5 text-sm" />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">План закупки</label>
+            <input value={plan} onChange={(e) => setPlan(e.target.value)} inputMode="decimal" placeholder="0,00 (опц.)" className="input w-36 py-1.5 text-sm" />
+          </div>
+          <button type="submit" disabled={busy} className="rounded-full bg-brand px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">{busy ? "…" : "+ Позиция"}</button>
+          {error && <p className="w-full text-sm text-red-600 dark:text-red-400">{error}</p>}
+        </form>
+      )}
+    </>
   );
 }
 

@@ -12,11 +12,14 @@ type RawPayment = {
   id: string; amount: number; currency: string; paid_on: string;
   income_transaction_id: string | null; note: string | null;
 };
+type RawItem = {
+  id: string; name: string; qty: number; planned_cost: number | null; is_purchased: boolean; sort: number;
+};
 type RawDeal = {
   id: string; title: string; sale_amount: number; currency: string; sold_on: string;
   expected_cost: number | null; status: string; note: string | null;
   client_counterparty_id: string | null; project_id: string | null;
-  purchases: RawPurchase[] | null; payments: RawPayment[] | null;
+  purchases: RawPurchase[] | null; payments: RawPayment[] | null; items: RawItem[] | null;
 };
 type RawOp = {
   id: string; amount: number; currency: string; occurred_on: string;
@@ -41,7 +44,7 @@ export default async function LicensesPage() {
   const [{ data: deals }, { data: counterparties }, { data: projects }, { data: fxRows }, { data: licCats }] = await Promise.all([
     supabase
       .from("license_deals")
-      .select("id, title, sale_amount, currency, sold_on, expected_cost, status, note, client_counterparty_id, project_id, purchases:license_purchases(id, amount, currency, purchased_on, vendor_counterparty_id, note, expense_transaction_id), payments:license_payments(id, amount, currency, paid_on, income_transaction_id, note)")
+      .select("id, title, sale_amount, currency, sold_on, expected_cost, status, note, client_counterparty_id, project_id, purchases:license_purchases(id, amount, currency, purchased_on, vendor_counterparty_id, note, expense_transaction_id), payments:license_payments(id, amount, currency, paid_on, income_transaction_id, note), items:license_deal_items(id, name, qty, planned_cost, is_purchased, sort)")
       .eq("team_id", team.id)
       .order("sold_on", { ascending: false }),
     supabase.from("counterparties").select("id, name").eq("team_id", team.id).eq("archived", false).order("name"),
@@ -97,10 +100,25 @@ export default async function LicensesPage() {
       baseAmount: toBase(p.amount, p.currency, rates),
       linked: !!p.income_transaction_id,
     }));
+    const items = (d.items ?? [])
+      .slice()
+      .sort((a, b) => a.sort - b.sort || a.id.localeCompare(b.id))
+      .map((it) => ({
+        id: it.id,
+        name: it.name,
+        qty: it.qty,
+        plannedCost: it.planned_cost,
+        isPurchased: it.is_purchased,
+      }));
+    // Сумма планов позиций (в валюте сделки). Если позиции заданы — она и есть ожидаемая закупка.
+    const itemsPlannedTotal = items.some((it) => it.plannedCost != null)
+      ? items.reduce((s, it) => s + (it.plannedCost ?? 0), 0)
+      : null;
     const purchasedBase = purchases.reduce((s, p) => s + p.baseAmount, 0);
     const receivedBase = payments.reduce((s, p) => s + p.baseAmount, 0);
     const saleBase = toBase(d.sale_amount, d.currency, rates);
-    const expectedBase = d.expected_cost != null ? toBase(d.expected_cost, d.currency, rates) : null;
+    const expectedSource = itemsPlannedTotal != null ? itemsPlannedTotal : d.expected_cost;
+    const expectedBase = expectedSource != null ? toBase(expectedSource, d.currency, rates) : null;
     const fullyPurchased = expectedBase != null && purchasedBase >= expectedBase - 1;
     const isOpen = d.status !== "closed" && !fullyPurchased;
     const remaining = expectedBase != null ? Math.max(0, expectedBase - purchasedBase) : null;
@@ -119,6 +137,8 @@ export default async function LicensesPage() {
       projectName: d.project_id ? projName.get(d.project_id) ?? null : null,
       purchases,
       payments,
+      items,
+      itemsPlannedTotal,
       saleBase,
       purchasedBase,
       receivedBase,
