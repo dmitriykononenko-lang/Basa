@@ -9,7 +9,6 @@ import { fetchAllRows } from "@/lib/supabase/paginate";
 import { fetchCbrRates, type CbrRates } from "@/lib/cbr";
 import AcceptInviteButton from "@/components/AcceptInviteButton";
 import { IconTransactions, IconAccounts, IconReports } from "@/components/icons";
-import { type TrendPoint } from "@/components/TrendChart";
 import ProgressMetricCard from "@/components/ui/progress-metric-card";
 import TotalIncomeCard from "@/components/ui/total-income-card";
 import TotalIncomeRecharts from "@/components/ui/total-income-recharts-lazy";
@@ -95,7 +94,7 @@ export default async function DashboardPage() {
     supabase.from("obligation_balances").select("outstanding, currency, due_date").eq("team_id", team.id).gt("outstanding", 0).lt("due_date", today),
     supabase.from("budgets").select("amount, currency, period, period_start, category_id").eq("team_id", team.id),
     supabase.from("transactions").select("type, amount, currency, occurred_on, account_id, transfer_account_id").eq("team_id", team.id).eq("status", "planned"),
-    supabase.from("obligation_balances").select("outstanding, currency, due_date").eq("team_id", team.id).gt("outstanding", 0).gte("due_date", today),
+    supabase.from("obligation_balances").select("type, outstanding, currency, due_date").eq("team_id", team.id).gt("outstanding", 0).gte("due_date", today),
   ]);
 
   // Годовые/полугодовые выборки — постранично (операций за период может быть >1000)
@@ -218,48 +217,62 @@ export default async function DashboardPage() {
   const momPct = (cur: number, prev: number): number | null =>
     prev !== 0 ? ((cur - prev) / Math.abs(prev)) * 100 : null;
 
-  // Плановые операции в прошлом (просроченные планы) ещё не исполнены — относим их
-  // к текущему месяцу, иначе они выпадают и из факта (не actual), и из прогноза.
-  const fcNet = new Map<number, number>();
-  for (const t of planTx ?? []) {
-    if (t.type === "transfer") continue;
-    const d = new Date(t.occurred_on < today ? today : t.occurred_on);
-    const key = d.getFullYear() * 12 + d.getMonth();
-    const v = toBase(t.amount, t.currency, rates);
-    fcNet.set(key, (fcNet.get(key) ?? 0) + (t.type === "income" ? v : -v));
-  }
-  for (const o of futureObl ?? []) {
-    const d = new Date(o.due_date);
-    const key = d.getFullYear() * 12 + d.getMonth();
-    fcNet.set(key, (fcNet.get(key) ?? 0) - toBase(o.outstanding, o.currency, rates));
-  }
+  // ── Прогноз денежных средств ПО ДНЯМ — чтобы ловить внутримесячные кассовые
+  // разрывы (напр. крупный расход 24-го до прихода 26-го). Помесячная свёртка их прячет.
+  const DAYMS = 86400000;
+  const dayOf = (s: string) => Math.floor(new Date(s + "T00:00:00").getTime() / DAYMS);
+  const isoOf = (d: number) => new Date(d * DAYMS).toISOString().slice(0, 10);
+  const tDay = dayOf(today);
 
-  // Закрытие месяца: факт — обратным ходом от текущего баланса
+  // История: закрытие прошлых месяцев — обратным ходом от текущего баланса
   const closeByKey = new Map<number, number>();
   closeByKey.set(curKey, currentBalance);
   for (let k = 1; k <= PAST; k++) {
     const key = curKey - k;
     closeByKey.set(key, closeByKey.get(key + 1)! - (factNet.get(key + 1) ?? 0));
   }
-  // Прогноз — вперёд (учитываем плановые операции остатка текущего месяца)
-  let running = currentBalance + (fcNet.get(curKey) ?? 0);
-  for (let k = 1; k <= FUT; k++) {
-    const key = curKey + k;
-    running += fcNet.get(key) ?? 0;
-    closeByKey.set(key, running);
+
+  // События прогноза: плановые операции (просроченные планы → к сегодня) и
+  // будущие обязательства (приход +, выплата −).
+  const evByDay = new Map<number, number>();
+  const pushEvDay = (dateStr: string, delta: number) => {
+    const d = Math.max(dayOf(dateStr), tDay);
+    evByDay.set(d, (evByDay.get(d) ?? 0) + delta);
+  };
+  for (const t of planTx ?? []) {
+    if (t.type === "transfer") continue; // переводы между своими счетами не меняют общий остаток
+    const v = toBase(t.amount, t.currency, rates);
+    pushEvDay(t.occurred_on, t.type === "income" ? v : -v);
+  }
+  for (const o of (futureObl ?? []) as { type: string; outstanding: number; currency: string; due_date: string }[]) {
+    const v = toBase(o.outstanding, o.currency, rates);
+    pushEvDay(o.due_date, o.type === "receivable" ? v : -v);
   }
 
-  const trendPoints: TrendPoint[] = [];
-  for (let key = curKey - PAST; key <= curKey + FUT; key++) {
-    const m = ((key % 12) + 12) % 12;
-    trendPoints.push({
-      label: MONTHS_SHORT[m],
-      value: closeByKey.get(key) ?? 0,
-      forecast: key > curKey,
-    });
+  // Дневной прогнозный остаток + поиск минимума ниже нуля (кассовый разрыв)
+  const horizonDay = dayOf(new Date(curY, curM + 1 + FUT, 0).toISOString().slice(0, 10));
+  const evDays = [...evByDay.keys()].sort((a, b) => a - b);
+  let run = currentBalance;
+  const forecastPts: { date: string; value: number; forecast: boolean }[] = [];
+  let gap: { date: string; value: number } | null = null;
+  for (const d of evDays) {
+    run += evByDay.get(d)!;
+    forecastPts.push({ date: isoOf(d), value: run, forecast: true });
+    if (run < 0 && (!gap || run < gap.value)) gap = { date: isoOf(d), value: run };
   }
+  const lastDay = evDays.length ? evDays[evDays.length - 1] : tDay;
+  if (lastDay < horizonDay) forecastPts.push({ date: isoOf(horizonDay), value: run, forecast: true });
 
-  // Кассовый разрыв и сам график теперь рисует CashflowHero из trendPoints.
+  // Точки графика: помесячная история + «сейчас» + дневной прогноз
+  const heroPoints: { date: string; value: number; forecast: boolean }[] = [];
+  for (let k = PAST; k >= 1; k--) {
+    const key = curKey - k;
+    const y = Math.floor(key / 12), m = key % 12;
+    heroPoints.push({ date: new Date(y, m + 1, 0).toISOString().slice(0, 10), value: closeByKey.get(key) ?? 0, forecast: false });
+  }
+  heroPoints.push({ date: today, value: currentBalance, forecast: false });
+  heroPoints.push(...forecastPts);
+
   const showTrend = (accounts?.length ?? 0) > 0;
   const curSym = team.base_currency === "RUB" ? "₽" : team.base_currency;
 
@@ -450,7 +463,7 @@ export default async function DashboardPage() {
       {/* Широкий график денежных средств с прогнозом кассового разрыва */}
       {showTrend && (
         <div className="mb-7">
-          <CashflowHero points={trendPoints} base={team.base_currency} />
+          <CashflowHero points={heroPoints} gap={gap} today={today} base={team.base_currency} />
         </div>
       )}
 
