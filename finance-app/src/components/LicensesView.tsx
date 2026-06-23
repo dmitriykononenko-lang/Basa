@@ -171,7 +171,7 @@ function DealCard({
 
   return (
     <div className={`rounded-3xl bg-white ring-1 transition dark:bg-[#15171c] ${deal.isOpen && deal.purchasedBase === 0 ? "ring-amber-200/70 dark:ring-amber-500/20" : "ring-slate-200/80 dark:ring-white/[0.07]"}`}>
-      <button onClick={onToggle} className="flex w-full items-start justify-between gap-3 p-5 text-left">
+      <button onClick={onToggle} className="flex w-full items-start justify-between gap-3 rounded-3xl p-5 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <span className="truncate text-sm font-semibold text-slate-800 dark:text-neutral-100">{deal.title}</span>
@@ -228,7 +228,10 @@ function DealCard({
             <AddPaymentForm dealId={deal.id} teamId={teamId} userId={userId} defaultCurrency={deal.currency} incomeOps={incomeOps} />
           )}
 
-          <div className="mb-2 mt-5 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">Закупки у вендора</div>
+          <div className="mb-2 mt-5 flex items-center justify-between gap-3">
+            <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">Закупки у вендора</span>
+            {canEdit && <PlannedCostEditor dealId={deal.id} expectedCost={deal.expectedCost} currency={deal.currency} />}
+          </div>
           {deal.purchases.length > 0 ? (
             <ul className="mb-3 space-y-1.5 text-sm">
               {deal.purchases.map((p) => (
@@ -460,6 +463,60 @@ function AddPaymentForm({
       <button type="submit" disabled={busy} className="rounded-full bg-emerald-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">{busy ? "…" : "+ Оплата"}</button>
       {error && <p className="w-full text-sm text-red-600 dark:text-red-400">{error}</p>}
     </form>
+  );
+}
+
+function PlannedCostEditor({
+  dealId, expectedCost, currency,
+}: {
+  dealId: string; expectedCost: number | null; currency: string;
+}) {
+  const router = useRouter();
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(expectedCost != null ? toAmountStr(expectedCost) : "");
+  const [busy, setBusy] = useState(false);
+
+  async function save() {
+    setBusy(true);
+    const supabase = createClient();
+    const minor = value.trim() ? parseMoney(value) : null;
+    const { error } = await supabase.from("license_deals").update({ expected_cost: minor }).eq("id", dealId);
+    setBusy(false);
+    if (error) { toast.error(error.message); return; }
+    setEditing(false);
+    toast.success("План закупки обновлён");
+    router.refresh();
+  }
+  function cancel() {
+    setValue(expectedCost != null ? toAmountStr(expectedCost) : "");
+    setEditing(false);
+  }
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        className="rounded-full px-2 py-0.5 text-xs text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 dark:text-neutral-400 dark:hover:bg-white/[0.06] dark:hover:text-neutral-200"
+      >
+        План: {expectedCost != null ? formatMoney(expectedCost, currency) : "не задан"} ✎
+      </button>
+    );
+  }
+  return (
+    <span className="flex items-center gap-1">
+      <input
+        autoFocus
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") cancel(); }}
+        inputMode="decimal"
+        placeholder="0,00"
+        className="input w-28 py-1 text-sm"
+      />
+      <button type="button" onClick={save} disabled={busy} className="rounded-full px-2 py-1 text-sm text-emerald-600 hover:bg-emerald-50 disabled:opacity-50 dark:hover:bg-emerald-500/10" title="Сохранить">✓</button>
+      <button type="button" onClick={cancel} disabled={busy} className="rounded-full px-2 py-1 text-sm text-slate-400 hover:bg-slate-100 dark:hover:bg-white/[0.06]" title="Отмена">✕</button>
+    </span>
   );
 }
 
