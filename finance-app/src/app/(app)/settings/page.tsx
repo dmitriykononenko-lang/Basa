@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { IconAccounts, IconTag, IconTeam, IconSettings } from "@/components/icons";
+import { IconAccounts, IconTag, IconTeam, IconSettings, IconRepeat } from "@/components/icons";
 
 type Card = {
   href: string;
@@ -40,6 +40,13 @@ const GROUPS: { title: string; items: Card[] }[] = [
         desc: "Ступени бонуса аналитику за сдачу в срок",
         Icon: IconSettings,
         color: "bg-emerald-600 text-white",
+      },
+      {
+        href: "/settings/rules",
+        title: "Правила автоматизации",
+        desc: "Авто-разметка операций: статья, проект, перевод",
+        Icon: IconRepeat,
+        color: "bg-violet-600 text-white",
       },
     ],
   },
