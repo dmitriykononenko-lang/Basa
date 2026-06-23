@@ -23,14 +23,16 @@ export type DealView = {
   clientName: string | null;
   projectName: string | null;
   purchases: { id: string; amount: number; currency: string; purchased_on: string; vendorName: string | null; note: string | null; baseAmount: number; linked: boolean }[];
+  payments: { id: string; amount: number; currency: string; paid_on: string; note: string | null; baseAmount: number; linked: boolean }[];
   saleBase: number;
   purchasedBase: number;
+  receivedBase: number;
+  receivableBase: number;
   expectedBase: number | null;
   remaining: number | null;
   marginBase: number;
   isOpen: boolean;
   fullyPurchased: boolean;
-  incomeLinked: boolean;
 };
 
 export type OpOption = {
@@ -111,7 +113,7 @@ export default function LicensesView({
         <div className="space-y-3">
           {filtered.map((d) => (
             <DealCard key={d.id} deal={d} base={base} teamId={teamId} userId={userId} canEdit={canEdit}
-              counterparties={counterparties} expenseOps={expenseOps} open={expanded.has(d.id)} onToggle={() => toggle(d.id)} />
+              counterparties={counterparties} expenseOps={expenseOps} incomeOps={incomeOps} open={expanded.has(d.id)} onToggle={() => toggle(d.id)} />
           ))}
         </div>
       )}
@@ -126,10 +128,10 @@ function statusPill(d: DealView): { label: string; cls: string } {
 }
 
 function DealCard({
-  deal, base, teamId, userId, canEdit, counterparties, expenseOps, open, onToggle,
+  deal, base, teamId, userId, canEdit, counterparties, expenseOps, incomeOps, open, onToggle,
 }: {
   deal: DealView; base: string; teamId: string; userId: string; canEdit: boolean;
-  counterparties: Named[]; expenseOps: OpOption[]; open: boolean; onToggle: () => void;
+  counterparties: Named[]; expenseOps: OpOption[]; incomeOps: OpOption[]; open: boolean; onToggle: () => void;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -159,6 +161,13 @@ function DealCard({
     setBusy(false);
     router.refresh();
   }
+  async function removePayment(id: string) {
+    setBusy(true);
+    const supabase = createClient();
+    await supabase.from("license_payments").delete().eq("id", id);
+    setBusy(false);
+    router.refresh();
+  }
 
   return (
     <div className={`rounded-3xl bg-white ring-1 transition dark:bg-[#15171c] ${deal.isOpen && deal.purchasedBase === 0 ? "ring-amber-200/70 dark:ring-amber-500/20" : "ring-slate-200/80 dark:ring-white/[0.07]"}`}>
@@ -178,6 +187,12 @@ function DealCard({
             value={formatMoney(deal.saleAmount, deal.currency)}
             sub={deal.currency !== base ? `≈ ${formatMoney(deal.saleBase, base)}` : undefined}
           />
+          <Metric
+            label="Получено"
+            value={formatMoney(deal.receivedBase, base)}
+            sub={deal.receivableBase > 0 ? `ждём ${formatMoney(deal.receivableBase, base)}` : undefined}
+            accent={deal.receivableBase > 0 ? undefined : "emerald"}
+          />
           <Metric label="Закуплено" value={formatMoney(deal.purchasedBase, base)} />
           <Metric label="Осталось" value={deal.remaining != null ? formatMoney(deal.remaining, base) : "—"} muted={deal.remaining == null} />
           <Metric label="Маржа" value={formatMoney(deal.marginBase, base)} accent={deal.marginBase < 0 ? "red" : "emerald"} />
@@ -187,7 +202,33 @@ function DealCard({
 
       {open && (
         <div className="border-t border-slate-100 px-5 py-4 dark:border-white/[0.06]">
-          <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">Закупки у вендора</div>
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">Оплаты клиента</div>
+          {deal.payments.length > 0 ? (
+            <ul className="mb-3 space-y-1.5 text-sm">
+              {deal.payments.map((p) => (
+                <li key={p.id} className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2 dark:bg-white/[0.03]">
+                  <span className="text-slate-600 dark:text-neutral-300">
+                    {p.linked && <span title="Привязана к операции">🔗 </span>}
+                    {formatDate(p.paid_on)}{p.note && <span className="text-slate-400"> · {p.note}</span>}
+                  </span>
+                  <span className="flex items-center gap-3">
+                    <span className="text-right">
+                      <b className="text-emerald-600 dark:text-emerald-400">{formatMoney(p.amount, p.currency)}</b>
+                      {p.currency !== base && <span className="block text-[10px] text-slate-400">≈ {formatMoney(p.baseAmount, base)}</span>}
+                    </span>
+                    {canEdit && <button onClick={() => removePayment(p.id)} disabled={busy} className="text-xs text-slate-400 hover:text-red-500" title="Удалить">✕</button>}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mb-3 text-sm text-slate-400">Оплат ещё нет.</p>
+          )}
+          {canEdit && (
+            <AddPaymentForm dealId={deal.id} teamId={teamId} userId={userId} defaultCurrency={deal.currency} incomeOps={incomeOps} />
+          )}
+
+          <div className="mb-2 mt-5 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">Закупки у вендора</div>
           {deal.purchases.length > 0 ? (
             <ul className="mb-3 space-y-1.5 text-sm">
               {deal.purchases.map((p) => (
@@ -276,7 +317,7 @@ function AddDealForm({
     if (!title.trim()) return setError("Укажите название");
     setBusy(true); setError(null);
     const supabase = createClient();
-    const { error } = await supabase.from("license_deals").insert({
+    const { data, error } = await supabase.from("license_deals").insert({
       team_id: teamId,
       created_by: userId,
       title: title.trim(),
@@ -286,11 +327,18 @@ function AddDealForm({
       currency,
       sold_on: soldOn,
       expected_cost: expected.trim() ? parseMoney(expected) : null,
-      income_transaction_id: incomeTxId || null,
       note: note.trim() || null,
-    });
+    }).select("id").single();
+    if (error || !data) { setBusy(false); return setError(error?.message ?? "Не удалось создать сделку"); }
+    // Привязанная операция дохода становится первой оплатой клиента
+    if (incomeTxId) {
+      await supabase.from("license_payments").insert({
+        team_id: teamId, deal_id: data.id, created_by: userId,
+        amount: sale.trim() ? parseMoney(sale) : 0, currency, paid_on: soldOn,
+        income_transaction_id: incomeTxId,
+      });
+    }
     setBusy(false);
-    if (error) return setError(error.message);
     toast.success("Сделка добавлена");
     onDone();
     router.refresh();
@@ -338,6 +386,79 @@ function AddDealForm({
         <button type="submit" disabled={busy} className="btn-primary">{busy ? "…" : "Сохранить"}</button>
         <button type="button" onClick={onDone} className="btn-ghost">Отмена</button>
       </div>
+    </form>
+  );
+}
+
+function AddPaymentForm({
+  dealId, teamId, userId, defaultCurrency, incomeOps,
+}: {
+  dealId: string; teamId: string; userId: string; defaultCurrency: string; incomeOps: OpOption[];
+}) {
+  const router = useRouter();
+  const today = new Date().toISOString().slice(0, 10);
+  const [amount, setAmount] = useState("");
+  const [currency, setCurrency] = useState(defaultCurrency);
+  const [paidOn, setPaidOn] = useState(today);
+  const [note, setNote] = useState("");
+  const [incomeTxId, setIncomeTxId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const opById = useMemo(() => new Map(incomeOps.map((o) => [o.id, o])), [incomeOps]);
+  function pickOp(id: string) {
+    setIncomeTxId(id);
+    const o = opById.get(id);
+    if (!o) return;
+    setAmount(toAmountStr(o.amount));
+    setCurrency(o.currency);
+    setPaidOn(o.occurred_on);
+  }
+
+  async function add(e: React.FormEvent) {
+    e.preventDefault();
+    const minor = parseMoney(amount);
+    if (minor <= 0) return setError("Введите сумму оплаты");
+    setBusy(true); setError(null);
+    const supabase = createClient();
+    const { error } = await supabase.from("license_payments").insert({
+      team_id: teamId, deal_id: dealId, created_by: userId,
+      amount: minor, currency, paid_on: paidOn,
+      income_transaction_id: incomeTxId || null, note: note.trim() || null,
+    });
+    setBusy(false);
+    if (error) return setError(error.message);
+    setAmount(""); setNote(""); setIncomeTxId("");
+    toast.success("Оплата добавлена");
+    router.refresh();
+  }
+
+  return (
+    <form onSubmit={add} className="flex flex-wrap items-end gap-2 rounded-2xl bg-slate-50 p-3 dark:bg-white/[0.03]">
+      {incomeOps.length > 0 && (
+        <div className="min-w-[200px] flex-1 basis-full">
+          <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Из операции (поступление от клиента)</label>
+          <Combobox value={incomeTxId} onChange={pickOp} placeholder="— ввести вручную —" emptyLabel="— ввести вручную —"
+            options={incomeOps.map((o) => ({ value: o.id, label: opLabel(o) }))} />
+        </div>
+      )}
+      <div>
+        <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Сумма оплаты</label>
+        <div className="flex gap-2">
+          <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" placeholder="0,00" className="input w-32 py-1.5 text-sm" />
+          <Select className="w-20" value={currency} onChange={setCurrency} options={CURRENCIES.map((c) => ({ value: c, label: c }))} />
+        </div>
+      </div>
+      <div>
+        <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Дата</label>
+        <input type="date" value={paidOn} onChange={(e) => setPaidOn(e.target.value)} className="input w-40 py-1.5 text-sm" />
+      </div>
+      <div className="min-w-[140px] flex-1">
+        <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Заметка</label>
+        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="комментарий" className="input py-1.5 text-sm" />
+      </div>
+      <button type="submit" disabled={busy} className="rounded-full bg-emerald-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">{busy ? "…" : "+ Оплата"}</button>
+      {error && <p className="w-full text-sm text-red-600 dark:text-red-400">{error}</p>}
     </form>
   );
 }

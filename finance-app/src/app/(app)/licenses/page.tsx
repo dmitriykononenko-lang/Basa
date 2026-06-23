@@ -8,11 +8,15 @@ type RawPurchase = {
   id: string; amount: number; currency: string; purchased_on: string;
   vendor_counterparty_id: string | null; note: string | null; expense_transaction_id: string | null;
 };
+type RawPayment = {
+  id: string; amount: number; currency: string; paid_on: string;
+  income_transaction_id: string | null; note: string | null;
+};
 type RawDeal = {
   id: string; title: string; sale_amount: number; currency: string; sold_on: string;
   expected_cost: number | null; status: string; note: string | null;
-  client_counterparty_id: string | null; project_id: string | null; income_transaction_id: string | null;
-  purchases: RawPurchase[] | null;
+  client_counterparty_id: string | null; project_id: string | null;
+  purchases: RawPurchase[] | null; payments: RawPayment[] | null;
 };
 type RawOp = {
   id: string; amount: number; currency: string; occurred_on: string;
@@ -37,7 +41,7 @@ export default async function LicensesPage() {
   const [{ data: deals }, { data: counterparties }, { data: projects }, { data: fxRows }, { data: licCats }] = await Promise.all([
     supabase
       .from("license_deals")
-      .select("id, title, sale_amount, currency, sold_on, expected_cost, status, note, client_counterparty_id, project_id, income_transaction_id, purchases:license_purchases(id, amount, currency, purchased_on, vendor_counterparty_id, note, expense_transaction_id)")
+      .select("id, title, sale_amount, currency, sold_on, expected_cost, status, note, client_counterparty_id, project_id, purchases:license_purchases(id, amount, currency, purchased_on, vendor_counterparty_id, note, expense_transaction_id), payments:license_payments(id, amount, currency, paid_on, income_transaction_id, note)")
       .eq("team_id", team.id)
       .order("sold_on", { ascending: false }),
     supabase.from("counterparties").select("id, name").eq("team_id", team.id).eq("archived", false).order("name"),
@@ -50,7 +54,7 @@ export default async function LicensesPage() {
   const incomeCatIds = (licCats ?? []).filter((c) => c.kind === "income").map((c) => c.id);
   const expenseCatIds = (licCats ?? []).filter((c) => c.kind === "expense").map((c) => c.id);
   // Уже привязанные операции — исключаем из пикеров
-  const linkedIncome = (deals ?? []).map((d) => (d as RawDeal).income_transaction_id).filter(Boolean) as string[];
+  const linkedIncome = (deals ?? []).flatMap((d) => ((d as RawDeal).payments ?? []).map((p) => p.income_transaction_id)).filter(Boolean) as string[];
   const linkedExpense = (deals ?? []).flatMap((d) => ((d as RawDeal).purchases ?? []).map((p) => p.expense_transaction_id)).filter(Boolean) as string[];
 
   async function loadOps(catIds: string[], type: "income" | "expense", exclude: string[]): Promise<RawOp[]> {
@@ -84,7 +88,17 @@ export default async function LicensesPage() {
       baseAmount: toBase(p.amount, p.currency, rates),
       linked: !!p.expense_transaction_id,
     }));
+    const payments = (d.payments ?? []).map((p) => ({
+      id: p.id,
+      amount: p.amount,
+      currency: p.currency,
+      paid_on: p.paid_on,
+      note: p.note,
+      baseAmount: toBase(p.amount, p.currency, rates),
+      linked: !!p.income_transaction_id,
+    }));
     const purchasedBase = purchases.reduce((s, p) => s + p.baseAmount, 0);
+    const receivedBase = payments.reduce((s, p) => s + p.baseAmount, 0);
     const saleBase = toBase(d.sale_amount, d.currency, rates);
     const expectedBase = d.expected_cost != null ? toBase(d.expected_cost, d.currency, rates) : null;
     const fullyPurchased = expectedBase != null && purchasedBase >= expectedBase - 1;
@@ -104,14 +118,16 @@ export default async function LicensesPage() {
       clientName: d.client_counterparty_id ? cpName.get(d.client_counterparty_id) ?? null : null,
       projectName: d.project_id ? projName.get(d.project_id) ?? null : null,
       purchases,
+      payments,
       saleBase,
       purchasedBase,
+      receivedBase,
+      receivableBase: Math.max(0, saleBase - receivedBase),
       expectedBase,
       remaining,
       marginBase: saleBase - purchasedBase,
       isOpen,
       fullyPurchased,
-      incomeLinked: !!d.income_transaction_id,
     };
   });
 
