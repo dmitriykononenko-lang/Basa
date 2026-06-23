@@ -49,6 +49,7 @@ export default async function CounterpartyPage({
   // Агентские выплаты (комиссии с привязкой к приходу)
   let payouts: Payout[] = [];
   let payoutAccounts: { id: string; name: string; currency: string }[] = [];
+  let payoutOps: { id: string; amount: number; currency: string; occurred_on: string }[] = [];
   if (isAgent) {
     const [{ data: comm }, { data: accs }] = await Promise.all([
       supabase
@@ -81,6 +82,17 @@ export default async function CounterpartyPage({
         paid, outstanding: o.amount - paid,
       };
     });
+
+    // Кандидаты-операции для привязки выплаты: расходы этому агенту, ещё не привязанные
+    const { data: linkedPays } = await supabase.from("obligation_payments").select("transaction_id").not("transaction_id", "is", null);
+    const linkedTxIds = new Set((linkedPays ?? []).map((p) => p.transaction_id as string));
+    const { data: agentExp } = await supabase
+      .from("transactions")
+      .select("id, amount, currency, occurred_on")
+      .eq("team_id", team.id).eq("counterparty_id", id).eq("type", "expense").eq("status", "actual")
+      .order("occurred_on", { ascending: false }).limit(100);
+    payoutOps = ((agentExp ?? []) as { id: string; amount: number; currency: string; occurred_on: string }[])
+      .filter((t) => !linkedTxIds.has(t.id));
   }
 
   const [{ data: txs }, { data: obls }, { data: fxRows }, { data: opAccounts }, { data: opCats }, { data: opProjects }, { data: opCps }] = await Promise.all([
@@ -232,7 +244,7 @@ export default async function CounterpartyPage({
       {/* Агент: выплаты, ставки комиссии и клиенты */}
       {isAgent && user && (
         <div className="mt-6">
-          <AgentPayouts teamId={team.id} userId={user.id} agentId={cp.id} accounts={payoutAccounts} payouts={payouts} />
+          <AgentPayouts teamId={team.id} userId={user.id} agentId={cp.id} accounts={payoutAccounts} payouts={payouts} ops={payoutOps} />
         </div>
       )}
       {isAgent && (

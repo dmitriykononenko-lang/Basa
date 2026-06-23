@@ -1,12 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Select } from "@/components/ui/select";
+import Combobox from "@/components/Combobox";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { parseMoney, formatMoney } from "@/lib/format";
+import { parseMoney, formatMoney, formatDate } from "@/lib/format";
 
 type Account = { id: string; name: string; currency: string };
+export type PayOp = { id: string; amount: number; currency: string; occurred_on: string };
 
 export default function PayObligationButton({
   obligationId,
@@ -16,6 +18,7 @@ export default function PayObligationButton({
   teamId,
   counterpartyId,
   accounts = [],
+  ops = [],
 }: {
   obligationId: string;
   userId: string;
@@ -24,14 +27,24 @@ export default function PayObligationButton({
   teamId?: string;
   counterpartyId?: string | null;
   accounts?: Account[];
+  ops?: PayOp[];
 }) {
   const router = useRouter();
   const matching = accounts.filter((a) => a.currency === currency);
+  const matchingOps = ops.filter((o) => o.currency === currency);
+  const opById = useMemo(() => new Map(matchingOps.map((o) => [o.id, o])), [matchingOps]);
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState("");
   const [accountId, setAccountId] = useState(matching[0]?.id ?? "");
+  const [linkedOpId, setLinkedOpId] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  function pickOp(id: string) {
+    setLinkedOpId(id);
+    const o = opById.get(id);
+    if (o) setAmount(String(Math.min(o.amount, outstanding) / 100).replace(".", ","));
+  }
 
   if (outstanding <= 0) {
     return (
@@ -53,8 +66,10 @@ export default function PayObligationButton({
     const today = new Date().toISOString().slice(0, 10);
     let transactionId: string | null = null;
 
-    // Если есть счёт в валюте обязательства — создаём расход (попадёт в ДДС и уменьшит баланс)
-    if (teamId && accountId && matching.length > 0) {
+    // Привязка к существующей операции — без создания новой (берём её как платёж)
+    if (linkedOpId) {
+      transactionId = linkedOpId;
+    } else if (teamId && accountId && matching.length > 0) {
       const { data: tx, error: txErr } = await supabase
         .from("transactions")
         .insert({
@@ -109,6 +124,16 @@ export default function PayObligationButton({
 
   return (
     <form onSubmit={pay} className="flex flex-wrap items-center justify-end gap-1">
+      {matchingOps.length > 0 && (
+        <Combobox
+          className="w-44"
+          value={linkedOpId}
+          onChange={pickOp}
+          placeholder="Из операции…"
+          emptyLabel="— новая операция —"
+          options={matchingOps.map((o) => ({ value: o.id, label: `${formatDate(o.occurred_on)} · ${formatMoney(o.amount, o.currency)}` }))}
+        />
+      )}
       <input
         type="text"
         inputMode="decimal"
@@ -118,7 +143,7 @@ export default function PayObligationButton({
         placeholder={formatMoney(outstanding, currency)}
         className="w-24 rounded-full border border-slate-300 px-2.5 py-1 text-xs outline-none focus:border-brand dark:border-neutral-700 dark:bg-neutral-800"
       />
-      {matching.length > 0 && (
+      {!linkedOpId && matching.length > 0 && (
         <Select variant="pill" value={accountId} onChange={setAccountId} options={matching.map((a) => ({ value: a.id, label: a.name }))} />
       )}
       <button type="submit" disabled={loading} className="rounded-full bg-brand px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-60">

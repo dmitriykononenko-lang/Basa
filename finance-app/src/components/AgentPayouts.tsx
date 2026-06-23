@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { formatMoney, formatDate } from "@/lib/format";
 import { toast } from "@/lib/toast";
-import PayObligationButton from "@/components/PayObligationButton";
+import PayObligationButton, { type PayOp } from "@/components/PayObligationButton";
 
 type Account = { id: string; name: string; currency: string };
 export type Payout = {
@@ -22,13 +22,14 @@ export type Payout = {
 };
 
 export default function AgentPayouts({
-  teamId, userId, agentId, accounts, payouts,
+  teamId, userId, agentId, accounts, payouts, ops = [],
 }: {
   teamId: string;
   userId: string;
   agentId: string;
   accounts: Account[];
   payouts: Payout[];
+  ops?: PayOp[];
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -117,6 +118,7 @@ export default function AgentPayouts({
                       teamId={teamId}
                       counterpartyId={agentId}
                       accounts={accounts}
+                      ops={ops}
                     />
                   </td>
                 </tr>
