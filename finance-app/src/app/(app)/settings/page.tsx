@@ -48,6 +48,13 @@ const GROUPS: { title: string; items: Card[] }[] = [
         Icon: IconRepeat,
         color: "bg-violet-600 text-white",
       },
+      {
+        href: "/settings/bank",
+        title: "Банк · Точка",
+        desc: "Импорт операций из Точки по API",
+        Icon: IconAccounts,
+        color: "bg-sky-600 text-white",
+      },
     ],
   },
   {
