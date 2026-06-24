@@ -70,6 +70,12 @@ export async function getAccounts({ token, apiVersion }: FetchOpts): Promise<Toc
 
 type RawAccount = { accountId: string; currency?: string; accountType?: string };
 
+// Сырой ответ по счетам — для диагностики маппинга на живом токене.
+export async function getAccountsRaw({ token, apiVersion }: FetchOpts): Promise<unknown> {
+  return api(`open-banking/${apiVersion}/accounts`, { token });
+}
+
+
 // ── Выписка (асинхронно): init → poll → get операции ──────────────────────────
 export async function fetchOperations(
   opts: FetchOpts & { accountId: string; from: string; to: string },
