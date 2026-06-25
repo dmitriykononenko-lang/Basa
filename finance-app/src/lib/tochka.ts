@@ -82,11 +82,12 @@ export async function fetchOperations(
 ): Promise<TochkaOperation[]> {
   const { token, apiVersion, accountId, from, to } = opts;
 
-  // Тело init-запроса: имена полей периода у разных версий API отличаются —
-  // пробуем стандартный вариант OpenBanking, при ошибке валидации повторяем альтернативой.
+  // Поля подтверждены ТП Точки: accountId (счёт/БИК), startDateTime, endDateTime.
+  // Основной вариант — обёртка Data.Statement (стандарт OpenBanking); запасной —
+  // плоское тело с теми же полями, на случай если шлюз не требует обёртку.
   const candidates = [
     { Data: { Statement: { accountId, startDateTime: from, endDateTime: to } } },
-    { Data: { Statement: { accountId, fromBookingDateTime: from, toBookingDateTime: to } } },
+    { accountId, startDateTime: from, endDateTime: to },
   ];
   let statementId: string | undefined;
   let lastErr: unknown;
