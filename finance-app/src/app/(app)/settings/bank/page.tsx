@@ -38,6 +38,7 @@ export default async function BankPage() {
 
       {canEditFinance(role) ? (
         <BankConnection
+          teamId={team.id}
           connected={!!conn}
           apiVersion={conn?.api_version ?? "v1.0"}
           lastSyncedAt={conn?.last_synced_at ?? null}

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 import { Select } from "@/components/ui/select";
 import { formatDate } from "@/lib/format";
 import { toast } from "@/lib/toast";
@@ -10,9 +11,10 @@ type Named = { id: string; name: string };
 type TochkaAccount = { accountId: string; accountNumber: string | null; currency: string; name: string | null };
 
 export default function BankConnection({
-  connected, apiVersion, lastSyncedAt, defaultAccountId, incomeCategoryId, expenseCategoryId,
-  accounts, incomeCategories, expenseCategories, accountLinks,
+  teamId, connected, apiVersion, lastSyncedAt, defaultAccountId, incomeCategoryId, expenseCategoryId,
+  accounts: accountsProp, incomeCategories, expenseCategories, accountLinks,
 }: {
+  teamId: string;
   connected: boolean;
   apiVersion: string;
   lastSyncedAt: string | null;
@@ -24,6 +26,7 @@ export default function BankConnection({
   expenseCategories: Named[];
   accountLinks: { external: string; accountId: string | null }[];
 }) {
+  const [accounts, setAccounts] = useState<Named[]>(accountsProp);
   const router = useRouter();
   const today = new Date().toISOString().slice(0, 10);
   const monthAgo = new Date(Date.now() - 30 * 86400_000).toISOString().slice(0, 10);
@@ -95,6 +98,21 @@ export default function BankConnection({
       return next;
     });
     toast.success(`Подключение работает: счетов ${accs.length}`);
+  }
+
+  async function createAccount(num: string, currency: string) {
+    const name = window.prompt("Название нового счёта в Basa:", num);
+    if (name === null) return;
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from("accounts")
+      .insert({ team_id: teamId, name: name.trim() || num, currency: currency || "RUB", kind: "bank" })
+      .select("id, name")
+      .single();
+    if (error || !data) { toast.error(error?.message ?? "Не удалось создать счёт"); return; }
+    setAccounts((prev) => [...prev, { id: data.id, name: data.name }].sort((a, b) => a.name.localeCompare(b.name)));
+    setMapping((p) => ({ ...p, [num]: data.id }));
+    toast.success(`Счёт «${data.name}» создан и сопоставлен`);
   }
 
   async function saveMapping() {
@@ -247,7 +265,7 @@ export default function BankConnection({
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <div>
-            <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Счёт для импорта</label>
+            <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Счёт по умолчанию (для несопоставленных)</label>
             <Select value={accId} onChange={setAccId} options={[{ value: "", label: "— не выбран —" }, ...accounts.map((a) => ({ value: a.id, label: a.name }))]} />
           </div>
           <div>
@@ -294,8 +312,12 @@ export default function BankConnection({
                     <Select
                       className="w-full"
                       value={mapped ?? ""}
-                      onChange={(v) => setMapping((p) => ({ ...p, [num]: v }))}
-                      options={[{ value: "", label: "— выберите счёт Basa —" }, ...accounts.map((acc) => ({ value: acc.id, label: acc.name }))]}
+                      onChange={(v) => { if (v === "__create__") createAccount(num, a.currency); else setMapping((p) => ({ ...p, [num]: v })); }}
+                      options={[
+                        { value: "", label: "— выберите счёт Basa —" },
+                        ...accounts.map((acc) => ({ value: acc.id, label: acc.name })),
+                        { value: "__create__", label: "➕ Создать новый счёт в Basa…" },
+                      ]}
                     />
                   </div>
                 );
@@ -313,30 +335,51 @@ export default function BankConnection({
       {connected && (
         <div className="space-y-4 rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
           <h2 className="text-sm font-semibold text-slate-800 dark:text-neutral-100">Импорт операций</h2>
-          <div className="flex flex-wrap items-end gap-2">
-            {tochkaAccounts.length > 0 && (
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Счёт в Точке</label>
-                <Select value={tochkaAccId} onChange={setTochkaAccId} options={tochkaAccounts.map((a) => ({ value: a.accountId, label: a.accountNumber ?? a.accountId }))} />
+
+          {tochkaAccounts.length === 0 ? (
+            <p className="text-xs text-slate-400 dark:text-neutral-500">Сначала нажмите «Проверить подключение» выше, чтобы загрузить счета.</p>
+          ) : (
+            <>
+              {/* Период */}
+              <div className="flex flex-wrap items-end gap-3">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Период с</label>
+                  <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="input w-40" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">по</label>
+                  <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="input w-40" />
+                </div>
               </div>
-            )}
-            <div>
-              <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">С</label>
-              <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="input w-40" />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">По</label>
-              <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="input w-40" />
-            </div>
-            <button onClick={runImport} disabled={importBusy} className="btn-primary">{importBusy ? "Импорт…" : "Импортировать счёт"}</button>
-            <button onClick={importAll} disabled={importBusy || tochkaAccounts.length === 0} className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{importBusy ? "Импорт…" : "Импортировать все счета"}</button>
-            <button onClick={debugRaw} type="button" className="btn-ghost text-xs">Сырой ответ (debug)</button>
-          </div>
+
+              {/* Главное действие — все счета */}
+              <div className="rounded-2xl border border-emerald-200/70 bg-emerald-50/50 p-4 dark:border-emerald-500/20 dark:bg-emerald-500/[0.06]">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-slate-800 dark:text-neutral-100">Импортировать все счета</div>
+                    <div className="text-xs text-slate-500 dark:text-neutral-400">{tochkaAccounts.length} счетов Точки за период, каждый ляжет на свой счёт Basa по сопоставлению.</div>
+                  </div>
+                  <button onClick={importAll} disabled={importBusy} className="rounded-full bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{importBusy ? "Импорт…" : "Импортировать все счета"}</button>
+                </div>
+              </div>
+
+              {/* Альтернатива — один счёт */}
+              <details className="rounded-2xl bg-slate-50 p-3 text-sm dark:bg-white/[0.03]">
+                <summary className="cursor-pointer text-xs font-medium text-slate-500 dark:text-neutral-400">…или импортировать только один счёт</summary>
+                <div className="mt-3 flex flex-wrap items-end gap-2">
+                  <div className="min-w-[220px]">
+                    <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Счёт в Точке</label>
+                    <Select value={tochkaAccId} onChange={setTochkaAccId} options={tochkaAccounts.map((a) => ({ value: a.accountId, label: a.accountNumber ?? a.accountId }))} />
+                  </div>
+                  <button onClick={runImport} disabled={importBusy} className="btn-primary">{importBusy ? "Импорт…" : "Импортировать этот счёт"}</button>
+                  <button onClick={debugRaw} type="button" className="btn-ghost text-xs">Сырой ответ (debug)</button>
+                </div>
+              </details>
+            </>
+          )}
+
           {rawDebug && (
             <pre className="max-h-80 overflow-auto rounded-2xl bg-slate-900 p-3 text-[11px] leading-relaxed text-slate-100">{rawDebug}</pre>
-          )}
-          {tochkaAccounts.length === 0 && (
-            <p className="text-xs text-slate-400 dark:text-neutral-500">Нажмите «Проверить подключение», чтобы выбрать счёт. Без выбора импортируется первый счёт.</p>
           )}
           {result && (
             <div className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
