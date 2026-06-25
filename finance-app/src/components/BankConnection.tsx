@@ -45,6 +45,7 @@ export default function BankConnection({
   );
   const [mapBusy, setMapBusy] = useState(false);
   const [suggestBusy, setSuggestBusy] = useState(false);
+  const [hints, setHints] = useState<Record<string, string>>({});
   const accByName = useMemo(() => new Map(accounts.map((a) => [a.name.trim(), a.id])), [accounts]);
 
   const [from, setFrom] = useState(monthAgo);
@@ -115,11 +116,12 @@ export default function BankConnection({
     if (tochkaAccounts.length === 0) { toast.error("Сначала «Проверить подключение»"); return; }
     setSuggestBusy(true);
     const next: Record<string, string> = { ...mapping };
+    const newHints: Record<string, string> = { ...hints };
     let matched = 0;
     for (const a of tochkaAccounts) {
       const num = a.accountNumber ?? a.accountId;
       // 1) Счёт с именем = номер.
-      if (accByName.has(num)) { next[num] = accByName.get(num)!; matched++; continue; }
+      if (accByName.has(num)) { next[num] = accByName.get(num)!; newHints[num] = "счёт по номеру"; matched++; continue; }
       // 2) По преобладающему фонду в назначениях выписки.
       try {
         const res = await fetch("/api/tochka/suggest", {
@@ -127,17 +129,22 @@ export default function BankConnection({
           body: JSON.stringify({ tochkaAccountId: a.accountId, from, to }),
         });
         const j = await res.json();
-        if (res.ok && j.topFund) {
+        if (!res.ok) { newHints[num] = "не удалось прочитать выписку"; continue; }
+        if (j.topFund) {
+          newHints[num] = `по выпискам: фонд ${j.topFund} · ${j.opsCount} оп.`;
           const want = `фонд ${j.topFund}`.toLowerCase();
           const hit = accounts.find((acc) => acc.name.trim().toLowerCase() === want)
             ?? accounts.find((acc) => acc.name.trim().toLowerCase().includes(want));
           if (hit) { next[num] = hit.id; matched++; }
+        } else {
+          newHints[num] = j.opsCount ? `разные назначения · ${j.opsCount} оп. (похоже, операционный)` : "нет операций за период";
         }
-      } catch { /* пропускаем счёт */ }
+      } catch { newHints[num] = "ошибка анализа"; }
     }
     setMapping(next);
+    setHints(newHints);
     setSuggestBusy(false);
-    toast.success(`Подсказано сопоставлений: ${matched} из ${tochkaAccounts.length}. Проверьте и сохраните.`);
+    toast.success(`Подсказано: ${matched} из ${tochkaAccounts.length}. Проверьте и сохраните.`);
   }
 
   async function importAll() {
@@ -256,35 +263,50 @@ export default function BankConnection({
           <button onClick={save} disabled={savingBusy} className="btn-primary">{savingBusy ? "…" : "Сохранить"}</button>
           {connected && <button onClick={test} disabled={testBusy} className="btn-ghost">{testBusy ? "Проверка…" : "Проверить подключение"}</button>}
         </div>
-        {tochkaAccounts.length > 0 && (
-          <div className="space-y-2 rounded-2xl bg-slate-50 p-3 dark:bg-white/[0.03]">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">Сопоставление счетов Точка → Basa</span>
+        {tochkaAccounts.length > 0 && (() => {
+          const mappedCount = tochkaAccounts.filter((a) => mapping[a.accountNumber ?? a.accountId]).length;
+          return (
+          <div className="space-y-3 rounded-2xl bg-slate-50 p-4 dark:bg-white/[0.03]">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="text-sm font-semibold text-slate-700 dark:text-neutral-200">Какой счёт Точки = какой счёт Basa</div>
+                <div className="text-xs text-slate-400 dark:text-neutral-500">Сопоставлено {mappedCount} из {tochkaAccounts.length}. Нужно, чтобы переводы между своими счетами заполняли оба конца.</div>
+              </div>
               <div className="flex gap-2">
-                <button onClick={suggestMapping} disabled={suggestBusy} className="rounded-full bg-slate-200 px-3 py-1 text-xs font-semibold text-slate-700 disabled:opacity-50 dark:bg-white/10 dark:text-neutral-200">{suggestBusy ? "Анализ…" : "Подсказать"}</button>
-                <button onClick={saveMapping} disabled={mapBusy} className="rounded-full bg-brand px-3 py-1 text-xs font-semibold text-white disabled:opacity-50">{mapBusy ? "…" : "Сохранить сопоставление"}</button>
+                <button onClick={suggestMapping} disabled={suggestBusy} className="rounded-full bg-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 disabled:opacity-50 dark:bg-white/10 dark:text-neutral-200">{suggestBusy ? "Анализирую выписки…" : "✨ Подсказать"}</button>
+                <button onClick={saveMapping} disabled={mapBusy} className="rounded-full bg-brand px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">{mapBusy ? "…" : "Сохранить"}</button>
               </div>
             </div>
-            <p className="text-xs text-slate-400 dark:text-neutral-500">Нужно для переводов между своими счетами — заполнит оба конца. «Подсказать» определит фонды по назначениям в выписках; совпавшие по номеру — автоматически. Проверьте и сохраните.</p>
-            <ul className="space-y-1.5 text-sm">
+            <div className="divide-y divide-slate-200/70 dark:divide-white/[0.06]">
               {tochkaAccounts.map((a) => {
                 const num = a.accountNumber ?? a.accountId;
+                const mapped = mapping[num];
+                const hint = hints[num];
                 return (
-                  <li key={a.accountId} className="flex items-center gap-2">
-                    <span className="w-48 shrink-0 font-mono text-xs text-slate-600 dark:text-neutral-300">{num}</span>
-                    <span className="text-slate-300">→</span>
+                  <div key={a.accountId} className="grid grid-cols-[1fr,auto,1.2fr] items-center gap-3 py-2">
+                    <div className="min-w-0">
+                      <div className="truncate font-mono text-xs text-slate-700 dark:text-neutral-200">{num}</div>
+                      <div className="truncate text-[11px] text-slate-400 dark:text-neutral-500">
+                        {a.currency}{hint ? ` · ${hint}` : ""}
+                      </div>
+                    </div>
+                    <span className={mapped ? "text-emerald-500" : "text-slate-300 dark:text-neutral-600"}>→</span>
                     <Select
-                      className="flex-1"
-                      value={mapping[num] ?? ""}
+                      className="w-full"
+                      value={mapped ?? ""}
                       onChange={(v) => setMapping((p) => ({ ...p, [num]: v }))}
-                      options={[{ value: "", label: "— не сопоставлен —" }, ...accounts.map((acc) => ({ value: acc.id, label: acc.name }))]}
+                      options={[{ value: "", label: "— выберите счёт Basa —" }, ...accounts.map((acc) => ({ value: acc.id, label: acc.name }))]}
                     />
-                  </li>
+                  </div>
                 );
               })}
-            </ul>
+            </div>
+            <p className="text-[11px] text-slate-400 dark:text-neutral-500">
+              💡 «Подсказать» читает назначения в выписках и определяет фонды. Операционные счета (разные назначения) сопоставьте вручную — обычно это ваши номерные счета.
+            </p>
           </div>
-        )}
+          );
+        })()}
       </div>
 
       {/* Импорт */}
