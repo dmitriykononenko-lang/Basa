@@ -136,16 +136,19 @@ export async function POST(request: Request) {
 
   let transfers = 0;
   const rows = fresh.map((o) => {
-    const isTransfer = !!o.counterpartyAccount && ownNumbers.has(o.counterpartyAccount);
+    const isInternalAcc = !!o.counterpartyAccount && ownNumbers.has(o.counterpartyAccount);
+    // «Перевод собственных средств» — тоже перевод, даже если счёт-получатель не в списке (карта/другой банк).
+    const isOwnFunds = /перевод\s+собственных\s+средств/i.test(o.description ?? "");
+    const isTransfer = isInternalAcc || isOwnFunds;
     if (isTransfer) transfers++;
     const type = isTransfer ? "transfer" : o.direction;
     const category_id = isTransfer ? null : type === "income" ? conn.default_income_category_id : conn.default_expense_category_id;
-    // Второй конец перевода — счёт Basa, сопоставленный со счётом-получателем.
-    const transfer_account_id = isTransfer ? (o.counterpartyAccount && acctMap.get(o.counterpartyAccount)) || null : null;
+    // Второй конец перевода — счёт Basa, сопоставленный со счётом-получателем (если он среди своих).
+    const transfer_account_id = isInternalAcc ? (o.counterpartyAccount && acctMap.get(o.counterpartyAccount)) || null : null;
     const noteParts = [
       o.description,
       o.docNumber && `${o.docType ?? "Документ"} №${o.docNumber}`,
-      isTransfer && !transfer_account_id && `Перевод между своими счетами (${o.counterpartyAccount})`,
+      isInternalAcc && !transfer_account_id && `Перевод между своими счетами (${o.counterpartyAccount})`,
     ].filter(Boolean);
     return {
       team_id: current.team.id,
