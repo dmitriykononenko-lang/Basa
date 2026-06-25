@@ -19,6 +19,7 @@ import {
   IconRepeat,
   IconTag,
   IconBook,
+  IconAcademy,
 } from "./icons";
 
 type Item = {
@@ -44,6 +45,12 @@ const NAV: Item[] = [
     label: "База знаний",
     Icon: IconBook,
     match: ["/knowledge-base"],
+  },
+  {
+    href: "/academy",
+    label: "Академия",
+    Icon: IconAcademy,
+    match: ["/academy"],
   },
 ];
 

@@ -1,0 +1,122 @@
+import Link from "next/link";
+import { notFound, redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
+import { getCurrentTeam, canEditFinance } from "@/lib/team";
+import CourseEditor, { type CourseEditorData } from "@/components/academy/CourseEditor";
+import AssignmentPanel from "@/components/academy/AssignmentPanel";
+import { courseProgressPercent, type AcademyAssigneeType } from "@/lib/academy";
+import type { KbKind, KbStatus } from "@/lib/kb";
+
+export default async function CourseEditPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const current = await getCurrentTeam();
+  if (!current) redirect("/academy");
+  const { team, role } = current;
+  if (!canEditFinance(role)) redirect("/academy");
+  const supabase = await createClient();
+
+  const { data: course } = await supabase
+    .from("academy_courses")
+    .select("id, title, status, description")
+    .eq("id", id)
+    .maybeSingle();
+  if (!course) notFound();
+  const c = course as { id: string; title: string; status: KbStatus; description: string };
+
+  const [{ data: items }, { data: articles }, { data: membersRaw }, { data: depts }, { data: assignmentsRaw }, { data: progress }] =
+    await Promise.all([
+      supabase.from("academy_course_items").select("article_id, position").eq("course_id", id).order("position"),
+      supabase.from("kb_articles").select("id, title, kind").eq("team_id", team.id).order("title"),
+      supabase.from("team_members").select("user_id, profiles(full_name)").eq("team_id", team.id),
+      supabase.from("kb_departments").select("id, name").eq("team_id", team.id).order("name"),
+      supabase.from("academy_assignments").select("id, assignee_type, department_id, user_id, due_date").eq("course_id", id),
+      supabase.from("academy_progress").select("user_id, status").eq("course_id", id),
+    ]);
+
+  const members = ((membersRaw ?? []) as { user_id: string; profiles: { full_name: string | null } | { full_name: string | null }[] | null }[]).map((m) => ({
+    id: m.user_id,
+    name: (Array.isArray(m.profiles) ? m.profiles[0]?.full_name : m.profiles?.full_name) || "Без имени",
+  }));
+  const memberName = new Map(members.map((m) => [m.id, m.name]));
+  const departments = ((depts ?? []) as { id: string; name: string }[]);
+  const deptName = new Map(departments.map((d) => [d.id, d.name]));
+
+  const initial: CourseEditorData = {
+    id: c.id,
+    title: c.title,
+    status: c.status,
+    description: c.description,
+    itemArticleIds: ((items ?? []) as { article_id: string }[]).map((i) => i.article_id),
+  };
+
+  const assignments = ((assignmentsRaw ?? []) as {
+    id: string;
+    assignee_type: AcademyAssigneeType;
+    department_id: string | null;
+    user_id: string | null;
+    due_date: string | null;
+  }[]).map((a) => ({
+    id: a.id,
+    assignee_type: a.assignee_type,
+    due_date: a.due_date,
+    label: a.assignee_type === "user" ? memberName.get(a.user_id ?? "") ?? "—" : deptName.get(a.department_id ?? "") ?? "—",
+  }));
+
+  // дашборд прогресса: агрегат по пользователям
+  const agg = new Map<string, { done: number; total: number }>();
+  for (const p of (progress ?? []) as { user_id: string; status: string }[]) {
+    const e = agg.get(p.user_id) ?? { done: 0, total: 0 };
+    e.total += 1;
+    if (p.status === "done") e.done += 1;
+    agg.set(p.user_id, e);
+  }
+  const rows = [...agg.entries()].map(([uid, e]) => ({
+    name: memberName.get(uid) ?? "—",
+    done: e.done,
+    total: e.total,
+    pct: courseProgressPercent(e.done, e.total),
+  }));
+
+  return (
+    <div className="space-y-8 p-6 sm:p-8">
+      <div>
+        <Link href="/academy" className="text-sm text-slate-400 hover:text-brand">← Академия</Link>
+        <h1 className="mb-6 mt-2 text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">Настройка курса</h1>
+        <CourseEditor teamId={team.id} articles={(articles ?? []) as { id: string; title: string; kind: KbKind }[]} initial={initial} />
+      </div>
+
+      <AssignmentPanel teamId={team.id} courseId={id} members={members} departments={departments} assignments={assignments} />
+
+      <section className="surface rounded-3xl p-5">
+        <h2 className="mb-3 text-sm font-semibold text-slate-900 dark:text-white">Прогресс сотрудников</h2>
+        {rows.length > 0 ? (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs uppercase tracking-wider text-slate-400">
+                <th className="py-2">Сотрудник</th>
+                <th className="py-2">Прогресс</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-white/[0.07]">
+              {rows.map((r) => (
+                <tr key={r.name}>
+                  <td className="py-2 text-slate-800 dark:text-neutral-200">{r.name}</td>
+                  <td className="py-2">
+                    <div className="flex items-center gap-2">
+                      <div className="h-2 w-32 overflow-hidden rounded-full bg-slate-100 dark:bg-neutral-800">
+                        <div className="h-full rounded-full bg-brand" style={{ width: `${r.pct}%` }} />
+                      </div>
+                      <span className="text-xs text-slate-500 dark:text-neutral-400">{r.done}/{r.total} ({r.pct}%)</span>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <p className="text-sm text-slate-400">Пока никому не назначено.</p>
+        )}
+      </section>
+    </div>
+  );
+}
