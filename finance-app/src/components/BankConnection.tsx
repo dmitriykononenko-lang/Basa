@@ -41,7 +41,7 @@ export default function BankConnection({
   const [from, setFrom] = useState(monthAgo);
   const [to, setTo] = useState(today);
   const [importBusy, setImportBusy] = useState(false);
-  const [result, setResult] = useState<{ imported: number; skipped: number; transfers: number; total: number } | null>(null);
+  const [result, setResult] = useState<{ imported: number; skipped: number; transfers: number; counterparties: number; total: number } | null>(null);
   const [rawDebug, setRawDebug] = useState<string | null>(null);
 
   async function save() {
@@ -88,7 +88,7 @@ export default function BankConnection({
     setImportBusy(false);
     const json = await res.json();
     if (!res.ok) { toast.error(json.error ?? "Ошибка импорта"); return; }
-    setResult({ imported: json.imported, skipped: json.skipped, transfers: json.transfers, total: json.total });
+    setResult({ imported: json.imported, skipped: json.skipped, transfers: json.transfers, counterparties: json.counterparties ?? 0, total: json.total });
     toast.success(`Импортировано: ${json.imported}`);
     router.refresh();
   }
@@ -212,7 +212,7 @@ export default function BankConnection({
           )}
           {result && (
             <div className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
-              Импортировано: <b>{result.imported}</b> · пропущено (уже были): {result.skipped} · переводов между счетами: {result.transfers} · всего в выписке: {result.total}
+              Импортировано: <b>{result.imported}</b> · новых контрагентов: {result.counterparties} · переводов между счетами: {result.transfers} · пропущено (уже были): {result.skipped} · всего в выписке: {result.total}
             </div>
           )}
         </div>
