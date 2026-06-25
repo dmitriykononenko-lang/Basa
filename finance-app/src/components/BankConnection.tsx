@@ -135,11 +135,13 @@ export default function BankConnection({
     setSuggestBusy(true);
     const next: Record<string, string> = { ...mapping };
     const newHints: Record<string, string> = { ...hints };
+    // Не назначаем один счёт Basa двум счетам Точки — иначе переводы между ними станут «сам себе».
+    const used = new Set(Object.values(next).filter(Boolean));
     let matched = 0;
     for (const a of tochkaAccounts) {
       const num = a.accountNumber ?? a.accountId;
       // 1) Счёт с именем = номер.
-      if (accByName.has(num)) { next[num] = accByName.get(num)!; newHints[num] = "счёт по номеру"; matched++; continue; }
+      if (accByName.has(num)) { const id = accByName.get(num)!; next[num] = id; used.add(id); newHints[num] = "счёт по номеру"; matched++; continue; }
       // 2) По преобладающему фонду в назначениях выписки.
       try {
         const res = await fetch("/api/tochka/suggest", {
@@ -149,11 +151,17 @@ export default function BankConnection({
         const j = await res.json();
         if (!res.ok) { newHints[num] = "не удалось прочитать выписку"; continue; }
         if (j.topFund) {
-          newHints[num] = `по выпискам: фонд ${j.topFund} · ${j.opsCount} оп.`;
           const want = `фонд ${j.topFund}`.toLowerCase();
           const hit = accounts.find((acc) => acc.name.trim().toLowerCase() === want)
             ?? accounts.find((acc) => acc.name.trim().toLowerCase().includes(want));
-          if (hit) { next[num] = hit.id; matched++; }
+          if (hit && used.has(hit.id)) {
+            newHints[num] = `похоже на «${hit.name}», но он уже занят — выберите вручную`;
+          } else if (hit) {
+            next[num] = hit.id; used.add(hit.id); matched++;
+            newHints[num] = `по выпискам: фонд ${j.topFund} · ${j.opsCount} оп.`;
+          } else {
+            newHints[num] = `по выпискам: фонд ${j.topFund} · ${j.opsCount} оп. (нет счёта в Basa)`;
+          }
         } else {
           newHints[num] = j.opsCount ? `разные назначения · ${j.opsCount} оп. (похоже, операционный)` : "нет операций за период";
         }
