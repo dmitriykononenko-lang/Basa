@@ -31,8 +31,16 @@ export async function POST(request: Request) {
 
   // Токен шифруем только если прислан (при редактировании настроек можно не слать токен заново).
   if (body.token && body.token.trim()) {
+    const tok = body.token.trim();
+    // JWT Точки — три сегмента через точку и длинный (~700+ символов).
+    if (tok.split(".").length !== 3 || tok.length < 100) {
+      return NextResponse.json(
+        { error: `Токен вставлен не полностью (${tok.length} симв.). JWT-ключ Точки — длинная строка из трёх сегментов через точку (~700+ симв.). Скопируйте его целиком.` },
+        { status: 400 },
+      );
+    }
     try {
-      update.token_cipher = encryptSecret(body.token.trim());
+      update.token_cipher = encryptSecret(tok);
     } catch (e) {
       return NextResponse.json({ error: e instanceof Error ? e.message : "Ошибка шифрования" }, { status: 500 });
     }
