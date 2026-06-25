@@ -34,6 +34,13 @@ export const IconBook = (p: P) => (
   </svg>
 );
 
+export const IconAcademy = (p: P) => (
+  <svg {...base} className={p.className}>
+    <path d="M12 4 2 9l10 5 10-5z" />
+    <path d="M6 11.5V16c0 1.1 2.7 2.5 6 2.5s6-1.4 6-2.5v-4.5" />
+  </svg>
+);
+
 export const IconAccounts = (p: P) => (
   <svg {...base} className={p.className}>
     <rect x="3" y="6" width="18" height="13" rx="2.5" />
