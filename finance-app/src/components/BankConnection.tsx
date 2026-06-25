@@ -44,6 +44,7 @@ export default function BankConnection({
     () => Object.fromEntries(accountLinks.filter((l) => l.accountId).map((l) => [l.external, l.accountId as string])),
   );
   const [mapBusy, setMapBusy] = useState(false);
+  const [suggestBusy, setSuggestBusy] = useState(false);
   const accByName = useMemo(() => new Map(accounts.map((a) => [a.name.trim(), a.id])), [accounts]);
 
   const [from, setFrom] = useState(monthAgo);
@@ -108,6 +109,35 @@ export default function BankConnection({
     if (!res.ok) { toast.error(json.error ?? "Не удалось сохранить"); return; }
     toast.success(`Сопоставлено счетов: ${json.saved}`);
     router.refresh();
+  }
+
+  async function suggestMapping() {
+    if (tochkaAccounts.length === 0) { toast.error("Сначала «Проверить подключение»"); return; }
+    setSuggestBusy(true);
+    const next: Record<string, string> = { ...mapping };
+    let matched = 0;
+    for (const a of tochkaAccounts) {
+      const num = a.accountNumber ?? a.accountId;
+      // 1) Счёт с именем = номер.
+      if (accByName.has(num)) { next[num] = accByName.get(num)!; matched++; continue; }
+      // 2) По преобладающему фонду в назначениях выписки.
+      try {
+        const res = await fetch("/api/tochka/suggest", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tochkaAccountId: a.accountId, from, to }),
+        });
+        const j = await res.json();
+        if (res.ok && j.topFund) {
+          const want = `фонд ${j.topFund}`.toLowerCase();
+          const hit = accounts.find((acc) => acc.name.trim().toLowerCase() === want)
+            ?? accounts.find((acc) => acc.name.trim().toLowerCase().includes(want));
+          if (hit) { next[num] = hit.id; matched++; }
+        }
+      } catch { /* пропускаем счёт */ }
+    }
+    setMapping(next);
+    setSuggestBusy(false);
+    toast.success(`Подсказано сопоставлений: ${matched} из ${tochkaAccounts.length}. Проверьте и сохраните.`);
   }
 
   async function importAll() {
@@ -230,9 +260,12 @@ export default function BankConnection({
           <div className="space-y-2 rounded-2xl bg-slate-50 p-3 dark:bg-white/[0.03]">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">Сопоставление счетов Точка → Basa</span>
-              <button onClick={saveMapping} disabled={mapBusy} className="rounded-full bg-brand px-3 py-1 text-xs font-semibold text-white disabled:opacity-50">{mapBusy ? "…" : "Сохранить сопоставление"}</button>
+              <div className="flex gap-2">
+                <button onClick={suggestMapping} disabled={suggestBusy} className="rounded-full bg-slate-200 px-3 py-1 text-xs font-semibold text-slate-700 disabled:opacity-50 dark:bg-white/10 dark:text-neutral-200">{suggestBusy ? "Анализ…" : "Подсказать"}</button>
+                <button onClick={saveMapping} disabled={mapBusy} className="rounded-full bg-brand px-3 py-1 text-xs font-semibold text-white disabled:opacity-50">{mapBusy ? "…" : "Сохранить сопоставление"}</button>
+              </div>
             </div>
-            <p className="text-xs text-slate-400 dark:text-neutral-500">Нужно для переводов между своими счетами — заполнит оба конца. Совпавшие по номеру подставлены автоматически.</p>
+            <p className="text-xs text-slate-400 dark:text-neutral-500">Нужно для переводов между своими счетами — заполнит оба конца. «Подсказать» определит фонды по назначениям в выписках; совпавшие по номеру — автоматически. Проверьте и сохраните.</p>
             <ul className="space-y-1.5 text-sm">
               {tochkaAccounts.map((a) => {
                 const num = a.accountNumber ?? a.accountId;
