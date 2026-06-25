@@ -11,11 +11,13 @@ function getKey(): Buffer {
       "TOCHKA_TOKEN_KEY не задан. Сгенерируйте ключ: `openssl rand -hex 32` и добавьте в переменные окружения."
     );
   }
-  const hex = /^[0-9a-fA-F]{64}$/.test(raw.trim()) ? Buffer.from(raw.trim(), "hex") : Buffer.from(raw.trim(), "base64");
-  if (hex.length !== 32) {
-    throw new Error("TOCHKA_TOKEN_KEY должен быть 32 байта (hex 64 симв. или base64).");
+  // Убираем любые пробелы/переносы/кавычки, которые могли попасть при вставке.
+  const cleaned = raw.trim().replace(/\s+/g, "").replace(/^["']|["']$/g, "");
+  const buf = /^[0-9a-fA-F]{64}$/.test(cleaned) ? Buffer.from(cleaned, "hex") : Buffer.from(cleaned, "base64");
+  if (buf.length !== 32) {
+    throw new Error(`TOCHKA_TOKEN_KEY должен быть 32 байта (hex 64 симв. или base64). Сейчас распознано ${buf.length} байт из строки длиной ${cleaned.length}.`);
   }
-  return hex;
+  return buf;
 }
 
 export function encryptSecret(plain: string): string {
