@@ -122,16 +122,22 @@ export default function BankConnection({
         <h2 className="text-sm font-semibold text-slate-800 dark:text-neutral-100">Подключение</h2>
         <div>
           <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">JWT-токен Точки</label>
-          <input
-            type="password"
+          <textarea
             value={token}
             onChange={(e) => setToken(e.target.value)}
-            placeholder={connected ? "оставьте пустым, чтобы не менять" : "вставьте токен из интернет-банка"}
-            className="input font-mono"
+            placeholder={connected ? "оставьте пустым, чтобы не менять" : "вставьте токен из интернет-банка (длинная строка ~900 символов)"}
+            className="input min-h-[88px] resize-y break-all font-mono text-xs leading-relaxed"
             autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            data-1p-ignore
+            data-lpignore="true"
           />
           <p className="mt-1 text-xs text-slate-400 dark:text-neutral-500">
-            Интернет-банк Точки → «Интеграции и API» → выпуск токена с правами на чтение счетов и выписок.
+            {token.trim()
+              ? <>Введено символов: <b className={token.trim().length > 400 ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}>{token.trim().length}</b>{token.trim().length < 400 && " — похоже на обрезанный ключ, вставьте целиком"}</>
+              : "Интернет-банк Точки → «Интеграции и API» → выпуск токена с правами на чтение счетов и выписок."}
           </p>
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
