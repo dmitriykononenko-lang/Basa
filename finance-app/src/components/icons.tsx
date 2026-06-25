@@ -27,6 +27,13 @@ export const IconTransactions = (p: P) => (
   </svg>
 );
 
+export const IconBook = (p: P) => (
+  <svg {...base} className={p.className}>
+    <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H12v15.5H6a2 2 0 0 0-2 2z" />
+    <path d="M20 5.5A1.5 1.5 0 0 0 18.5 4H12v15.5h6a2 2 0 0 1 2 2z" />
+  </svg>
+);
+
 export const IconAccounts = (p: P) => (
   <svg {...base} className={p.className}>
     <rect x="3" y="6" width="18" height="13" rx="2.5" />
