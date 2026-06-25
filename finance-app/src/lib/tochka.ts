@@ -82,21 +82,38 @@ export async function fetchOperations(
 ): Promise<TochkaOperation[]> {
   const { token, apiVersion, accountId, from, to } = opts;
 
-  const init = await api<{ Data?: { Statement?: { statementId?: string }[] } }>(
-    `open-banking/${apiVersion}/statements`,
-    { token, method: "POST", body: { Data: { Statement: { accountId, startDateTime: from, endDateTime: to } } } },
-  );
-  const statementId = init.Data?.Statement?.[0]?.statementId;
-  if (!statementId) throw new Error("Точка не вернула statementId");
+  // Тело init-запроса: имена полей периода у разных версий API отличаются —
+  // пробуем стандартный вариант OpenBanking, при ошибке валидации повторяем альтернативой.
+  const candidates = [
+    { Data: { Statement: { accountId, startDateTime: from, endDateTime: to } } },
+    { Data: { Statement: { accountId, fromBookingDateTime: from, toBookingDateTime: to } } },
+  ];
+  let statementId: string | undefined;
+  let lastErr: unknown;
+  for (const body of candidates) {
+    try {
+      const init = await api<{ Data?: { Statement?: RawIdHolder | RawIdHolder[] } }>(
+        `open-banking/${apiVersion}/statements`,
+        { token, method: "POST", body },
+      );
+      const st = init.Data?.Statement;
+      statementId = Array.isArray(st) ? st[0]?.statementId : st?.statementId;
+      if (statementId) break;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  if (!statementId) throw (lastErr instanceof Error ? lastErr : new Error("Точка не вернула statementId"));
 
   // Поллинг статуса до Ready (до ~20 сек).
   let statement: RawStatement | null = null;
   for (let i = 0; i < 10; i++) {
-    const got = await api<{ Data?: { Statement?: RawStatement[] } }>(
+    const got = await api<{ Data?: { Statement?: RawStatement | RawStatement[] } }>(
       `open-banking/${apiVersion}/accounts/${encodeURIComponent(accountId)}/statements/${encodeURIComponent(statementId)}`,
       { token },
     );
-    statement = got.Data?.Statement?.[0] ?? null;
+    const st = got.Data?.Statement;
+    statement = Array.isArray(st) ? st[0] ?? null : st ?? null;
     const status = statement?.status;
     if (status === "Ready" || (statement?.Transaction?.length ?? 0) > 0) break;
     if (status === "Error") throw new Error("Точка: ошибка формирования выписки");
@@ -106,6 +123,8 @@ export async function fetchOperations(
   const txs = statement?.Transaction ?? [];
   return txs.map(mapOperation);
 }
+
+type RawIdHolder = { statementId?: string };
 
 type RawParty = { name?: string; inn?: string } | null;
 type RawAcc = { accountNumber?: string; identification?: string } | null;
