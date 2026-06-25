@@ -18,6 +18,7 @@ import {
   IconWallet,
   IconRepeat,
   IconTag,
+  IconBook,
 } from "./icons";
 
 type Item = {
@@ -38,6 +39,12 @@ const NAV: Item[] = [
   { href: "/employees", label: "Сотрудники", Icon: IconEmployees },
   { href: "/payroll", label: "Зарплата", Icon: IconWallet },
   { href: "/budgets", label: "Бюджеты", Icon: IconBudgets },
+  {
+    href: "/knowledge-base",
+    label: "База знаний",
+    Icon: IconBook,
+    match: ["/knowledge-base"],
+  },
 ];
 
 const ANALYTICS: Item[] = [
