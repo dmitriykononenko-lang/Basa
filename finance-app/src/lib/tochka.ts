@@ -23,7 +23,10 @@ export type TochkaOperation = {
   counterpartyName: string | null;
   counterpartyAccount: string | null;
   counterpartyInn: string | null;
+  counterpartyKpp: string | null;
   description: string | null;
+  docNumber: string | null;   // номер платёжного документа
+  docType: string | null;     // тип документа (напр. «Платежное поручение»)
 };
 
 type FetchOpts = { token: string; apiVersion: string };
@@ -140,11 +143,14 @@ export async function fetchStatementRaw(
 
 type RawIdHolder = { statementId?: string };
 
-type RawParty = { name?: string; inn?: string } | null;
+type RawParty = { name?: string; inn?: string; kpp?: string } | null;
 type RawAcc = { accountNumber?: string; identification?: string } | null;
 type RawTransaction = {
   transactionId?: string;
   documentId?: string;
+  documentNumber?: string;
+  transactionTypeCode?: string;
+  documentProcessDate?: string;
   creditDebitIndicator?: string; // "Credit" | "Debit"
   Amount?: { amount?: string | number; currency?: string };
   bookingDateTime?: string;
@@ -171,6 +177,7 @@ function pickDate(t: Record<string, unknown>): string | null {
     if (s.includes("transaction")) return 5;
     if (s.includes("operation")) return 5;
     if (s.includes("value")) return 4;
+    if (s.includes("process")) return 4; // documentProcessDate у Точки
     if (s.includes("execut")) return 3;
     if (s.includes("document")) return 2;
     return 1;
@@ -190,8 +197,9 @@ function mapOperation(t: RawTransaction): TochkaOperation {
   // При зачислении контрагент — плательщик (Debtor), при списании — получатель (Creditor).
   const party = isCredit ? t.DebtorParty : t.CreditorParty;
   const acc = isCredit ? t.DebtorAccount : t.CreditorAccount;
+  const kpp = party?.kpp && party.kpp !== "0" ? party.kpp : null;
   return {
-    transactionId: t.transactionId || t.documentId || `${pickDate(t) ?? ""}-${t.Amount?.amount ?? ""}-${acc?.accountNumber ?? ""}`,
+    transactionId: t.transactionId || t.documentId || `${pickDate(t) ?? ""}-${t.Amount?.amount ?? ""}-${acc?.accountNumber ?? acc?.identification ?? ""}`,
     direction: isCredit ? "income" : "expense",
     amountMinor: toMinor(t.Amount?.amount ?? 0),
     currency: t.Amount?.currency ?? "RUB",
@@ -199,6 +207,9 @@ function mapOperation(t: RawTransaction): TochkaOperation {
     counterpartyName: party?.name ?? null,
     counterpartyAccount: acc?.accountNumber ?? acc?.identification ?? null,
     counterpartyInn: party?.inn ?? null,
+    counterpartyKpp: kpp,
     description: t.paymentPurpose || t.description || null,
+    docNumber: t.documentNumber ?? null,
+    docType: t.transactionTypeCode ?? null,
   };
 }

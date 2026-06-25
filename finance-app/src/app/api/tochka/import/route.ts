@@ -95,7 +95,7 @@ export async function POST(request: Request) {
   };
 
   // Уникальные новые контрагенты (которых нет в справочнике).
-  const toCreate = new Map<string, { name: string; inn: string | null; kind: string }>();
+  const toCreate = new Map<string, { name: string; inn: string | null; kpp: string | null; kind: string }>();
   for (const o of fresh) {
     if (!o.counterpartyName && !o.counterpartyInn) continue;
     if (resolveCp(o)) continue;
@@ -103,12 +103,12 @@ export async function POST(request: Request) {
     if (toCreate.has(key)) continue;
     const isTransfer = !!o.counterpartyAccount && ownNumbers.has(o.counterpartyAccount);
     const kind = isTransfer ? "other" : o.direction === "income" ? "client" : "supplier";
-    toCreate.set(key, { name: o.counterpartyName?.trim() || `ИНН ${o.counterpartyInn}`, inn: o.counterpartyInn?.trim() || null, kind });
+    toCreate.set(key, { name: o.counterpartyName?.trim() || `ИНН ${o.counterpartyInn}`, inn: o.counterpartyInn?.trim() || null, kpp: o.counterpartyKpp, kind });
   }
   if (toCreate.size > 0) {
     const { data: created } = await supabase
       .from("counterparties")
-      .insert([...toCreate.values()].map((c) => ({ team_id: current.team.id, name: c.name, inn: c.inn, kind: c.kind })))
+      .insert([...toCreate.values()].map((c) => ({ team_id: current.team.id, name: c.name, inn: c.inn, kpp: c.kpp, kind: c.kind })))
       .select("id, name, inn");
     for (const c of created ?? []) {
       if (c.inn) cpByInn.set(String(c.inn).trim(), c.id);
@@ -124,6 +124,7 @@ export async function POST(request: Request) {
     const category_id = isTransfer ? null : type === "income" ? conn.default_income_category_id : conn.default_expense_category_id;
     const noteParts = [
       o.description,
+      o.docNumber && `${o.docType ?? "Документ"} №${o.docNumber}`,
       isTransfer && `Перевод между своими счетами (${o.counterpartyAccount})`,
     ].filter(Boolean);
     return {
