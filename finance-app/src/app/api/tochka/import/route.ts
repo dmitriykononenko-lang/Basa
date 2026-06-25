@@ -37,14 +37,27 @@ export async function POST(request: Request) {
   // Свои счета — для определения переводов между ними.
   let ownNumbers: Set<string>;
   let accountId: string;
+  let sourceNumber: string | null = null;
   try {
     const accounts = await getAccounts({ token, apiVersion: conn.api_version });
     if (accounts.length === 0) return NextResponse.json({ error: "У токена нет доступных счетов" }, { status: 502 });
     ownNumbers = new Set(accounts.map((a) => a.accountNumber).filter(Boolean) as string[]);
     accountId = body.tochkaAccountId || accounts[0].accountId;
+    sourceNumber = accounts.find((a) => a.accountId === accountId)?.accountNumber ?? null;
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Ошибка счетов" }, { status: 502 });
   }
+
+  // Сопоставление счетов Точки со счетами Basa (номер → account_id Basa).
+  const { data: linkRows } = await supabase
+    .from("bank_account_links")
+    .select("external_account, account_id")
+    .eq("team_id", current.team.id)
+    .eq("provider", "tochka");
+  const acctMap = new Map<string, string>();
+  for (const l of linkRows ?? []) if (l.account_id) acctMap.set(l.external_account, l.account_id);
+  // Счёт Basa для импортируемой выписки: маппинг → иначе дефолтный.
+  const targetAccountId = (sourceNumber && acctMap.get(sourceNumber)) || conn.default_account_id;
 
   if (debug) {
     try {
@@ -59,8 +72,13 @@ export async function POST(request: Request) {
   try { ops = await fetchOperations({ token, apiVersion: conn.api_version, accountId, from, to }); }
   catch (e) { return NextResponse.json({ error: e instanceof Error ? e.message : "Ошибка выписки" }, { status: 502 }); }
 
+  // Перевод между своими счетами учитываем один раз — только исходящую (Debit) ногу.
+  // Входящая нога во встречной выписке пропускается, чтобы не задвоить перевод.
+  const isInternal = (o: { counterpartyAccount: string | null }) => !!o.counterpartyAccount && ownNumbers.has(o.counterpartyAccount);
+  const keep = ops.filter((o) => o.amountMinor > 0 && !(isInternal(o) && o.direction === "income"));
+
   // Дедуп внутри выписки + против уже импортированного.
-  const byId = new Map(ops.filter((o) => o.amountMinor > 0).map((o) => [o.transactionId, o]));
+  const byId = new Map(keep.map((o) => [o.transactionId, o]));
   const ids = [...byId.keys()];
   if (ids.length === 0) {
     await supabase.from("bank_connections").update({ last_synced_at: new Date().toISOString() }).eq("team_id", current.team.id).eq("provider", "tochka");
@@ -122,17 +140,20 @@ export async function POST(request: Request) {
     if (isTransfer) transfers++;
     const type = isTransfer ? "transfer" : o.direction;
     const category_id = isTransfer ? null : type === "income" ? conn.default_income_category_id : conn.default_expense_category_id;
+    // Второй конец перевода — счёт Basa, сопоставленный со счётом-получателем.
+    const transfer_account_id = isTransfer ? (o.counterpartyAccount && acctMap.get(o.counterpartyAccount)) || null : null;
     const noteParts = [
       o.description,
       o.docNumber && `${o.docType ?? "Документ"} №${o.docNumber}`,
-      isTransfer && `Перевод между своими счетами (${o.counterpartyAccount})`,
+      isTransfer && !transfer_account_id && `Перевод между своими счетами (${o.counterpartyAccount})`,
     ].filter(Boolean);
     return {
       team_id: current.team.id,
       type,
       amount: o.amountMinor,
       currency: o.currency,
-      account_id: conn.default_account_id,
+      account_id: targetAccountId,
+      transfer_account_id,
       category_id,
       counterparty_id: resolveCp(o),
       occurred_on: o.date,
@@ -156,7 +177,7 @@ export async function POST(request: Request) {
       team_id: current.team.id,
       created_by: user.id,
       file_name: `Точка ${from} — ${to}`,
-      account_id: conn.default_account_id,
+      account_id: targetAccountId,
       bank: "tochka",
       row_count: rows.length,
       status: "imported",

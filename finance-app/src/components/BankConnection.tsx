@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Select } from "@/components/ui/select";
 import { formatDate } from "@/lib/format";
@@ -11,7 +11,7 @@ type TochkaAccount = { accountId: string; accountNumber: string | null; currency
 
 export default function BankConnection({
   connected, apiVersion, lastSyncedAt, defaultAccountId, incomeCategoryId, expenseCategoryId,
-  accounts, incomeCategories, expenseCategories,
+  accounts, incomeCategories, expenseCategories, accountLinks,
 }: {
   connected: boolean;
   apiVersion: string;
@@ -22,6 +22,7 @@ export default function BankConnection({
   accounts: Named[];
   incomeCategories: Named[];
   expenseCategories: Named[];
+  accountLinks: { external: string; accountId: string | null }[];
 }) {
   const router = useRouter();
   const today = new Date().toISOString().slice(0, 10);
@@ -37,6 +38,13 @@ export default function BankConnection({
   const [tochkaAccounts, setTochkaAccounts] = useState<TochkaAccount[]>([]);
   const [tochkaAccId, setTochkaAccId] = useState("");
   const [testBusy, setTestBusy] = useState(false);
+
+  // Сопоставление номер счёта Точки → счёт Basa.
+  const [mapping, setMapping] = useState<Record<string, string>>(
+    () => Object.fromEntries(accountLinks.filter((l) => l.accountId).map((l) => [l.external, l.accountId as string])),
+  );
+  const [mapBusy, setMapBusy] = useState(false);
+  const accByName = useMemo(() => new Map(accounts.map((a) => [a.name.trim(), a.id])), [accounts]);
 
   const [from, setFrom] = useState(monthAgo);
   const [to, setTo] = useState(today);
@@ -72,9 +80,57 @@ export default function BankConnection({
     setTestBusy(false);
     const json = await res.json();
     if (!res.ok) { toast.error(json.error ?? "Ошибка подключения"); return; }
-    setTochkaAccounts(json.accounts ?? []);
-    setTochkaAccId(json.accounts?.[0]?.accountId ?? "");
-    toast.success(`Подключение работает: счетов ${json.accounts?.length ?? 0}`);
+    const accs: TochkaAccount[] = json.accounts ?? [];
+    setTochkaAccounts(accs);
+    setTochkaAccId(accs[0]?.accountId ?? "");
+    // Автосопоставление: если в Basa есть счёт с именем = номер счёта Точки.
+    setMapping((prev) => {
+      const next = { ...prev };
+      for (const a of accs) {
+        const num = a.accountNumber;
+        if (num && !next[num] && accByName.has(num)) next[num] = accByName.get(num)!;
+      }
+      return next;
+    });
+    toast.success(`Подключение работает: счетов ${accs.length}`);
+  }
+
+  async function saveMapping() {
+    setMapBusy(true);
+    const links = tochkaAccounts
+      .map((a) => ({ external: a.accountNumber ?? "", accountId: mapping[a.accountNumber ?? ""] || null }))
+      .filter((l) => l.external);
+    const res = await fetch("/api/tochka/mapping", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ links }),
+    });
+    setMapBusy(false);
+    const json = await res.json();
+    if (!res.ok) { toast.error(json.error ?? "Не удалось сохранить"); return; }
+    toast.success(`Сопоставлено счетов: ${json.saved}`);
+    router.refresh();
+  }
+
+  async function importAll() {
+    if (tochkaAccounts.length === 0) { toast.error("Сначала «Проверить подключение»"); return; }
+    setImportBusy(true);
+    setResult(null);
+    let imported = 0, skipped = 0, transfers = 0, counterparties = 0, total = 0, failed = 0;
+    for (const a of tochkaAccounts) {
+      try {
+        const res = await fetch("/api/tochka/import", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tochkaAccountId: a.accountId, from, to }),
+        });
+        const j = await res.json();
+        if (!res.ok) { failed++; continue; }
+        imported += j.imported ?? 0; skipped += j.skipped ?? 0; transfers += j.transfers ?? 0;
+        counterparties += j.counterparties ?? 0; total += j.total ?? 0;
+      } catch { failed++; }
+    }
+    setImportBusy(false);
+    setResult({ imported, skipped, transfers, counterparties, total });
+    toast.success(`Импорт по всем счетам: +${imported}${failed ? ` (ошибок счетов: ${failed})` : ""}`);
+    router.refresh();
   }
 
   async function runImport() {
@@ -171,14 +227,30 @@ export default function BankConnection({
           {connected && <button onClick={test} disabled={testBusy} className="btn-ghost">{testBusy ? "Проверка…" : "Проверить подключение"}</button>}
         </div>
         {tochkaAccounts.length > 0 && (
-          <ul className="space-y-1 rounded-2xl bg-slate-50 p-3 text-sm dark:bg-white/[0.03]">
-            {tochkaAccounts.map((a) => (
-              <li key={a.accountId} className="flex justify-between text-slate-600 dark:text-neutral-300">
-                <span>{a.accountNumber ?? a.accountId}</span>
-                <span className="text-slate-400">{a.currency}</span>
-              </li>
-            ))}
-          </ul>
+          <div className="space-y-2 rounded-2xl bg-slate-50 p-3 dark:bg-white/[0.03]">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">Сопоставление счетов Точка → Basa</span>
+              <button onClick={saveMapping} disabled={mapBusy} className="rounded-full bg-brand px-3 py-1 text-xs font-semibold text-white disabled:opacity-50">{mapBusy ? "…" : "Сохранить сопоставление"}</button>
+            </div>
+            <p className="text-xs text-slate-400 dark:text-neutral-500">Нужно для переводов между своими счетами — заполнит оба конца. Совпавшие по номеру подставлены автоматически.</p>
+            <ul className="space-y-1.5 text-sm">
+              {tochkaAccounts.map((a) => {
+                const num = a.accountNumber ?? a.accountId;
+                return (
+                  <li key={a.accountId} className="flex items-center gap-2">
+                    <span className="w-48 shrink-0 font-mono text-xs text-slate-600 dark:text-neutral-300">{num}</span>
+                    <span className="text-slate-300">→</span>
+                    <Select
+                      className="flex-1"
+                      value={mapping[num] ?? ""}
+                      onChange={(v) => setMapping((p) => ({ ...p, [num]: v }))}
+                      options={[{ value: "", label: "— не сопоставлен —" }, ...accounts.map((acc) => ({ value: acc.id, label: acc.name }))]}
+                    />
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
         )}
       </div>
 
@@ -201,7 +273,8 @@ export default function BankConnection({
               <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">По</label>
               <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="input w-40" />
             </div>
-            <button onClick={runImport} disabled={importBusy} className="btn-primary">{importBusy ? "Импорт…" : "Импортировать"}</button>
+            <button onClick={runImport} disabled={importBusy} className="btn-primary">{importBusy ? "Импорт…" : "Импортировать счёт"}</button>
+            <button onClick={importAll} disabled={importBusy || tochkaAccounts.length === 0} className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{importBusy ? "Импорт…" : "Импортировать все счета"}</button>
             <button onClick={debugRaw} type="button" className="btn-ghost text-xs">Сырой ответ (debug)</button>
           </div>
           {rawDebug && (
