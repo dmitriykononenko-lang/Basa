@@ -42,6 +42,7 @@ export default function BankConnection({
   const [to, setTo] = useState(today);
   const [importBusy, setImportBusy] = useState(false);
   const [result, setResult] = useState<{ imported: number; skipped: number; transfers: number; total: number } | null>(null);
+  const [rawDebug, setRawDebug] = useState<string | null>(null);
 
   async function save() {
     setSavingBusy(true);
@@ -90,6 +91,17 @@ export default function BankConnection({
     setResult({ imported: json.imported, skipped: json.skipped, transfers: json.transfers, total: json.total });
     toast.success(`Импортировано: ${json.imported}`);
     router.refresh();
+  }
+
+  async function debugRaw() {
+    setRawDebug("Загрузка…");
+    const res = await fetch("/api/tochka/import?debug=1", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tochkaAccountId: tochkaAccId || undefined, from, to }),
+    });
+    const json = await res.json();
+    setRawDebug(JSON.stringify(json.raw ?? json, null, 2));
   }
 
   async function disconnect() {
@@ -190,7 +202,11 @@ export default function BankConnection({
               <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="input w-40" />
             </div>
             <button onClick={runImport} disabled={importBusy} className="btn-primary">{importBusy ? "Импорт…" : "Импортировать"}</button>
+            <button onClick={debugRaw} type="button" className="btn-ghost text-xs">Сырой ответ (debug)</button>
           </div>
+          {rawDebug && (
+            <pre className="max-h-80 overflow-auto rounded-2xl bg-slate-900 p-3 text-[11px] leading-relaxed text-slate-100">{rawDebug}</pre>
+          )}
           {tochkaAccounts.length === 0 && (
             <p className="text-xs text-slate-400 dark:text-neutral-500">Нажмите «Проверить подключение», чтобы выбрать счёт. Без выбора импортируется первый счёт.</p>
           )}

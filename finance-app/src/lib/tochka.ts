@@ -76,10 +76,10 @@ export async function getAccountsRaw({ token, apiVersion }: FetchOpts): Promise<
 }
 
 
-// ── Выписка (асинхронно): init → poll → get операции ──────────────────────────
-export async function fetchOperations(
+// ── Выписка (асинхронно): init → poll → Get Statement ─────────────────────────
+async function getStatement(
   opts: FetchOpts & { accountId: string; from: string; to: string },
-): Promise<TochkaOperation[]> {
+): Promise<RawStatement | null> {
   const { token, apiVersion, accountId, from, to } = opts;
 
   // Поля подтверждены ТП Точки: accountId (счёт/БИК), startDateTime, endDateTime.
@@ -120,9 +120,22 @@ export async function fetchOperations(
     if (status === "Error") throw new Error("Точка: ошибка формирования выписки");
     await new Promise((r) => setTimeout(r, 2000));
   }
+  return statement;
+}
 
-  const txs = statement?.Transaction ?? [];
-  return txs.map(mapOperation);
+export async function fetchOperations(
+  opts: FetchOpts & { accountId: string; from: string; to: string },
+): Promise<TochkaOperation[]> {
+  const statement = await getStatement(opts);
+  return (statement?.Transaction ?? []).map(mapOperation);
+}
+
+// Сырые операции из выписки — для сверки имён полей на живом API.
+export async function fetchStatementRaw(
+  opts: FetchOpts & { accountId: string; from: string; to: string },
+): Promise<unknown> {
+  const statement = await getStatement(opts);
+  return (statement?.Transaction ?? []).slice(0, 3);
 }
 
 type RawIdHolder = { statementId?: string };
@@ -145,17 +158,44 @@ type RawTransaction = {
 };
 type RawStatement = { status?: string; Transaction?: RawTransaction[] };
 
+// Имя поля даты у Точки заранее неизвестно — сканируем все строковые поля,
+// в имени которых есть "date", и берём приоритетное (booking/transaction/...).
+// Понимаем оба формата: ISO (2026-04-27) и ДД.ММ.ГГГГ (27.04.2026).
+function pickDate(t: Record<string, unknown>): string | null {
+  const entries = Object.entries(t).filter(
+    ([k, v]) => typeof v === "string" && /date/i.test(k),
+  ) as [string, string][];
+  const score = (k: string) => {
+    const s = k.toLowerCase();
+    if (s.includes("booking")) return 6;
+    if (s.includes("transaction")) return 5;
+    if (s.includes("operation")) return 5;
+    if (s.includes("value")) return 4;
+    if (s.includes("execut")) return 3;
+    if (s.includes("document")) return 2;
+    return 1;
+  };
+  entries.sort((a, b) => score(b[0]) - score(a[0]));
+  for (const [, v] of entries) {
+    const iso = v.match(/(\d{4})-(\d{2})-(\d{2})/);
+    if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+    const dmy = v.match(/(\d{2})\.(\d{2})\.(\d{4})/);
+    if (dmy) return `${dmy[3]}-${dmy[2]}-${dmy[1]}`;
+  }
+  return null;
+}
+
 function mapOperation(t: RawTransaction): TochkaOperation {
   const isCredit = (t.creditDebitIndicator ?? "").toLowerCase().startsWith("credit");
   // При зачислении контрагент — плательщик (Debtor), при списании — получатель (Creditor).
   const party = isCredit ? t.DebtorParty : t.CreditorParty;
   const acc = isCredit ? t.DebtorAccount : t.CreditorAccount;
   return {
-    transactionId: t.transactionId || t.documentId || `${t.bookingDateTime ?? ""}-${t.Amount?.amount ?? ""}-${acc?.accountNumber ?? ""}`,
+    transactionId: t.transactionId || t.documentId || `${pickDate(t) ?? ""}-${t.Amount?.amount ?? ""}-${acc?.accountNumber ?? ""}`,
     direction: isCredit ? "income" : "expense",
     amountMinor: toMinor(t.Amount?.amount ?? 0),
     currency: t.Amount?.currency ?? "RUB",
-    date: dateOnly(t.bookingDateTime || t.valueDateTime),
+    date: pickDate(t as Record<string, unknown>) ?? dateOnly(null),
     counterpartyName: party?.name ?? null,
     counterpartyAccount: acc?.accountNumber ?? acc?.identification ?? null,
     counterpartyInn: party?.inn ?? null,

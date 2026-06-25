@@ -2,10 +2,12 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import { decryptSecret } from "@/lib/crypto";
-import { getAccounts, fetchOperations } from "@/lib/tochka";
+import { getAccounts, fetchOperations, fetchStatementRaw } from "@/lib/tochka";
 
 // Импорт операций из Точки за период в транзакции (с дедупом и пометкой переводов).
+// ?debug=1 — вернуть сырые операции из выписки без вставки (для сверки полей).
 export async function POST(request: Request) {
+  const debug = new URL(request.url).searchParams.get("debug") === "1";
   const current = await getCurrentTeam();
   if (!current) return NextResponse.json({ error: "Нет команды" }, { status: 400 });
   if (!canEditFinance(current.role)) return NextResponse.json({ error: "Недостаточно прав" }, { status: 403 });
@@ -42,6 +44,15 @@ export async function POST(request: Request) {
     accountId = body.tochkaAccountId || accounts[0].accountId;
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Ошибка счетов" }, { status: 502 });
+  }
+
+  if (debug) {
+    try {
+      const raw = await fetchStatementRaw({ token, apiVersion: conn.api_version, accountId, from, to });
+      return NextResponse.json({ ok: true, raw });
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : "Ошибка выписки" }, { status: 502 });
+    }
   }
 
   let ops;
