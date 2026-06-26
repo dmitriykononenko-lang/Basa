@@ -3,7 +3,6 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import DepartmentManager from "@/components/kb/DepartmentManager";
-import MemberDepartments from "@/components/kb/MemberDepartments";
 import type { KbDepartment } from "@/lib/kb";
 
 export default async function DepartmentsPage() {
@@ -13,17 +12,13 @@ export default async function DepartmentsPage() {
   if (!canEditFinance(role)) redirect("/knowledge-base");
 
   const supabase = await createClient();
-  const [{ data: depts }, { data: membersRaw }, { data: mappings }] = await Promise.all([
-    supabase.from("kb_departments").select("id, team_id, name, parent_id").eq("team_id", team.id).order("name"),
-    supabase.from("team_members").select("user_id, profiles(full_name)").eq("team_id", team.id),
-    supabase.from("kb_user_departments").select("department_id, user_id").eq("team_id", team.id),
-  ]);
+  const { data: depts } = await supabase
+    .from("kb_departments")
+    .select("id, team_id, name, parent_id")
+    .eq("team_id", team.id)
+    .order("name");
 
   const departments = (depts ?? []) as KbDepartment[];
-  const members = ((membersRaw ?? []) as { user_id: string; profiles: { full_name: string | null } | { full_name: string | null }[] | null }[]).map((m) => ({
-    id: m.user_id,
-    name: (Array.isArray(m.profiles) ? m.profiles[0]?.full_name : m.profiles?.full_name) || "Без имени",
-  }));
 
   return (
     <div className="p-6 sm:p-8">
@@ -34,14 +29,11 @@ export default async function DepartmentsPage() {
 
       <div className="space-y-8">
         <DepartmentManager teamId={team.id} departments={departments} />
-        {departments.length > 0 && (
-          <MemberDepartments
-            teamId={team.id}
-            departments={departments.map((d) => ({ id: d.id, name: d.name }))}
-            members={members}
-            mappings={(mappings ?? []) as { department_id: string; user_id: string }[]}
-          />
-        )}
+        <p className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-500 dark:bg-white/[0.03] dark:text-neutral-400">
+          Распределение сотрудников по узлам и назначение курсов на отдел теперь живут в{" "}
+          <Link href="/employees?tab=org" className="font-medium text-brand hover:underline">Сотрудники → Оргструктура</Link>.
+          Курс, назначенный на узел, автоматически разворачивается на сотрудников этого узла и его подразделений (у кого есть доступ в систему).
+        </p>
       </div>
     </div>
   );
