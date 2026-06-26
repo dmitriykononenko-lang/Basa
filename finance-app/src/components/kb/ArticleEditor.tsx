@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/lib/toast";
 import { Select } from "@/components/ui/select";
+import RichEditor from "@/components/kb/RichEditor";
 import {
   KB_KIND_LABELS,
   KB_STATUS_LABELS,
@@ -224,7 +225,7 @@ export default function ArticleEditor({
           <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Например, Регламент работы с клиентом" className="input" />
         </Field>
         <Field label="Содержание">
-          <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={10} placeholder="Текст регламента / статьи…" className="input resize-y" />
+          <RichEditor value={body} onChange={setBody} teamId={teamId} placeholder="Текст регламента / статьи… Добавляйте картинки, видео (загрузка) и Loom/YouTube по ссылке." />
         </Field>
       </section>
 
@@ -267,13 +268,16 @@ export default function ArticleEditor({
             </button>
           </div>
           {checklist.map((c, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <input
-                value={c.content}
-                onChange={(e) => setChecklist((arr) => arr.map((x, idx) => (idx === i ? { content: e.target.value } : x)))}
-                placeholder={`Пункт ${i + 1}`}
-                className="input flex-1"
-              />
+            <div key={i} className="flex items-start gap-2">
+              <div className="flex-1">
+                <RichEditor
+                  value={c.content}
+                  onChange={(html) => setChecklist((arr) => arr.map((x, idx) => (idx === i ? { content: html } : x)))}
+                  teamId={teamId}
+                  compact
+                  placeholder={`Пункт ${i + 1}`}
+                />
+              </div>
               <button type="button" onClick={() => setChecklist((arr) => arr.filter((_, idx) => idx !== i))} className="btn-ghost text-sm">
                 Удалить
               </button>
