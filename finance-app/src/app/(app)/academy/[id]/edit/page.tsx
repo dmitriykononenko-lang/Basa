@@ -110,6 +110,17 @@ export default async function CourseEditPage({ params }: { params: Promise<{ id:
     };
   });
 
+  // KPI
+  const kpiAssigned = agg.size;
+  const kpiCompleted = rows.filter((r) => r.total > 0 && r.done === r.total).length;
+  let kpiDone = 0;
+  let kpiTotal = 0;
+  for (const e of agg.values()) {
+    kpiDone += e.done;
+    kpiTotal += e.total;
+  }
+  const kpiAvg = courseProgressPercent(kpiDone, kpiTotal);
+
   return (
     <div className="space-y-8 p-6 sm:p-8">
       <div>
@@ -119,6 +130,12 @@ export default async function CourseEditPage({ params }: { params: Promise<{ id:
       </div>
 
       <AssignmentPanel teamId={team.id} courseId={id} members={members} departments={departments} assignments={assignments} />
+
+      <div className="grid grid-cols-3 gap-3">
+        <KpiCard label="Назначено" value={kpiAssigned} />
+        <KpiCard label="Завершили" value={kpiCompleted} accent="emerald" />
+        <KpiCard label="Средний прогресс" value={`${kpiAvg}%`} accent="brand" />
+      </div>
 
       <section className="surface rounded-3xl p-5">
         <h2 className="mb-3 text-sm font-semibold text-slate-900 dark:text-white">Прогресс сотрудников</h2>
@@ -160,6 +177,16 @@ export default async function CourseEditPage({ params }: { params: Promise<{ id:
           <p className="text-sm text-slate-400">Пока никому не назначено.</p>
         )}
       </section>
+    </div>
+  );
+}
+
+function KpiCard({ label, value, accent }: { label: string; value: string | number; accent?: "brand" | "emerald" }) {
+  const color = accent === "emerald" ? "text-emerald-600 dark:text-emerald-400" : accent === "brand" ? "text-brand" : "text-slate-900 dark:text-white";
+  return (
+    <div className="surface rounded-3xl p-4">
+      <div className="text-xs text-slate-500 dark:text-neutral-400">{label}</div>
+      <div className={`mt-1 text-2xl font-bold ${color}`}>{value}</div>
     </div>
   );
 }
