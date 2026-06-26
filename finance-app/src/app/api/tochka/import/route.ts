@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import { decryptSecret } from "@/lib/crypto";
-import { getAccounts, fetchOperationsWindowed, fetchStatementRaw } from "@/lib/tochka";
+import { getAccounts, fetchStatementRaw } from "@/lib/tochka";
+import { importTochkaStatement } from "@/lib/tochka-import";
 
 // Загрузка крупной выписки идёт окнами с «шагами назад» — может занять до минут.
 export const maxDuration = 300;
@@ -71,137 +72,27 @@ export async function POST(request: Request) {
     }
   }
 
-  let ops;
-  try { ops = await fetchOperationsWindowed({ token, apiVersion: conn.api_version, accountId, from, to }); }
-  catch (e) { return NextResponse.json({ error: e instanceof Error ? e.message : "Ошибка выписки" }, { status: 502 }); }
-
-  // Перевод между своими счетами учитываем один раз — только исходящую (Debit) ногу.
-  // Входящая нога во встречной выписке пропускается, чтобы не задвоить перевод.
-  const isInternal = (o: { counterpartyAccount: string | null }) => !!o.counterpartyAccount && ownNumbers.has(o.counterpartyAccount);
-  const keep = ops.filter((o) => o.amountMinor > 0 && !(isInternal(o) && o.direction === "income"));
-
-  // Дедуп внутри выписки + против уже импортированного.
-  const byId = new Map(keep.map((o) => [o.transactionId, o]));
-  const ids = [...byId.keys()];
-  if (ids.length === 0) {
-    await supabase.from("bank_connections").update({ last_synced_at: new Date().toISOString() }).eq("team_id", current.team.id).eq("provider", "tochka");
-    return NextResponse.json({ ok: true, imported: 0, skipped: 0, transfers: 0, total: 0 });
-  }
-
-  const { data: existingRows } = await supabase
-    .from("transactions")
-    .select("external_id")
-    .eq("team_id", current.team.id)
-    .eq("source", "tochka")
-    .in("external_id", ids);
-  const existing = new Set((existingRows ?? []).map((r) => r.external_id));
-
-  const fresh = [...byId.values()].filter((o) => !existing.has(o.transactionId));
-
-  // ── Контрагенты: матчим по ИНН, иначе по имени; недостающих создаём ──────────
-  const { data: cpRows } = await supabase
-    .from("counterparties")
-    .select("id, name, inn")
-    .eq("team_id", current.team.id);
-  const cpByInn = new Map<string, string>();
-  const cpByName = new Map<string, string>();
-  for (const c of cpRows ?? []) {
-    if (c.inn) cpByInn.set(String(c.inn).trim(), c.id);
-    if (c.name) cpByName.set(c.name.trim().toLowerCase(), c.id);
-  }
-  const resolveCp = (o: { counterpartyName: string | null; counterpartyInn: string | null }): string | null => {
-    if (o.counterpartyInn && cpByInn.has(o.counterpartyInn.trim())) return cpByInn.get(o.counterpartyInn.trim())!;
-    if (o.counterpartyName && cpByName.has(o.counterpartyName.trim().toLowerCase())) return cpByName.get(o.counterpartyName.trim().toLowerCase())!;
-    return null;
-  };
-
-  // Уникальные новые контрагенты (которых нет в справочнике).
-  const toCreate = new Map<string, { name: string; inn: string | null; kpp: string | null; kind: string }>();
-  for (const o of fresh) {
-    if (!o.counterpartyName && !o.counterpartyInn) continue;
-    if (resolveCp(o)) continue;
-    const key = o.counterpartyInn?.trim() || o.counterpartyName!.trim().toLowerCase();
-    if (toCreate.has(key)) continue;
-    const isTransfer = !!o.counterpartyAccount && ownNumbers.has(o.counterpartyAccount);
-    const kind = isTransfer ? "other" : o.direction === "income" ? "client" : "supplier";
-    toCreate.set(key, { name: o.counterpartyName?.trim() || `ИНН ${o.counterpartyInn}`, inn: o.counterpartyInn?.trim() || null, kpp: o.counterpartyKpp, kind });
-  }
-  if (toCreate.size > 0) {
-    const { data: created } = await supabase
-      .from("counterparties")
-      .insert([...toCreate.values()].map((c) => ({ team_id: current.team.id, name: c.name, inn: c.inn, kpp: c.kpp, kind: c.kind })))
-      .select("id, name, inn");
-    for (const c of created ?? []) {
-      if (c.inn) cpByInn.set(String(c.inn).trim(), c.id);
-      if (c.name) cpByName.set(c.name.trim().toLowerCase(), c.id);
-    }
-  }
-
-  let transfers = 0;
-  const rows = fresh.map((o) => {
-    const isInternalAcc = !!o.counterpartyAccount && ownNumbers.has(o.counterpartyAccount);
-    // «Перевод собственных средств» — тоже перевод, даже если счёт-получатель не в списке (карта/другой банк).
-    const isOwnFunds = /перевод\s+собственных\s+средств/i.test(o.description ?? "");
-    const isTransfer = isInternalAcc || isOwnFunds;
-    if (isTransfer) transfers++;
-    const type = isTransfer ? "transfer" : o.direction;
-    const category_id = isTransfer ? null : type === "income" ? conn.default_income_category_id : conn.default_expense_category_id;
-    // Второй конец перевода — счёт Basa, сопоставленный со счётом-получателем (если он среди своих).
-    const transfer_account_id = isInternalAcc ? (o.counterpartyAccount && acctMap.get(o.counterpartyAccount)) || null : null;
-    const noteParts = [
-      o.description,
-      o.docNumber && `${o.docType ?? "Документ"} №${o.docNumber}`,
-      isInternalAcc && !transfer_account_id && `Перевод между своими счетами (${o.counterpartyAccount})`,
-    ].filter(Boolean);
-    return {
-      team_id: current.team.id,
-      type,
-      amount: o.amountMinor,
-      currency: o.currency,
-      account_id: targetAccountId,
-      transfer_account_id,
-      category_id,
-      counterparty_id: resolveCp(o),
-      occurred_on: o.date,
-      note: noteParts.join(" · ") || null,
-      created_by: user.id,
-      external_id: o.transactionId,
-      source: "tochka",
-    };
-  });
-
-  const skipped = byId.size - rows.length;
-  if (rows.length === 0) {
-    await supabase.from("bank_connections").update({ last_synced_at: new Date().toISOString() }).eq("team_id", current.team.id).eq("provider", "tochka");
-    return NextResponse.json({ ok: true, imported: 0, skipped, transfers: 0, total: byId.size });
-  }
-
-  // Батч импорта — чтобы импорт можно было откатить целиком.
-  const { data: batch, error: batchErr } = await supabase
-    .from("import_batches")
-    .insert({
-      team_id: current.team.id,
-      created_by: user.id,
-      file_name: `Точка ${from} — ${to}`,
-      account_id: targetAccountId,
-      bank: "tochka",
-      row_count: rows.length,
-      status: "imported",
-    })
-    .select("id")
-    .single();
-  if (batchErr || !batch) return NextResponse.json({ error: batchErr?.message ?? "Ошибка батча" }, { status: 500 });
-
-  const { error: insErr } = await supabase
-    .from("transactions")
-    .insert(rows.map((r) => ({ ...r, import_batch_id: batch.id })));
-  if (insErr) {
-    // Откатываем пустой/частичный батч.
-    await supabase.from("import_batches").delete().eq("id", batch.id);
-    return NextResponse.json({ error: insErr.message }, { status: 500 });
+  let result;
+  try {
+    result = await importTochkaStatement(supabase, {
+      teamId: current.team.id,
+      token,
+      apiVersion: conn.api_version,
+      ownNumbers,
+      acctMap,
+      targetAccountId,
+      accountId,
+      defaultIncomeCat: conn.default_income_category_id,
+      defaultExpenseCat: conn.default_expense_category_id,
+      from,
+      to,
+      createdBy: user.id,
+    });
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : "Ошибка выписки" }, { status: 502 });
   }
 
   await supabase.from("bank_connections").update({ last_synced_at: new Date().toISOString() }).eq("team_id", current.team.id).eq("provider", "tochka");
 
-  return NextResponse.json({ ok: true, imported: rows.length, skipped, transfers, counterparties: toCreate.size, total: byId.size, batchId: batch.id });
+  return NextResponse.json({ ok: true, ...result });
 }
