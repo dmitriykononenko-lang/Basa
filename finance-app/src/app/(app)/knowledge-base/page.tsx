@@ -7,6 +7,7 @@ import {
   kbStatusBadgeClass,
   type KbArticle,
 } from "@/lib/kb";
+import { htmlToPreviewText } from "@/lib/sanitize";
 
 export default async function KnowledgeBasePage() {
   const current = await getCurrentTeam();
@@ -80,7 +81,7 @@ export default async function KnowledgeBasePage() {
                 <h3 className="font-semibold text-slate-900 dark:text-white">{a.title}</h3>
                 {a.body && (
                   <p className="mt-1.5 line-clamp-2 text-sm text-slate-500 dark:text-neutral-400">
-                    {a.body}
+                    {htmlToPreviewText(a.body)}
                   </p>
                 )}
               </Link>

@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import QuizRunner from "@/components/kb/QuizRunner";
+import { sanitizeRichHtml } from "@/lib/sanitize";
 import {
   KB_KIND_LABELS,
   KB_STATUS_LABELS,
@@ -65,9 +66,10 @@ export default async function ArticlePage({ params }: { params: Promise<{ id: st
       </header>
 
       {a.body && (
-        <article className="surface whitespace-pre-wrap rounded-3xl p-6 text-sm leading-relaxed text-slate-700 dark:text-neutral-300">
-          {a.body}
-        </article>
+        <article
+          className="surface kb-content rounded-3xl p-6 text-sm leading-relaxed text-slate-700 dark:text-neutral-300"
+          dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(a.body) }}
+        />
       )}
 
       {(checklist ?? []).length > 0 && (
@@ -76,8 +78,8 @@ export default async function ArticlePage({ params }: { params: Promise<{ id: st
           <ul className="space-y-2">
             {((checklist ?? []) as { content: string }[]).map((c, i) => (
               <li key={i} className="flex items-start gap-2 text-sm text-slate-700 dark:text-neutral-300">
-                <span className="mt-0.5 inline-block h-4 w-4 shrink-0 rounded border border-slate-300 dark:border-white/20" />
-                {c.content}
+                <span className="mt-1 inline-block h-4 w-4 shrink-0 rounded border border-slate-300 dark:border-white/20" />
+                <div className="kb-content flex-1" dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(c.content) }} />
               </li>
             ))}
           </ul>
