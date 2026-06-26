@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam } from "@/lib/team";
@@ -10,7 +11,8 @@ import NavProgress from "@/components/NavProgress";
 import Toaster from "@/components/Toaster";
 import CommandPalette from "@/components/CommandPalette";
 import CommandPaletteButton from "@/components/CommandPaletteButton";
-import { IconBell, IconChevronDown } from "@/components/icons";
+import NotificationBell from "@/components/NotificationBell";
+import { IconChevronDown } from "@/components/icons";
 
 function initials(name: string) {
   return name
@@ -52,7 +54,11 @@ export default async function AppLayout({
         {/* Шапка */}
         <header className="relative flex h-16 items-center justify-between border-b border-slate-100 px-4 dark:border-white/[0.07] sm:px-6">
           <div className="flex items-center gap-2">
-            <div className="flex items-center gap-2.5 rounded-full bg-slate-100 py-1.5 pl-1.5 pr-3 dark:bg-neutral-800">
+            <Link
+              href="/profile"
+              className="flex items-center gap-2.5 rounded-full bg-slate-100 py-1.5 pl-1.5 pr-3 transition hover:bg-slate-200 dark:bg-neutral-800 dark:hover:bg-neutral-700"
+              title="Профиль и настройки"
+            >
               <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand text-xs font-semibold text-white">
                 {initials(company ?? displayName)}
               </span>
@@ -70,15 +76,8 @@ export default async function AppLayout({
                 )}
               </span>
               <IconChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
-            </div>
-            <button
-              type="button"
-              className="relative flex h-9 w-9 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 dark:hover:bg-neutral-800"
-              aria-label="Уведомления"
-            >
-              <IconBell className="h-[18px] w-[18px]" />
-              <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-accent" />
-            </button>
+            </Link>
+            <NotificationBell />
           </div>
 
           <div className="absolute left-1/2 -translate-x-1/2">
