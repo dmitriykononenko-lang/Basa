@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import CourseEditor, { type CourseEditorData } from "@/components/academy/CourseEditor";
 import AssignmentPanel from "@/components/academy/AssignmentPanel";
-import { courseProgressPercent, type AcademyAssigneeType } from "@/lib/academy";
+import { courseProgressPercent, unitAncestors, type AcademyAssigneeType } from "@/lib/academy";
 import type { KbKind, KbStatus } from "@/lib/kb";
 
 export default async function CourseEditPage({ params }: { params: Promise<{ id: string }> }) {
@@ -23,15 +23,15 @@ export default async function CourseEditPage({ params }: { params: Promise<{ id:
   if (!course) notFound();
   const c = course as { id: string; title: string; status: KbStatus; description: string };
 
-  const [{ data: items }, { data: articles }, { data: membersRaw }, { data: depts }, { data: assignmentsRaw }, { data: progress }, { data: userDepts }] =
+  const [{ data: items }, { data: articles }, { data: membersRaw }, { data: depts }, { data: assignmentsRaw }, { data: progress }, { data: empCps }] =
     await Promise.all([
       supabase.from("academy_course_items").select("article_id, position").eq("course_id", id).order("position"),
       supabase.from("kb_articles").select("id, title, kind").eq("team_id", team.id).order("title"),
       supabase.from("team_members").select("user_id, profiles(full_name)").eq("team_id", team.id),
-      supabase.from("kb_departments").select("id, name").eq("team_id", team.id).order("name"),
+      supabase.from("kb_departments").select("id, name, parent_id, sort").eq("team_id", team.id),
       supabase.from("academy_assignments").select("id, assignee_type, department_id, user_id, due_date").eq("course_id", id),
       supabase.from("academy_progress").select("user_id, status").eq("course_id", id),
-      supabase.from("kb_user_departments").select("department_id, user_id").eq("team_id", team.id),
+      supabase.from("counterparties").select("user_id, unit_id").eq("team_id", team.id).contains("kinds", ["employee"]).eq("archived", false).not("user_id", "is", null),
     ]);
 
   const members = ((membersRaw ?? []) as { user_id: string; profiles: { full_name: string | null } | { full_name: string | null }[] | null }[]).map((m) => ({
@@ -39,8 +39,32 @@ export default async function CourseEditPage({ params }: { params: Promise<{ id:
     name: (Array.isArray(m.profiles) ? m.profiles[0]?.full_name : m.profiles?.full_name) || "Без имени",
   }));
   const memberName = new Map(members.map((m) => [m.id, m.name]));
-  const departments = ((depts ?? []) as { id: string; name: string }[]);
-  const deptName = new Map(departments.map((d) => [d.id, d.name]));
+  const unitTree = (depts ?? []) as { id: string; name: string; parent_id: string | null; sort: number }[];
+  const deptName = new Map(unitTree.map((d) => [d.id, d.name]));
+  const parentOf = new Map(unitTree.map((d) => [d.id, d.parent_id]));
+
+  // индентированный список узлов оргструктуры для пикера «Отделу»
+  const unitChildrenOf = new Map<string | null, typeof unitTree>();
+  for (const u of unitTree) {
+    const arr = unitChildrenOf.get(u.parent_id) ?? [];
+    arr.push(u);
+    unitChildrenOf.set(u.parent_id, arr);
+  }
+  for (const arr of unitChildrenOf.values()) arr.sort((a, b) => a.sort - b.sort || a.name.localeCompare(b.name));
+  const departments: { id: string; name: string }[] = [];
+  const walkUnits = (pid: string | null, depth: number) => {
+    for (const u of unitChildrenOf.get(pid) ?? []) {
+      departments.push({ id: u.id, name: `${"— ".repeat(depth)}${u.name}` });
+      walkUnits(u.id, depth + 1);
+    }
+  };
+  walkUnits(null, 0);
+
+  // узел каждого сотрудника-с-доступом (для вычисления срока по department-назначениям)
+  const unitOfUser = new Map<string, string | null>();
+  for (const cp of (empCps ?? []) as { user_id: string; unit_id: string | null }[]) {
+    if (cp.user_id) unitOfUser.set(cp.user_id, cp.unit_id);
+  }
 
   const initial: CourseEditorData = {
     id: c.id,
@@ -63,14 +87,8 @@ export default async function CourseEditPage({ params }: { params: Promise<{ id:
     label: a.assignee_type === "user" ? memberName.get(a.user_id ?? "") ?? "—" : deptName.get(a.department_id ?? "") ?? "—",
   }));
 
-  // отделы каждого сотрудника (для вычисления срока по department-назначениям)
+  // срок по department-назначениям: узел сотрудника и все его предки
   const today = new Date().toISOString().slice(0, 10);
-  const deptsOfUser = new Map<string, Set<string>>();
-  for (const ud of (userDepts ?? []) as { department_id: string; user_id: string }[]) {
-    const s = deptsOfUser.get(ud.user_id) ?? new Set<string>();
-    s.add(ud.department_id);
-    deptsOfUser.set(ud.user_id, s);
-  }
   const rawAssigns = (assignmentsRaw ?? []) as {
     assignee_type: AcademyAssigneeType;
     department_id: string | null;
@@ -78,11 +96,12 @@ export default async function CourseEditPage({ params }: { params: Promise<{ id:
     due_date: string | null;
   }[];
   function dueForUser(uid: string): string | null {
+    const myUnits = unitAncestors(unitOfUser.get(uid), parentOf);
     let best: string | null = null;
     for (const a of rawAssigns) {
       const applies =
         (a.assignee_type === "user" && a.user_id === uid) ||
-        (a.assignee_type === "department" && a.department_id && deptsOfUser.get(uid)?.has(a.department_id));
+        (a.assignee_type === "department" && a.department_id && myUnits.has(a.department_id));
       if (!applies || !a.due_date) continue;
       if (!best || a.due_date < best) best = a.due_date;
     }

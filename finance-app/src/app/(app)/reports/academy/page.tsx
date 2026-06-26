@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import ExportButton from "@/components/ExportButton";
-import { courseProgressPercent } from "@/lib/academy";
+import { courseProgressPercent, unitAncestors } from "@/lib/academy";
 
 type ProgRow = { course_id: string; user_id: string; status: string };
 
@@ -25,13 +25,13 @@ export default async function AcademyReportPage() {
   if (!canEditFinance(role)) redirect("/academy");
   const supabase = await createClient();
 
-  const [{ data: courses }, { data: progress }, { data: membersRaw }, { data: depts }, { data: userDepts }] =
+  const [{ data: courses }, { data: progress }, { data: membersRaw }, { data: depts }, { data: empCps }] =
     await Promise.all([
       supabase.from("academy_courses").select("id, title").eq("team_id", team.id),
       supabase.from("academy_progress").select("course_id, user_id, status").eq("team_id", team.id),
       supabase.from("team_members").select("user_id, profiles(full_name)").eq("team_id", team.id),
-      supabase.from("kb_departments").select("id, name").eq("team_id", team.id),
-      supabase.from("kb_user_departments").select("department_id, user_id").eq("team_id", team.id),
+      supabase.from("kb_departments").select("id, name, parent_id").eq("team_id", team.id),
+      supabase.from("counterparties").select("user_id, unit_id").eq("team_id", team.id).contains("kinds", ["employee"]).eq("archived", false).not("user_id", "is", null),
     ]);
 
   const courseTitle = new Map(((courses ?? []) as { id: string; title: string }[]).map((c) => [c.id, c.title]));
@@ -71,25 +71,28 @@ export default async function AcademyReportPage() {
     byUser.set(userId, bu);
   }
 
-  // по отделам
-  const deptOfUsers = new Map<string, string[]>(); // dept_id -> user_ids
-  for (const ud of (userDepts ?? []) as { department_id: string; user_id: string }[]) {
-    const arr = deptOfUsers.get(ud.department_id) ?? [];
-    arr.push(ud.user_id);
-    deptOfUsers.set(ud.department_id, arr);
+  // по отделам (узлам оргструктуры): прогресс сотрудника учитывается в его узле и всех узлах-предках
+  const unitTree = (depts ?? []) as { id: string; name: string; parent_id: string | null }[];
+  const parentOf = new Map(unitTree.map((d) => [d.id, d.parent_id]));
+  const unitOfUser = new Map<string, string | null>();
+  for (const cp of (empCps ?? []) as { user_id: string; unit_id: string | null }[]) {
+    if (cp.user_id) unitOfUser.set(cp.user_id, cp.unit_id);
   }
-  const byDept = ((depts ?? []) as { id: string; name: string }[]).map((d) => {
-    let done = 0;
-    let total = 0;
-    for (const uid of deptOfUsers.get(d.id) ?? []) {
-      const bu = byUser.get(uid);
-      if (bu) {
-        done += bu.done;
-        total += bu.total;
-      }
+  const deptAgg = new Map<string, { done: number; total: number }>();
+  for (const [uid, e] of byUser) {
+    for (const node of unitAncestors(unitOfUser.get(uid), parentOf)) {
+      const acc = deptAgg.get(node) ?? { done: 0, total: 0 };
+      acc.done += e.done;
+      acc.total += e.total;
+      deptAgg.set(node, acc);
     }
-    return { name: d.name, done, total, pct: courseProgressPercent(done, total) };
-  });
+  }
+  const byDept = unitTree
+    .map((d) => {
+      const acc = deptAgg.get(d.id) ?? { done: 0, total: 0 };
+      return { name: d.name, done: acc.done, total: acc.total, pct: courseProgressPercent(acc.done, acc.total) };
+    })
+    .filter((r) => r.total > 0);
 
   // детальные строки для CSV (курс × сотрудник)
   const csvRows: (string | number)[][] = [...cu.entries()].map(([k, e]) => {

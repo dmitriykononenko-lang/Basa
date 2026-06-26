@@ -34,6 +34,21 @@ export function courseProgressPercent(done: number, total: number): number {
   return Math.round((100 * done) / total);
 }
 
+// ---- Оргструктура и таргетинг обучения ----
+// Назначение курса «на отдел» = узел оргструктуры (kb_departments) вместе со всем
+// поддеревом. Сотрудник «относится» к узлу-назначению, если этот узел — его узел
+// (counterparties.unit_id) или любой из его предков. Возвращает множество таких
+// узлов (сам узел + все предки) по карте parent_id.
+export function unitAncestors(unitId: string | null | undefined, parentOf: Map<string, string | null>): Set<string> {
+  const out = new Set<string>();
+  let cur = unitId ?? null;
+  while (cur && !out.has(cur)) {
+    out.add(cur);
+    cur = parentOf.get(cur) ?? null;
+  }
+  return out;
+}
+
 // ---- Дедлайны ----
 export type DueStatus = "overdue" | "soon" | "ok";
 

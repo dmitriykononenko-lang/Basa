@@ -2,7 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import { KB_STATUS_LABELS, kbStatusBadgeClass } from "@/lib/kb";
-import { courseProgressPercent, dueStatus, DUE_LABELS, dueBadgeClass } from "@/lib/academy";
+import { courseProgressPercent, dueStatus, DUE_LABELS, dueBadgeClass, unitAncestors } from "@/lib/academy";
 import EmptyState from "@/components/EmptyState";
 
 export default async function AcademyPage({
@@ -48,14 +48,19 @@ export default async function AcademyPage({
 
   // дедлайны
   const today = new Date().toISOString().slice(0, 10);
-  const { data: myDeptRows } = await supabase.from("kb_user_departments").select("department_id").eq("user_id", uid ?? "");
-  const myDeptIds = new Set(((myDeptRows ?? []) as { department_id: string }[]).map((d) => d.department_id));
+  // мой узел оргструктуры + все узлы-предки: назначение «на отдел» = узел и его поддерево
+  const [{ data: myCp }, { data: unitRows }] = await Promise.all([
+    supabase.from("counterparties").select("unit_id").eq("team_id", team.id).eq("user_id", uid ?? "").contains("kinds", ["employee"]).maybeSingle(),
+    supabase.from("kb_departments").select("id, parent_id").eq("team_id", team.id),
+  ]);
+  const parentOf = new Map(((unitRows ?? []) as { id: string; parent_id: string | null }[]).map((u) => [u.id, u.parent_id]));
+  const myUnitIds = unitAncestors((myCp as { unit_id: string | null } | null)?.unit_id, parentOf);
   const { data: assigns } = myCourseIds.length
     ? await supabase.from("academy_assignments").select("course_id, assignee_type, department_id, user_id, due_date").eq("team_id", team.id).in("course_id", myCourseIds)
     : { data: [] as { course_id: string; assignee_type: string; department_id: string | null; user_id: string | null; due_date: string | null }[] };
   const dueByCourse = new Map<string, string>();
   for (const a of (assigns ?? []) as { course_id: string; assignee_type: string; department_id: string | null; user_id: string | null; due_date: string | null }[]) {
-    const applies = (a.assignee_type === "user" && a.user_id === uid) || (a.assignee_type === "department" && a.department_id && myDeptIds.has(a.department_id));
+    const applies = (a.assignee_type === "user" && a.user_id === uid) || (a.assignee_type === "department" && a.department_id && myUnitIds.has(a.department_id));
     if (!applies || !a.due_date) continue;
     const cur = dueByCourse.get(a.course_id);
     if (!cur || a.due_date < cur) dueByCourse.set(a.course_id, a.due_date);

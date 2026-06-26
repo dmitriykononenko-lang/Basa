@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { unitAncestors } from "@/lib/academy";
 
 type Stats = { courses: number; completed: number; overdue: number };
 
@@ -21,9 +22,10 @@ export default function AcademyWidget() {
       }
       const today = new Date().toISOString().slice(0, 10);
 
-      const [{ data: prog }, { data: myDepts }] = await Promise.all([
+      const [{ data: prog }, { data: myCps }, { data: unitRows }] = await Promise.all([
         supabase.from("academy_progress").select("course_id, status").eq("user_id", uid),
-        supabase.from("kb_user_departments").select("department_id").eq("user_id", uid),
+        supabase.from("counterparties").select("unit_id").eq("user_id", uid).contains("kinds", ["employee"]),
+        supabase.from("kb_departments").select("id, parent_id"),
       ]);
 
       const byCourse = new Map<string, { done: number; total: number }>();
@@ -34,7 +36,12 @@ export default function AcademyWidget() {
         byCourse.set(p.course_id, e);
       }
       const courseIds = [...byCourse.keys()];
-      const deptIds = new Set(((myDepts ?? []) as { department_id: string }[]).map((d) => d.department_id));
+      // мои узлы оргструктуры + все предки (назначение «на отдел» = узел и его поддерево)
+      const parentOf = new Map(((unitRows ?? []) as { id: string; parent_id: string | null }[]).map((u) => [u.id, u.parent_id]));
+      const deptIds = new Set<string>();
+      for (const cp of (myCps ?? []) as { unit_id: string | null }[]) {
+        for (const node of unitAncestors(cp.unit_id, parentOf)) deptIds.add(node);
+      }
 
       const dueByCourse = new Map<string, string>();
       if (courseIds.length) {

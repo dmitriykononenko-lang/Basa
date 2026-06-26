@@ -127,7 +127,7 @@ export default function AssignmentPanel({
             <Select value={target} onChange={setTarget} placeholder="— выберите —" options={targetOptions} />
           </label>
           {type === "department" && departments.length === 0 && (
-            <p className="text-xs text-amber-600">Отделы не созданы. Добавьте их и распределите сотрудников в разделе «База знаний → Отделы».</p>
+            <p className="text-xs text-amber-600">Узлы оргструктуры не созданы. Постройте оргструктуру и привяжите сотрудников к узлам в разделе «Сотрудники → Оргструктура».</p>
           )}
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Дедлайн (необязательно)</span>
