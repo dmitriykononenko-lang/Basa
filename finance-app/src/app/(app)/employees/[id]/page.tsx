@@ -86,6 +86,16 @@ export default async function EmployeePage({
   const scheduledOblIds = new Set(
     ((scheduledRows ?? []) as { obligation_id: string | null }[]).map((r) => r.obligation_id).filter(Boolean) as string[]
   );
+  // Фактические выплаты — расходные операции этому контрагенту, независимо от начислений
+  const { data: payouts } = await supabase
+    .from("transactions")
+    .select("id, occurred_on, amount, currency, project_id, note, account:accounts!transactions_account_id_fkey(name)")
+    .eq("team_id", team.id)
+    .eq("counterparty_id", id)
+    .eq("type", "expense")
+    .eq("status", "actual")
+    .order("occurred_on", { ascending: false })
+    .limit(500);
   const salaryRows = (salaries ?? []) as { id: string; effective_from: string; amount: number; currency: string }[];
   const positionRows = (positions ?? []) as { id: string; effective_from: string; position: string }[];
   const todayStr = new Date().toISOString().slice(0, 10);
@@ -117,6 +127,13 @@ export default async function EmployeePage({
     m.paid += toBase(o.paid, o.currency, rates);
     byMonth.set(ym, m);
   }
+
+  const payoutRows = (payouts ?? []) as unknown as {
+    id: string; occurred_on: string; amount: number; currency: string;
+    project_id: string | null; note: string | null; account: { name: string } | null;
+  }[];
+  let totalPaidActual = 0;
+  for (const p of payoutRows) totalPaidActual += toBase(p.amount, p.currency, rates);
 
   const months = [...byMonth.keys()].filter((x) => x !== "—").sort().reverse();
   const projectRows = [...variableByProject.entries()].sort((a, b) => b[1] - a[1]);
@@ -150,7 +167,7 @@ export default async function EmployeePage({
 
       <div className="mb-6 grid grid-cols-3 gap-3">
         <Kpi title="Начислено" value={formatMoney(totalAccrued, base)} />
-        <Kpi title="Выплачено" value={formatMoney(totalPaid, base)} />
+        <Kpi title="Выплачено по начислениям" value={formatMoney(totalPaid, base)} />
         <Kpi title="Остаток к выплате" value={formatMoney(totalOut, base)} accent={totalOut > 0 ? "amber" : "emerald"} />
       </div>
 
@@ -275,6 +292,52 @@ export default async function EmployeePage({
               </tbody>
             </table>
           </div>
+        </section>
+      )}
+
+      {/* Фактические выплаты (операции) */}
+      {payoutRows.length > 0 && (
+        <section className="mb-6">
+          <div className="mb-3 flex items-baseline justify-between gap-3">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">
+              Выплаты (операции)
+            </h2>
+            <span className="text-sm font-semibold text-slate-700 dark:text-neutral-200">
+              Всего по факту: {formatMoney(totalPaidActual, base)}
+            </span>
+          </div>
+          <div className="overflow-hidden rounded-3xl bg-white ring-1 ring-slate-200/70 dark:bg-[#15171c] dark:ring-white/[0.07]">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wider text-slate-400 dark:border-white/[0.07] dark:text-neutral-500">
+                  <th className="px-5 py-3 font-medium">Дата</th>
+                  <th className="px-5 py-3 font-medium">Проект · описание</th>
+                  <th className="px-5 py-3 font-medium">Счёт</th>
+                  <th className="px-5 py-3 text-right font-medium">Сумма</th>
+                </tr>
+              </thead>
+              <tbody>
+                {payoutRows.map((p) => {
+                  const pn = p.project_id ? projName.get(p.project_id) : null;
+                  return (
+                    <tr key={p.id} className="border-b border-slate-50 last:border-0 dark:border-white/[0.05]">
+                      <td className="whitespace-nowrap px-5 py-3 text-slate-600 dark:text-neutral-400">{formatDate(p.occurred_on)}</td>
+                      <td className="px-5 py-3 text-slate-700 dark:text-neutral-300">
+                        {pn && <span className="font-medium text-slate-800 dark:text-neutral-200">{pn}</span>}
+                        {p.note && <span className={pn ? "ml-2 text-xs text-slate-400" : ""}>{p.note}</span>}
+                        {!pn && !p.note && <span className="text-slate-400">—</span>}
+                      </td>
+                      <td className="px-5 py-3 text-slate-500 dark:text-neutral-400">{p.account?.name ?? "—"}</td>
+                      <td className="px-5 py-3 text-right font-medium text-slate-800 dark:text-neutral-200">{formatMoney(p.amount, p.currency)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-3 text-xs leading-relaxed text-slate-400 dark:text-neutral-600">
+            Все расходные операции по этому контрагенту со статусом «факт», независимо от начислений — включая прямые выплаты с номинального/расчётного счёта.
+          </p>
         </section>
       )}
 
