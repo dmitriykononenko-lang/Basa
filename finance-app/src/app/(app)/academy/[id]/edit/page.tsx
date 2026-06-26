@@ -23,7 +23,7 @@ export default async function CourseEditPage({ params }: { params: Promise<{ id:
   if (!course) notFound();
   const c = course as { id: string; title: string; status: KbStatus; description: string };
 
-  const [{ data: items }, { data: articles }, { data: membersRaw }, { data: depts }, { data: assignmentsRaw }, { data: progress }] =
+  const [{ data: items }, { data: articles }, { data: membersRaw }, { data: depts }, { data: assignmentsRaw }, { data: progress }, { data: userDepts }] =
     await Promise.all([
       supabase.from("academy_course_items").select("article_id, position").eq("course_id", id).order("position"),
       supabase.from("kb_articles").select("id, title, kind").eq("team_id", team.id).order("title"),
@@ -31,6 +31,7 @@ export default async function CourseEditPage({ params }: { params: Promise<{ id:
       supabase.from("kb_departments").select("id, name").eq("team_id", team.id).order("name"),
       supabase.from("academy_assignments").select("id, assignee_type, department_id, user_id, due_date").eq("course_id", id),
       supabase.from("academy_progress").select("user_id, status").eq("course_id", id),
+      supabase.from("kb_user_departments").select("department_id, user_id").eq("team_id", team.id),
     ]);
 
   const members = ((membersRaw ?? []) as { user_id: string; profiles: { full_name: string | null } | { full_name: string | null }[] | null }[]).map((m) => ({
@@ -62,6 +63,32 @@ export default async function CourseEditPage({ params }: { params: Promise<{ id:
     label: a.assignee_type === "user" ? memberName.get(a.user_id ?? "") ?? "—" : deptName.get(a.department_id ?? "") ?? "—",
   }));
 
+  // отделы каждого сотрудника (для вычисления срока по department-назначениям)
+  const today = new Date().toISOString().slice(0, 10);
+  const deptsOfUser = new Map<string, Set<string>>();
+  for (const ud of (userDepts ?? []) as { department_id: string; user_id: string }[]) {
+    const s = deptsOfUser.get(ud.user_id) ?? new Set<string>();
+    s.add(ud.department_id);
+    deptsOfUser.set(ud.user_id, s);
+  }
+  const rawAssigns = (assignmentsRaw ?? []) as {
+    assignee_type: AcademyAssigneeType;
+    department_id: string | null;
+    user_id: string | null;
+    due_date: string | null;
+  }[];
+  function dueForUser(uid: string): string | null {
+    let best: string | null = null;
+    for (const a of rawAssigns) {
+      const applies =
+        (a.assignee_type === "user" && a.user_id === uid) ||
+        (a.assignee_type === "department" && a.department_id && deptsOfUser.get(uid)?.has(a.department_id));
+      if (!applies || !a.due_date) continue;
+      if (!best || a.due_date < best) best = a.due_date;
+    }
+    return best;
+  }
+
   // дашборд прогресса: агрегат по пользователям
   const agg = new Map<string, { done: number; total: number }>();
   for (const p of (progress ?? []) as { user_id: string; status: string }[]) {
@@ -70,12 +97,18 @@ export default async function CourseEditPage({ params }: { params: Promise<{ id:
     if (p.status === "done") e.done += 1;
     agg.set(p.user_id, e);
   }
-  const rows = [...agg.entries()].map(([uid, e]) => ({
-    name: memberName.get(uid) ?? "—",
-    done: e.done,
-    total: e.total,
-    pct: courseProgressPercent(e.done, e.total),
-  }));
+  const rows = [...agg.entries()].map(([uid, e]) => {
+    const pct = courseProgressPercent(e.done, e.total);
+    const due = dueForUser(uid);
+    return {
+      name: memberName.get(uid) ?? "—",
+      done: e.done,
+      total: e.total,
+      pct,
+      due,
+      overdue: !!due && pct < 100 && due < today,
+    };
+  });
 
   return (
     <div className="space-y-8 p-6 sm:p-8">
@@ -95,6 +128,7 @@ export default async function CourseEditPage({ params }: { params: Promise<{ id:
               <tr className="text-left text-xs uppercase tracking-wider text-slate-400">
                 <th className="py-2">Сотрудник</th>
                 <th className="py-2">Прогресс</th>
+                <th className="py-2">Срок</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-white/[0.07]">
@@ -108,6 +142,15 @@ export default async function CourseEditPage({ params }: { params: Promise<{ id:
                       </div>
                       <span className="text-xs text-slate-500 dark:text-neutral-400">{r.done}/{r.total} ({r.pct}%)</span>
                     </div>
+                  </td>
+                  <td className="py-2 text-xs">
+                    {r.due ? (
+                      <span className={r.overdue ? "font-medium text-red-600 dark:text-red-400" : "text-slate-500 dark:text-neutral-400"}>
+                        {r.overdue ? "просрочено · " : "до "}{r.due}
+                      </span>
+                    ) : (
+                      <span className="text-slate-300 dark:text-neutral-600">—</span>
+                    )}
                   </td>
                 </tr>
               ))}
