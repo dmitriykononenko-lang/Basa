@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import { decryptSecret } from "@/lib/crypto";
-import { getAccounts, fetchOperations, fetchStatementRaw } from "@/lib/tochka";
+import { getAccounts, fetchOperationsWindowed, fetchStatementRaw } from "@/lib/tochka";
+
+// Загрузка крупной выписки идёт окнами с «шагами назад» — может занять до минут.
+export const maxDuration = 300;
 
 // Импорт операций из Точки за период в транзакции (с дедупом и пометкой переводов).
 // ?debug=1 — вернуть сырые операции из выписки без вставки (для сверки полей).
@@ -69,7 +72,7 @@ export async function POST(request: Request) {
   }
 
   let ops;
-  try { ops = await fetchOperations({ token, apiVersion: conn.api_version, accountId, from, to }); }
+  try { ops = await fetchOperationsWindowed({ token, apiVersion: conn.api_version, accountId, from, to }); }
   catch (e) { return NextResponse.json({ error: e instanceof Error ? e.message : "Ошибка выписки" }, { status: 502 }); }
 
   // Перевод между своими счетами учитываем один раз — только исходящую (Debit) ногу.

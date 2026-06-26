@@ -157,6 +157,42 @@ export async function fetchOperations(
   return (statement?.Transaction ?? []).map(mapOperation);
 }
 
+function addDays(iso: string, days: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+function daysBetween(from: string, to: string): number {
+  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000);
+}
+
+// Точка обрезает выписку нагруженного счёта последним окном дат (для крупного счёта
+// за 2.5 года возвращается лишь последний месяц). Грузим адаптивно «шагая назад»:
+// получили выписку → если её самая ранняя операция не достаёт до начала запрошенного
+// диапазона, значит выписка обрезана — догружаем ещё более ранний кусок [from, earliest-1]
+// и так далее, пока не упрёмся в from или в пустой ответ. Маленькие счета берутся за 1 запрос.
+export async function fetchOperationsWindowed(
+  opts: FetchOpts & { accountId: string; from: string; to: string },
+  depth = 0,
+): Promise<TochkaOperation[]> {
+  const MAX_WINDOWS = 60; // потолок шагов (≈5 лет помесячно) — защита от бесконечного цикла
+  const ops = await fetchOperations(opts);
+  if (ops.length === 0 || depth >= MAX_WINDOWS) return ops;
+
+  const earliest = ops.reduce((m, o) => (o.date < m ? o.date : m), ops[0].date);
+  // Выписка не достала до начала диапазона (> 5 дней зазор) → вероятно обрезана.
+  if (daysBetween(opts.from, earliest) > 5) {
+    const earlier = await fetchOperationsWindowed(
+      { ...opts, to: addDays(earliest, -1) }, // строго раньше уже полученного — прогресс гарантирован
+      depth + 1,
+    );
+    const byId = new Map<string, TochkaOperation>();
+    for (const o of [...earlier, ...ops]) byId.set(o.transactionId, o);
+    return [...byId.values()];
+  }
+  return ops;
+}
+
 // Сырые операции из выписки — для сверки имён полей на живом API.
 export async function fetchStatementRaw(
   opts: FetchOpts & { accountId: string; from: string; to: string },
