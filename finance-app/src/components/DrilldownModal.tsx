@@ -117,7 +117,7 @@ export default function DrilldownModal({
   }, [open, teamId, canEdit, JSON.stringify(filter)]);
 
   return (
-    <Modal open={open} onClose={onClose} title={title} wide>
+    <Modal open={open} onClose={onClose} title={title} size="xwide">
       {loading ? (
         <div className="flex items-center justify-center gap-2 py-10 text-sm text-slate-400">
           <span className="spinner spinner-brand" /> Загружаем операции…
