@@ -8,6 +8,7 @@ import { toast } from "@/lib/toast";
 import Modal from "@/components/Modal";
 import Combobox, { type ComboOption } from "@/components/Combobox";
 import Attachments, { type Attachment } from "@/components/Attachments";
+import OperationHistory from "@/components/OperationHistory";
 import type { TxData } from "@/components/EditableTransactionRow";
 
 type Account = { id: string; name: string; currency: string };
@@ -272,6 +273,16 @@ export default function OperationCard({
       <div className="mt-5">
         <Attachments teamId={teamId} transactionId={tx.id} userId={userId} items={attachments} canEdit={canEdit} />
       </div>
+
+      {/* История изменений — кто, когда и что менял */}
+      <OperationHistory
+        transactionId={tx.id}
+        currency={cur}
+        accounts={accounts}
+        categories={categories}
+        counterparties={counterparties}
+        projects={projects}
+      />
 
       {canEdit && (
         <label className="mt-5 flex cursor-pointer items-center gap-3 rounded-xl bg-slate-100/70 px-3.5 py-3 ring-1 ring-slate-200/70 dark:bg-white/[0.03] dark:ring-white/[0.06]">
