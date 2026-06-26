@@ -109,9 +109,17 @@ async function getStatement(
   }
   if (!statementId) throw (lastErr instanceof Error ? lastErr : new Error("Точка не вернула statementId"));
 
-  // Поллинг статуса до Ready (до ~20 сек).
+  // Поллинг статуса до Ready (до ~60 сек — большие выписки Точка собирает дольше).
+  // ВАЖНО: нельзя принимать выписку, как только в ней появились операции — для крупных
+  // счетов Точка отдаёт список постепенно, и ранний выход обрезает её (приходит лишь часть
+  // дохода). Ждём именно status === "Ready". Если шлюз статус не присылает — ждём, пока число
+  // операций не стабилизируется (два одинаковых замера подряд = сборка завершена).
   let statement: RawStatement | null = null;
-  for (let i = 0; i < 10; i++) {
+  let lastCount = -1;
+  let stableHits = 0;
+  let sawStatus = false;
+  const MAX_POLLS = 30;
+  for (let i = 0; i < MAX_POLLS; i++) {
     const got = await api<{ Data?: { Statement?: RawStatement | RawStatement[] } }>(
       `open-banking/${apiVersion}/accounts/${encodeURIComponent(accountId)}/statements/${encodeURIComponent(statementId)}`,
       { token },
@@ -119,9 +127,25 @@ async function getStatement(
     const st = got.Data?.Statement;
     statement = Array.isArray(st) ? st[0] ?? null : st ?? null;
     const status = statement?.status;
-    if (status === "Ready" || (statement?.Transaction?.length ?? 0) > 0) break;
+    if (status) sawStatus = true;
     if (status === "Error") throw new Error("Точка: ошибка формирования выписки");
+    if (status === "Ready") break;
+    if (!sawStatus) {
+      // Шлюз без поля статуса: ждём стабилизации количества операций.
+      const count = statement?.Transaction?.length ?? 0;
+      if (count > 0 && count === lastCount) {
+        if (++stableHits >= 2) break;
+      } else {
+        stableHits = 0;
+      }
+      lastCount = count;
+    }
     await new Promise((r) => setTimeout(r, 2000));
+  }
+  // Если статус приходил, но Ready так и не дождались — это тайм-аут, а не пустая выписка.
+  // Бросаем ошибку, чтобы импорт сообщил о проблеме, а не сохранил неполные данные молча.
+  if (sawStatus && statement?.status !== "Ready") {
+    throw new Error("Точка: выписка ещё формируется (тайм-аут). Повторите импорт этого счёта.");
   }
   return statement;
 }
