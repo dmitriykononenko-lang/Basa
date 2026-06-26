@@ -78,6 +78,7 @@ export default async function CertificatePage({ params }: { params: Promise<{ id
             <span>{team.name}</span>
             <span>Дата: {fmtDate(completedAt)}</span>
           </div>
+          <div className="kb-certificate__seal">✓</div>
         </div>
       </div>
     </div>

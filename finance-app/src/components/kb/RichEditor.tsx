@@ -8,6 +8,17 @@ import Image from "@tiptap/extension-image";
 import Link from "@tiptap/extension-link";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/lib/toast";
+import {
+  IconBold,
+  IconItalic,
+  IconHeading,
+  IconListBullet,
+  IconListOrdered,
+  IconLink,
+  IconImage,
+  IconVideo,
+  IconEmbed,
+} from "@/components/icons";
 
 // --- кастомный узел <video controls> ---
 const Video = Node.create({
@@ -188,37 +199,40 @@ export default function RichEditor({
     editor!.chain().focus().extendMarkRange("link").setLink({ href: url }).run();
   }
 
-  const Btn = ({ on, active, label, title }: { on: () => void; active?: boolean; label: string; title: string }) => (
+  const Btn = ({ on, active, title, children }: { on: () => void; active?: boolean; title: string; children: React.ReactNode }) => (
     <button
       type="button"
       title={title}
       onMouseDown={(e) => e.preventDefault()}
       onClick={on}
-      className={`rounded-md px-2 py-1 text-sm font-medium transition ${
+      className={`flex h-8 items-center gap-1 rounded-lg px-2 text-sm font-medium transition ${
         active ? "bg-brand text-white" : "text-slate-600 hover:bg-slate-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
       }`}
     >
-      {label}
+      {children}
     </button>
   );
 
   return (
-    <div className="rounded-xl border border-slate-200 dark:border-white/10">
-      <div className="flex flex-wrap items-center gap-1 border-b border-slate-200 p-1.5 dark:border-white/10">
-        <Btn title="Жирный" label="B" active={editor.isActive("bold")} on={() => editor.chain().focus().toggleBold().run()} />
-        <Btn title="Курсив" label="I" active={editor.isActive("italic")} on={() => editor.chain().focus().toggleItalic().run()} />
+    <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-white/10">
+      <div className="sticky top-0 z-10 flex flex-wrap items-center gap-0.5 border-b border-slate-200 bg-white/95 p-1.5 backdrop-blur dark:border-white/10 dark:bg-[#15171c]/95">
+        <Btn title="Жирный" active={editor.isActive("bold")} on={() => editor.chain().focus().toggleBold().run()}><IconBold className="h-4 w-4" /></Btn>
+        <Btn title="Курсив" active={editor.isActive("italic")} on={() => editor.chain().focus().toggleItalic().run()}><IconItalic className="h-4 w-4" /></Btn>
         {!compact && (
           <>
-            <Btn title="Заголовок" label="H" active={editor.isActive("heading", { level: 2 })} on={() => editor.chain().focus().toggleHeading({ level: 2 }).run()} />
-            <Btn title="Маркированный список" label="• Список" active={editor.isActive("bulletList")} on={() => editor.chain().focus().toggleBulletList().run()} />
-            <Btn title="Нумерованный список" label="1. Список" active={editor.isActive("orderedList")} on={() => editor.chain().focus().toggleOrderedList().run()} />
+            <Btn title="Заголовок" active={editor.isActive("heading", { level: 2 })} on={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}><IconHeading className="h-4 w-4" /></Btn>
+            <Btn title="Маркированный список" active={editor.isActive("bulletList")} on={() => editor.chain().focus().toggleBulletList().run()}><IconListBullet className="h-4 w-4" /></Btn>
+            <Btn title="Нумерованный список" active={editor.isActive("orderedList")} on={() => editor.chain().focus().toggleOrderedList().run()}><IconListOrdered className="h-4 w-4" /></Btn>
           </>
         )}
-        <Btn title="Ссылка" label="🔗" active={editor.isActive("link")} on={addLink} />
+        <Btn title="Ссылка" active={editor.isActive("link")} on={addLink}><IconLink className="h-4 w-4" /></Btn>
         <span className="mx-1 h-5 w-px bg-slate-200 dark:bg-white/10" />
-        <Btn title="Изображение / GIF" label="🖼" on={() => imgInput.current?.click()} />
-        <Btn title="Загрузить видео" label="🎬" on={() => vidInput.current?.click()} />
-        <Btn title="Вставить видео по ссылке (Loom, YouTube, Vimeo)" label="▶ Loom/YT" on={addEmbed} />
+        <Btn title="Изображение / GIF" on={() => imgInput.current?.click()}><IconImage className="h-4 w-4" /></Btn>
+        <Btn title="Загрузить видео" on={() => vidInput.current?.click()}><IconVideo className="h-4 w-4" /></Btn>
+        <Btn title="Вставить видео по ссылке (Loom, YouTube, Vimeo)" on={addEmbed}>
+          <IconEmbed className="h-4 w-4" />
+          <span className="hidden text-xs sm:inline">Видео по ссылке</span>
+        </Btn>
         {uploading && <span className="ml-2 text-xs text-slate-400">загрузка…</span>}
         <input ref={imgInput} type="file" accept="image/*" hidden onChange={onPickImage} />
         <input ref={vidInput} type="file" accept="video/*" hidden onChange={onPickVideo} />

@@ -225,17 +225,29 @@ button:focus-visible, a:focus-visible {
 
 /* Сертификат о прохождении курса */
 .kb-certificate {
-  border: 3px solid #2f6df6;
+  position: relative;
   border-radius: 1rem;
-  padding: 3rem 2rem;
+  padding: 3.5rem 2.5rem;
   text-align: center;
-  background: #fff;
+  background:
+    radial-gradient(120% 80% at 50% 0%, rgba(47, 109, 246, 0.06), transparent 60%),
+    #fff;
   color: #0f172a;
   font-family: Georgia, "Times New Roman", serif;
+  border: 2px solid #2f6df6;
+  box-shadow: 0 0 0 1px #fff inset, 0 0 0 6px rgba(47, 109, 246, 0.12) inset;
 }
 .kb-certificate__badge { font-size: 3rem; }
-.kb-certificate__kicker { margin-top: 0.5rem; text-transform: uppercase; letter-spacing: 0.15em; font-size: 0.8rem; color: #2f6df6; }
-.kb-certificate__name { margin-top: 1.5rem; font-size: 2rem; font-weight: 700; }
+.kb-certificate__kicker { margin-top: 0.5rem; text-transform: uppercase; letter-spacing: 0.2em; font-size: 0.8rem; color: #2f6df6; }
+.kb-certificate__name { margin-top: 1.5rem; font-size: 2.1rem; font-weight: 700; }
 .kb-certificate__text { margin-top: 0.75rem; color: #475569; }
 .kb-certificate__course { margin-top: 0.5rem; font-size: 1.4rem; font-weight: 700; }
-.kb-certificate__meta { margin-top: 2rem; display: flex; justify-content: space-between; color: #475569; font-size: 0.9rem; }
+.kb-certificate__meta { margin-top: 2.5rem; display: flex; justify-content: space-between; align-items: flex-end; color: #475569; font-size: 0.9rem; }
+.kb-certificate__seal {
+  position: absolute; right: 2rem; bottom: 2rem;
+  width: 4.5rem; height: 4.5rem; border-radius: 9999px;
+  display: flex; align-items: center; justify-content: center;
+  color: #2f6df6; font-size: 1.6rem;
+  border: 2px solid rgba(47, 109, 246, 0.5);
+  box-shadow: 0 0 0 4px rgba(47, 109, 246, 0.1);
+}

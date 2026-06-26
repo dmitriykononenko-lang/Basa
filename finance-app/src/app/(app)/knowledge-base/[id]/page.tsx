@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import QuizRunner from "@/components/kb/QuizRunner";
+import KindIcon from "@/components/kb/KindIcon";
 import { sanitizeRichHtml } from "@/lib/sanitize";
 import {
   KB_KIND_LABELS,
@@ -53,16 +54,22 @@ export default async function ArticlePage({ params }: { params: Promise<{ id: st
         )}
       </div>
 
-      <header className="mb-6 mt-2">
-        <div className="mb-2 flex items-center gap-2">
-          <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600 dark:bg-neutral-800 dark:text-neutral-300">
-            {KB_KIND_LABELS[a.kind]}
-          </span>
-          <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${kbStatusBadgeClass(a.status)}`}>
-            {KB_STATUS_LABELS[a.status]}
-          </span>
+      <header className="mb-6 mt-3 flex items-start gap-4">
+        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-brand/10 text-brand">
+          <KindIcon kind={a.kind} className="h-6 w-6" />
+        </span>
+        <div>
+          <div className="mb-1 flex flex-wrap items-center gap-2">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400">{KB_KIND_LABELS[a.kind]}</span>
+            <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${kbStatusBadgeClass(a.status)}`}>
+              {KB_STATUS_LABELS[a.status]}
+            </span>
+          </div>
+          <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">{a.title}</h1>
+          <p className="mt-1 text-xs text-slate-400">
+            обновлено {new Date(a.updated_at).toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" })}
+          </p>
         </div>
-        <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">{a.title}</h1>
       </header>
 
       {a.body && (
