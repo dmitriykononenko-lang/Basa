@@ -2,7 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import { KB_STATUS_LABELS, kbStatusBadgeClass } from "@/lib/kb";
-import { courseProgressPercent } from "@/lib/academy";
+import { courseProgressPercent, dueStatus, DUE_LABELS, dueBadgeClass } from "@/lib/academy";
 
 export default async function AcademyPage() {
   const current = await getCurrentTeam();
@@ -38,6 +38,31 @@ export default async function AcademyPage() {
     : { data: [] as { id: string; title: string; status: string }[] };
   const myCourses = (myCoursesData ?? []) as { id: string; title: string; status: string }[];
 
+  // Ближайший применимый ко мне дедлайн по каждому курсу (мои user-назначения +
+  // department-назначения по моим отделам).
+  const today = new Date().toISOString().slice(0, 10);
+  const { data: myDeptRows } = await supabase
+    .from("kb_user_departments")
+    .select("department_id")
+    .eq("user_id", uid ?? "");
+  const myDeptIds = new Set(((myDeptRows ?? []) as { department_id: string }[]).map((d) => d.department_id));
+  const { data: assigns } = myCourseIds.length
+    ? await supabase
+        .from("academy_assignments")
+        .select("course_id, assignee_type, department_id, user_id, due_date")
+        .eq("team_id", team.id)
+        .in("course_id", myCourseIds)
+    : { data: [] as { course_id: string; assignee_type: string; department_id: string | null; user_id: string | null; due_date: string | null }[] };
+  const dueByCourse = new Map<string, string>();
+  for (const a of (assigns ?? []) as { course_id: string; assignee_type: string; department_id: string | null; user_id: string | null; due_date: string | null }[]) {
+    const appliesToMe =
+      (a.assignee_type === "user" && a.user_id === uid) ||
+      (a.assignee_type === "department" && a.department_id && myDeptIds.has(a.department_id));
+    if (!appliesToMe || !a.due_date) continue;
+    const cur = dueByCourse.get(a.course_id);
+    if (!cur || a.due_date < cur) dueByCourse.set(a.course_id, a.due_date);
+  }
+
   // Управление (менеджер+): все курсы команды + число элементов
   let manageCourses: { id: string; title: string; status: keyof typeof KB_STATUS_LABELS; items: number }[] = [];
   if (canManage) {
@@ -61,7 +86,10 @@ export default async function AcademyPage() {
           <p className="text-sm text-slate-500 dark:text-neutral-400">Курсы обучения на основе базы знаний</p>
         </div>
         {canManage && (
-          <Link href="/academy/new" className="btn-primary">+ Создать курс</Link>
+          <div className="flex items-center gap-3">
+            <Link href="/reports/academy" className="text-sm text-slate-400 hover:text-brand">Отчёт</Link>
+            <Link href="/academy/new" className="btn-primary">+ Создать курс</Link>
+          </div>
         )}
       </header>
 
@@ -72,10 +100,20 @@ export default async function AcademyPage() {
           {myCourses.map((c) => {
             const e = byCourse.get(c.id) ?? { done: 0, total: 0 };
             const pct = courseProgressPercent(e.done, e.total);
+            const allDone = e.total > 0 && e.done === e.total;
+            const ds = dueStatus(dueByCourse.get(c.id) ?? null, allDone, today);
             return (
               <li key={c.id}>
                 <Link href={`/academy/${c.id}`} className="surface block rounded-3xl p-5 transition hover:ring-brand/40">
-                  <h3 className="font-semibold text-slate-900 dark:text-white">{c.title}</h3>
+                  <div className="flex items-start justify-between gap-2">
+                    <h3 className="font-semibold text-slate-900 dark:text-white">{c.title}</h3>
+                    {ds && (
+                      <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${dueBadgeClass(ds)}`}>
+                        {DUE_LABELS[ds]}
+                        {dueByCourse.get(c.id) ? ` · до ${dueByCourse.get(c.id)}` : ""}
+                      </span>
+                    )}
+                  </div>
                   <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-neutral-800">
                     <div className="h-full rounded-full bg-brand" style={{ width: `${pct}%` }} />
                   </div>
