@@ -5,8 +5,11 @@ import { formatMoney } from "@/lib/format";
 import { buildRateMap, toBase } from "@/lib/fx";
 import { EMPLOYMENT_TYPE_LABELS } from "@/lib/constants";
 import AddEmployeeForm from "@/components/AddEmployeeForm";
+import OrgUnitManager, { type OrgUnit } from "@/components/org/OrgUnitManager";
+import EmployeeOrgAssign from "@/components/org/EmployeeOrgAssign";
 
-export default async function EmployeesPage() {
+export default async function EmployeesPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
+  const { tab } = await searchParams;
   const current = await getCurrentTeam();
   if (!current) {
     return (
@@ -24,6 +27,53 @@ export default async function EmployeesPage() {
   const { team, role } = current;
   const base = team.base_currency;
   const supabase = await createClient();
+  const isOrg = tab === "org";
+
+  if (isOrg) {
+    const [{ data: unitsRaw }, { data: empRaw }, { data: membersRaw }] = await Promise.all([
+      supabase.from("kb_departments").select("id, name, parent_id, unit_type, result_text, functions_text, head_counterparty_id, sort").eq("team_id", team.id),
+      supabase.from("counterparties").select("id, name, unit_id, user_id").eq("team_id", team.id).contains("kinds", ["employee"]).eq("archived", false).order("name"),
+      supabase.from("team_members").select("user_id, profiles(full_name)").eq("team_id", team.id),
+    ]);
+    const units = (unitsRaw ?? []) as OrgUnit[];
+    const employees = (empRaw ?? []) as { id: string; name: string; unit_id: string | null; user_id: string | null }[];
+    const members = ((membersRaw ?? []) as { user_id: string; profiles: { full_name: string | null } | { full_name: string | null }[] | null }[]).map((m) => ({
+      id: m.user_id,
+      name: (Array.isArray(m.profiles) ? m.profiles[0]?.full_name : m.profiles?.full_name) || "Без имени",
+    }));
+
+    // плоский список узлов с отступом для селектов
+    const childrenOf = new Map<string | null, OrgUnit[]>();
+    for (const u of units) {
+      const arr = childrenOf.get(u.parent_id) ?? [];
+      arr.push(u);
+      childrenOf.set(u.parent_id, arr);
+    }
+    for (const arr of childrenOf.values()) arr.sort((a, b) => a.sort - b.sort || a.name.localeCompare(b.name));
+    const unitOptions: { value: string; label: string }[] = [];
+    const walk = (pid: string | null, depth: number) => {
+      for (const u of childrenOf.get(pid) ?? []) {
+        unitOptions.push({ value: u.id, label: `${"— ".repeat(depth)}${u.name}` });
+        walk(u.id, depth + 1);
+      }
+    };
+    walk(null, 0);
+
+    const canManage = canEditFinance(role);
+    return (
+      <div className="p-6 sm:p-8">
+        <header className="mb-4">
+          <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">Сотрудники</h1>
+          <p className="text-sm text-slate-500 dark:text-neutral-400">Орг-схема компании: департаменты, отделы, должности и доступ</p>
+        </header>
+        <OrgTabs active="org" />
+        <div className="space-y-6">
+          <OrgUnitManager teamId={team.id} units={units} employees={employees.map((e) => ({ id: e.id, name: e.name }))} canManage={canManage} />
+          {canManage && <EmployeeOrgAssign employees={employees} unitOptions={unitOptions} members={members} />}
+        </div>
+      </div>
+    );
+  }
 
   const [{ data: employees }, { data: balances }, { data: fxRows }] = await Promise.all([
     supabase
@@ -82,6 +132,8 @@ export default async function EmployeesPage() {
         </div>
       </header>
 
+      <OrgTabs active="list" />
+
       <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
         <Kpi title="Начислено всего" value={formatMoney(totalAccrued, base)} />
         <Kpi title="Выплачено всего" value={formatMoney(totalPaid, base)} />
@@ -130,6 +182,15 @@ export default async function EmployeesPage() {
           {canEditFinance(role) ? " Добавьте первого кнопкой выше." : " Их может добавить владелец или менеджер."}
         </p>
       )}
+    </div>
+  );
+}
+
+function OrgTabs({ active }: { active: "list" | "org" }) {
+  return (
+    <div className="mb-5 inline-flex rounded-full bg-slate-100 p-1 text-sm dark:bg-neutral-800">
+      <Link href="/employees" className={`rounded-full px-4 py-1.5 font-medium transition ${active === "list" ? "bg-white text-brand shadow-sm dark:bg-neutral-700 dark:text-white" : "text-slate-500 dark:text-neutral-400"}`}>Список</Link>
+      <Link href="/employees?tab=org" className={`rounded-full px-4 py-1.5 font-medium transition ${active === "org" ? "bg-white text-brand shadow-sm dark:bg-neutral-700 dark:text-white" : "text-slate-500 dark:text-neutral-400"}`}>Оргструктура</Link>
     </div>
   );
 }
