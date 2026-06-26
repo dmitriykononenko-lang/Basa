@@ -107,6 +107,37 @@ export default async function VaultPage() {
   return (
     <div className="p-6 sm:p-8">
       {header}
+
+      <details className="surface mb-5 rounded-3xl px-5 py-4 [&_summary::-webkit-details-marker]:hidden">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold text-slate-900 dark:text-white">
+          <span>Как пользоваться</span>
+          <span className="text-xs font-normal text-slate-400">развернуть</span>
+        </summary>
+        <div className="mt-3 space-y-3 text-sm text-slate-600 dark:text-neutral-400">
+          <p>
+            Пароли шифруются на сервере и в браузер в открытом виде не попадают — в базе хранится только шифртекст.
+            Каждый показ и изменение фиксируются в журнале.
+          </p>
+          <div>
+            <div className="font-medium text-slate-700 dark:text-neutral-300">Кто что может</div>
+            <ul className="mt-1 list-disc space-y-0.5 pl-5">
+              <li>Создавать и редактировать записи — менеджер, админ, владелец.</li>
+              <li>Выдавать и снимать доступ — владелец и админ.</li>
+              <li>«Показать» (расшифровать) — только по доступу: владелец/админ, автор записи, тот, кому выдан прямой доступ, либо чей узел оргструктуры покрыт выданным доступом.</li>
+            </ul>
+          </div>
+          <div>
+            <div className="font-medium text-slate-700 dark:text-neutral-300">Доступ «на узел»</div>
+            <p className="mt-1">
+              Доступ, выданный на узел оргструктуры, распространяется на сам узел и все его подразделения. Чтобы он
+              сработал для человека, сотрудник должен быть привязан в разделе{" "}
+              <a href="/employees?tab=org" className="font-medium text-brand hover:underline">Сотрудники → Оргструктура</a>{" "}
+              к узлу и к учётной записи. Если привязки нет — выдавайте доступ напрямую сотруднику.
+            </p>
+          </div>
+        </div>
+      </details>
+
       <VaultManager
         teamId={team.id}
         entries={entries}
