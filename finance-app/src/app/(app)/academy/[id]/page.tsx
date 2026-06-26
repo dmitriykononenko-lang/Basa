@@ -71,6 +71,11 @@ export default async function CoursePage({ params }: { params: Promise<{ id: str
             <p className="mt-1 text-xs text-slate-500 dark:text-neutral-400">Пройдено {doneCount} из {views.length} ({pct}%)</p>
           </div>
         )}
+        {views.length > 0 && doneCount === views.length && (
+          <Link href={`/academy/${id}/certificate`} className="btn-primary mt-4 inline-flex">
+            🎓 Сертификат
+          </Link>
+        )}
       </header>
 
       {views.length > 0 ? (

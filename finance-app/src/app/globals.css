@@ -222,3 +222,20 @@ button:focus-visible, a:focus-visible {
 .kb-content p { margin: 0.4rem 0; }
 .kb-content a { color: #2f6df6; text-decoration: underline; }
 .kb-editor { max-height: 60vh; overflow-y: auto; }
+
+/* Сертификат о прохождении курса */
+.kb-certificate {
+  border: 3px solid #2f6df6;
+  border-radius: 1rem;
+  padding: 3rem 2rem;
+  text-align: center;
+  background: #fff;
+  color: #0f172a;
+  font-family: Georgia, "Times New Roman", serif;
+}
+.kb-certificate__badge { font-size: 3rem; }
+.kb-certificate__kicker { margin-top: 0.5rem; text-transform: uppercase; letter-spacing: 0.15em; font-size: 0.8rem; color: #2f6df6; }
+.kb-certificate__name { margin-top: 1.5rem; font-size: 2rem; font-weight: 700; }
+.kb-certificate__text { margin-top: 0.75rem; color: #475569; }
+.kb-certificate__course { margin-top: 0.5rem; font-size: 1.4rem; font-weight: 700; }
+.kb-certificate__meta { margin-top: 2rem; display: flex; justify-content: space-between; color: #475569; font-size: 0.9rem; }
