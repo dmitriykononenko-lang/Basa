@@ -137,7 +137,13 @@ function DealCard({
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
+  const [addPay, setAddPay] = useState(false);
+  const [addBuy, setAddBuy] = useState(false);
   const pill = statusPill(deal);
+  const payPct = deal.saleBase > 0 ? (deal.receivedBase / deal.saleBase) * 100 : 0;
+  const buyPct = deal.expectedBase && deal.expectedBase > 0
+    ? (deal.purchasedBase / deal.expectedBase) * 100
+    : 0; // без плана закупки прогресс не от чего считать — полоса пустая, сумма видна в подписи
 
   async function closeToggle() {
     setBusy(true);
@@ -173,32 +179,63 @@ function DealCard({
 
   return (
     <div className={`rounded-3xl bg-white ring-1 transition dark:bg-[#15171c] ${deal.isOpen && deal.purchasedBase === 0 ? "ring-amber-200/70 dark:ring-amber-500/20" : "ring-slate-200/80 dark:ring-white/[0.07]"}`}>
-      <button onClick={onToggle} className="flex w-full items-start justify-between gap-3 rounded-3xl p-5 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="truncate text-sm font-semibold text-slate-800 dark:text-neutral-100">{deal.title}</span>
-            <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${pill.cls}`}>{pill.label}</span>
+      <button onClick={onToggle} className="flex w-full flex-col gap-3.5 rounded-3xl p-5 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand">
+        {/* Шапка: название + статус + сумма продажи */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="truncate text-sm font-semibold text-slate-800 dark:text-neutral-100">{deal.title}</span>
+              <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${pill.cls}`}>{pill.label}</span>
+            </div>
+            <div className="mt-1 truncate text-xs text-slate-400 dark:text-neutral-500">
+              {deal.clientName ?? "без клиента"}{deal.projectName && <> · {deal.projectName}</>} · {formatDate(deal.soldOn)}
+            </div>
           </div>
-          <div className="mt-1 truncate text-xs text-slate-400 dark:text-neutral-500">
-            {deal.clientName ?? "без клиента"}{deal.projectName && <> · {deal.projectName}</>} · {formatDate(deal.soldOn)}
+          <div className="flex shrink-0 items-start gap-3">
+            <div className="text-right">
+              <div className="text-[10px] uppercase tracking-wide text-slate-400 dark:text-neutral-500">Продажа</div>
+              <div className="text-base font-bold tabular-nums text-slate-900 dark:text-white">{formatMoney(deal.saleAmount, deal.currency)}</div>
+              {deal.currency !== base && <div className="text-[10px] tabular-nums text-slate-400">≈ {formatMoney(deal.saleBase, base)}</div>}
+            </div>
+            <span className={`mt-1 text-slate-300 transition ${open ? "rotate-180" : ""}`}>▾</span>
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-5 text-right">
-          <Metric
-            label="Продажа"
-            value={formatMoney(deal.saleAmount, deal.currency)}
-            sub={deal.currency !== base ? `≈ ${formatMoney(deal.saleBase, base)}` : undefined}
-          />
-          <Metric
-            label="Получено"
-            value={formatMoney(deal.receivedBase, base)}
-            sub={deal.receivableBase > 0 ? `ждём ${formatMoney(deal.receivableBase, base)}` : undefined}
-            accent={deal.receivableBase > 0 ? undefined : "emerald"}
-          />
-          <Metric label="Закуплено" value={formatMoney(deal.purchasedBase, base)} />
-          <Metric label="Осталось" value={deal.remaining != null ? formatMoney(deal.remaining, base) : "—"} muted={deal.remaining == null} />
-          <Metric label="Маржа" value={formatMoney(deal.marginBase, base)} accent={deal.marginBase < 0 ? "red" : "emerald"} />
-          <span className={`text-slate-300 transition ${open ? "rotate-180" : ""}`}>▾</span>
+
+        {/* Прогресс: оплата клиента и закупка — наглядно полосами */}
+        <div className="grid grid-cols-1 gap-x-6 gap-y-2.5 sm:grid-cols-2">
+          <div>
+            <div className="mb-1 flex items-center justify-between text-[11px]">
+              <span className="text-slate-500 dark:text-neutral-400">Оплата клиента</span>
+              <span className="tabular-nums">
+                {deal.receivableBase > 0
+                  ? <span className="text-slate-500 dark:text-neutral-400">{formatMoney(deal.receivedBase, base)} <span className="text-slate-400">/ {formatMoney(deal.saleBase, base)}</span></span>
+                  : <span className="font-medium text-emerald-600 dark:text-emerald-400">оплачено полностью</span>}
+              </span>
+            </div>
+            <Bar pct={payPct} tone={deal.receivableBase > 0 ? "amber" : "emerald"} />
+          </div>
+          <div>
+            <div className="mb-1 flex items-center justify-between text-[11px]">
+              <span className="text-slate-500 dark:text-neutral-400">Закупка у вендора</span>
+              <span className="tabular-nums text-slate-500 dark:text-neutral-400">
+                {deal.expectedBase != null
+                  ? <>{formatMoney(deal.purchasedBase, base)} <span className="text-slate-400">/ {formatMoney(deal.expectedBase, base)}</span></>
+                  : <>{formatMoney(deal.purchasedBase, base)} <span className="text-slate-400">· план не задан</span></>}
+              </span>
+            </div>
+            <Bar pct={buyPct} tone={deal.fullyPurchased ? "emerald" : "brand"} />
+          </div>
+        </div>
+
+        {/* Маржа + остаток закупки */}
+        <div className="flex items-center gap-2 text-xs">
+          <span className="text-slate-400 dark:text-neutral-500">Маржа</span>
+          <span className={`font-semibold tabular-nums ${deal.marginBase < 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}>
+            {formatMoney(deal.marginBase, base)}
+          </span>
+          {deal.remaining != null && deal.remaining > 0 && (
+            <span className="ml-auto text-slate-400 dark:text-neutral-500">осталось закупить {formatMoney(deal.remaining, base)}</span>
+          )}
         </div>
       </button>
 
@@ -229,9 +266,11 @@ function DealCard({
           ) : (
             <p className="mb-3 text-sm text-slate-400">Оплат ещё нет.</p>
           )}
-          {canEdit && (
-            <AddPaymentForm dealId={deal.id} teamId={teamId} userId={userId} defaultCurrency={deal.currency} incomeOps={incomeOps} />
-          )}
+          {canEdit && (addPay ? (
+            <AddPaymentForm dealId={deal.id} teamId={teamId} userId={userId} defaultCurrency={deal.currency} incomeOps={incomeOps} onClose={() => setAddPay(false)} />
+          ) : (
+            <button onClick={() => setAddPay(true)} className="text-xs font-medium text-brand transition hover:opacity-80">+ Добавить оплату</button>
+          ))}
 
           <div className="mb-2 mt-5 flex items-center justify-between gap-3">
             <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">Закупки у вендора</span>
@@ -263,9 +302,11 @@ function DealCard({
             <p className="mb-3 text-sm text-slate-400">Закупок ещё нет.</p>
           )}
 
-          {canEdit && (
-            <AddPurchaseForm dealId={deal.id} teamId={teamId} userId={userId} defaultCurrency={deal.currency} counterparties={counterparties} expenseOps={expenseOps} />
-          )}
+          {canEdit && (addBuy ? (
+            <AddPurchaseForm dealId={deal.id} teamId={teamId} userId={userId} defaultCurrency={deal.currency} counterparties={counterparties} expenseOps={expenseOps} onClose={() => setAddBuy(false)} />
+          ) : (
+            <button onClick={() => setAddBuy(true)} className="text-xs font-medium text-brand transition hover:opacity-80">+ Добавить закупку</button>
+          ))}
 
           {canEdit && (
             <div className="mt-4 flex items-center gap-2 border-t border-slate-100 pt-3 dark:border-white/[0.06]">
@@ -283,13 +324,12 @@ function DealCard({
   );
 }
 
-function Metric({ label, value, sub, accent, muted }: { label: string; value: string; sub?: string; accent?: "red" | "emerald"; muted?: boolean }) {
-  const color = accent === "red" ? "text-red-600 dark:text-red-400" : accent === "emerald" ? "text-emerald-600 dark:text-emerald-400" : muted ? "text-slate-400 dark:text-neutral-500" : "text-slate-800 dark:text-neutral-100";
+function Bar({ pct, tone }: { pct: number; tone: "emerald" | "brand" | "amber" }) {
+  const bg = tone === "emerald" ? "bg-emerald-500" : tone === "amber" ? "bg-amber-500" : "bg-brand";
+  const w = Math.max(0, Math.min(100, pct));
   return (
-    <div className="hidden sm:block">
-      <div className="text-[10px] uppercase tracking-wide text-slate-400 dark:text-neutral-500">{label}</div>
-      <div className={`text-sm font-semibold tabular-nums ${color}`}>{value}</div>
-      {sub && <div className="text-[10px] tabular-nums text-slate-400 dark:text-neutral-500">{sub}</div>}
+    <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-white/[0.08]">
+      <div className={`h-full rounded-full ${bg} transition-all`} style={{ width: `${w}%` }} />
     </div>
   );
 }
@@ -403,9 +443,9 @@ function AddDealForm({
 }
 
 function AddPaymentForm({
-  dealId, teamId, userId, defaultCurrency, incomeOps,
+  dealId, teamId, userId, defaultCurrency, incomeOps, onClose,
 }: {
-  dealId: string; teamId: string; userId: string; defaultCurrency: string; incomeOps: OpOption[];
+  dealId: string; teamId: string; userId: string; defaultCurrency: string; incomeOps: OpOption[]; onClose?: () => void;
 }) {
   const router = useRouter();
   const today = new Date().toISOString().slice(0, 10);
@@ -470,6 +510,7 @@ function AddPaymentForm({
         <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="комментарий" className="input py-1.5 text-sm" />
       </div>
       <button type="submit" disabled={busy} className="rounded-full bg-emerald-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">{busy ? "…" : "+ Оплата"}</button>
+      {onClose && <button type="button" onClick={onClose} className="rounded-full px-3 py-2 text-sm font-medium text-slate-400 transition hover:text-slate-600 dark:hover:text-neutral-300">Скрыть</button>}
       {error && <p className="w-full text-sm text-red-600 dark:text-red-400">{error}</p>}
     </form>
   );
@@ -482,6 +523,7 @@ function DealItems({
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
+  const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
   const [qty, setQty] = useState("1");
   const [plan, setPlan] = useState("");
@@ -556,11 +598,11 @@ function DealItems({
         </div>
       )}
 
-      {canEdit && (
+      {canEdit && (adding ? (
         <form onSubmit={add} className="flex flex-wrap items-end gap-2 rounded-2xl bg-slate-50 p-3 dark:bg-white/[0.03]">
           <div className="min-w-[160px] flex-1">
             <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Позиция</label>
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="напр. amoCRM 5 польз." className="input py-1.5 text-sm" />
+            <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="напр. amoCRM 5 польз." className="input py-1.5 text-sm" />
           </div>
           <div>
             <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Кол-во</label>
@@ -571,9 +613,12 @@ function DealItems({
             <input value={plan} onChange={(e) => setPlan(e.target.value)} inputMode="decimal" placeholder="0,00 (опц.)" className="input w-36 py-1.5 text-sm" />
           </div>
           <button type="submit" disabled={busy} className="rounded-full bg-brand px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">{busy ? "…" : "+ Позиция"}</button>
+          <button type="button" onClick={() => setAdding(false)} className="rounded-full px-3 py-2 text-sm font-medium text-slate-400 transition hover:text-slate-600 dark:hover:text-neutral-300">Скрыть</button>
           {error && <p className="w-full text-sm text-red-600 dark:text-red-400">{error}</p>}
         </form>
-      )}
+      ) : (
+        <button onClick={() => setAdding(true)} className="text-xs font-medium text-brand transition hover:opacity-80">+ Добавить позицию</button>
+      ))}
     </>
   );
 }
@@ -633,9 +678,9 @@ function PlannedCostEditor({
 }
 
 function AddPurchaseForm({
-  dealId, teamId, userId, defaultCurrency, counterparties, expenseOps,
+  dealId, teamId, userId, defaultCurrency, counterparties, expenseOps, onClose,
 }: {
-  dealId: string; teamId: string; userId: string; defaultCurrency: string; counterparties: Named[]; expenseOps: OpOption[];
+  dealId: string; teamId: string; userId: string; defaultCurrency: string; counterparties: Named[]; expenseOps: OpOption[]; onClose?: () => void;
 }) {
   const router = useRouter();
   const today = new Date().toISOString().slice(0, 10);
@@ -713,6 +758,7 @@ function AddPurchaseForm({
         <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="комментарий" className="input py-1.5 text-sm" />
       </div>
       <button type="submit" disabled={busy} className="rounded-full bg-brand px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">{busy ? "…" : "+ Закупка"}</button>
+      {onClose && <button type="button" onClick={onClose} className="rounded-full px-3 py-2 text-sm font-medium text-slate-400 transition hover:text-slate-600 dark:hover:text-neutral-300">Скрыть</button>}
       {error && <p className="w-full text-sm text-red-600 dark:text-red-400">{error}</p>}
     </form>
   );

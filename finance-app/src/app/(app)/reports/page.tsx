@@ -15,7 +15,7 @@ type Tx = {
   note: string | null;
   category: { name: string } | null;
   counterparty: { name: string } | null;
-  project: { name: string } | null;
+  project: { id: string; name: string } | null;
   account: { name: string } | null;
 };
 
@@ -68,7 +68,7 @@ export default async function ReportsPage({
          account:accounts!transactions_account_id_fkey(name),
          category:categories(name),
          counterparty:counterparties(name),
-         project:projects(name)`
+         project:projects(id, name)`
       )
       .eq("team_id", team.id)
       .eq("status", "actual")
@@ -86,7 +86,15 @@ export default async function ReportsPage({
   let expense = 0;
   const byMonth = new Map<string, { income: number; expense: number }>();
   const byCategory = new Map<string, number>();
-  const byProject = new Map<string, number>();
+  // Прибыль по проектам: ключ — id проекта (или "none"), чтобы строки были кликабельны.
+  const byProject = new Map<string, { name: string; val: number }>();
+  const addProject = (t: Tx, delta: number) => {
+    const id = t.project?.id ?? "none";
+    const name = t.project?.name ?? "Без проекта";
+    const cur = byProject.get(id) ?? { name, val: 0 };
+    cur.val += delta;
+    byProject.set(id, cur);
+  };
 
   for (const t of rows) {
     if (t.type === "transfer") continue;
@@ -96,15 +104,13 @@ export default async function ReportsPage({
     if (t.type === "income") {
       income += val;
       m.income += val;
-      const pn = t.project?.name ?? "Без проекта";
-      byProject.set(pn, (byProject.get(pn) ?? 0) + val);
+      addProject(t, val);
     } else {
       expense += val;
       m.expense += val;
       const cn = t.category?.name ?? "Без категории";
       byCategory.set(cn, (byCategory.get(cn) ?? 0) + val);
-      const pn = t.project?.name ?? "Без проекта";
-      byProject.set(pn, (byProject.get(pn) ?? 0) - val);
+      addProject(t, -val);
     }
     byMonth.set(ym, m);
   }
@@ -116,7 +122,7 @@ export default async function ReportsPage({
   );
   const categories = [...byCategory.entries()].sort((a, b) => b[1] - a[1]);
   const catMax = Math.max(1, ...categories.map(([, v]) => v));
-  const projects = [...byProject.entries()].sort((a, b) => b[1] - a[1]);
+  const projects = [...byProject.entries()].sort((a, b) => b[1].val - a[1].val);
 
   const exportRows = rows.map((t) => [
     t.occurred_on,
@@ -268,12 +274,11 @@ export default async function ReportsPage({
             Прибыль по проектам
           </h2>
           {projects.length > 0 ? (
-            <div className="space-y-2">
-              {projects.map(([name, val]) => (
-                <div key={name} className="flex justify-between text-sm">
-                  <span className="text-slate-700 dark:text-neutral-300">{name}</span>
+            <div className="space-y-0.5">
+              {projects.map(([id, { name, val }]) => {
+                const amount = (
                   <span
-                    className={`font-semibold ${
+                    className={`font-semibold tabular-nums ${
                       val < 0
                         ? "text-red-600 dark:text-red-400"
                         : "text-emerald-600 dark:text-emerald-400"
@@ -281,8 +286,31 @@ export default async function ReportsPage({
                   >
                     {(val < 0 ? "−" : "+") + formatMoney(Math.abs(val), base)}
                   </span>
-                </div>
-              ))}
+                );
+                if (id === "none") {
+                  return (
+                    <div key={id} className="flex justify-between gap-3 rounded-lg px-2 py-1.5 text-sm">
+                      <span className="text-slate-400 dark:text-neutral-500">{name}</span>
+                      {amount}
+                    </div>
+                  );
+                }
+                return (
+                  <Link
+                    key={id}
+                    href={`/projects/${id}`}
+                    className="group flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-sm transition hover:bg-slate-50 dark:hover:bg-white/[0.04]"
+                  >
+                    <span className="flex min-w-0 items-center gap-1.5 text-slate-700 group-hover:text-brand dark:text-neutral-300">
+                      <span className="truncate">{name}</span>
+                      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 shrink-0 text-slate-300 opacity-0 transition group-hover:opacity-100 dark:text-neutral-600" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M9 18l6-6-6-6" />
+                      </svg>
+                    </span>
+                    {amount}
+                  </Link>
+                );
+              })}
             </div>
           ) : (
             <p className="text-sm text-slate-400">Нет данных по проектам.</p>
