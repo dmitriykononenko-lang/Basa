@@ -13,9 +13,15 @@ export const maxDuration = 300;
 const LOOKBACK_DAYS = 45;
 
 export async function GET(request: Request) {
-  // Vercel автоматически шлёт Authorization: Bearer <CRON_SECRET>, если задан env CRON_SECRET.
+  // CRON_SECRET одновременно и защита, и «рубильник»: автоимпорт работает ТОЛЬКО в том
+  // проекте, где задан этот секрет. Это позволяет держать всё на одном проекте (basa-16bf):
+  // зададите CRON_SECRET только там — дубль-проект без секрета будет вхолостую.
   const secret = process.env.CRON_SECRET;
-  if (secret && request.headers.get("authorization") !== `Bearer ${secret}`) {
+  if (!secret) {
+    return NextResponse.json({ ok: true, skipped: "CRON_SECRET не задан — автоимпорт в этом проекте выключен" });
+  }
+  // Vercel автоматически шлёт Authorization: Bearer <CRON_SECRET> при наличии env CRON_SECRET.
+  if (request.headers.get("authorization") !== `Bearer ${secret}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
