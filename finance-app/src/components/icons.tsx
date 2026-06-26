@@ -297,3 +297,12 @@ export const IconSearch = (p: P) => (
     <path d="m21 21-3.5-3.5" />
   </svg>
 );
+
+export const IconKey = (p: P) => (
+  <svg {...base} className={p.className}>
+    <circle cx="7.5" cy="15.5" r="4.5" />
+    <path d="m10.7 12.3 8.3-8.3" />
+    <path d="m16 5 3 3" />
+    <path d="m13 8 3 3" />
+  </svg>
+);
