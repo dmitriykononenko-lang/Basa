@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { IconBell } from "@/components/icons";
 
@@ -138,6 +139,13 @@ export default function NotificationBell() {
               </ul>
             )}
           </div>
+          <Link
+            href="/notifications"
+            onClick={() => setOpen(false)}
+            className="block border-t border-slate-100 px-4 py-2.5 text-center text-xs font-medium text-brand transition hover:bg-slate-50 dark:border-white/[0.07] dark:hover:bg-white/[0.03]"
+          >
+            Все уведомления →
+          </Link>
         </div>
       )}
     </div>
