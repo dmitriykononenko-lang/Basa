@@ -21,6 +21,7 @@ import {
   IconBook,
   IconAcademy,
   IconKey,
+  IconChart,
 } from "./icons";
 
 type Item = {
@@ -54,6 +55,7 @@ const NAV: Item[] = [
     match: ["/academy"],
   },
   { href: "/vault", label: "Пароли", Icon: IconKey, match: ["/vault"] },
+  { href: "/metrics", label: "Показатели", Icon: IconChart, match: ["/metrics"] },
 ];
 
 const ANALYTICS: Item[] = [
