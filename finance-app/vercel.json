@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "crons": [
+    { "path": "/api/tochka/cron", "schedule": "0 5,12,15 * * *" },
+    { "path": "/api/cron/notifications?mode=refresh", "schedule": "0 */4 * * *" },
+    { "path": "/api/cron/notifications?mode=digest", "schedule": "0 6 * * *" }
+  ]
+}

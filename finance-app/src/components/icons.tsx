@@ -1,0 +1,315 @@
+// Тонкие линейные иконки в стиле референса (stroke 1.6, 20px)
+type P = { className?: string };
+const base = {
+  width: 20,
+  height: 20,
+  viewBox: "0 0 24 24",
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 1.6,
+  strokeLinecap: "round" as const,
+  strokeLinejoin: "round" as const,
+};
+
+export const IconDashboard = (p: P) => (
+  <svg {...base} className={p.className}>
+    <rect x="3" y="3" width="7" height="9" rx="1.5" />
+    <rect x="14" y="3" width="7" height="5" rx="1.5" />
+    <rect x="14" y="12" width="7" height="9" rx="1.5" />
+    <rect x="3" y="16" width="7" height="5" rx="1.5" />
+  </svg>
+);
+
+export const IconTransactions = (p: P) => (
+  <svg {...base} className={p.className}>
+    <path d="M7 7h13l-3-3" />
+    <path d="M17 17H4l3 3" />
+  </svg>
+);
+
+export const IconBook = (p: P) => (
+  <svg {...base} className={p.className}>
+    <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H12v15.5H6a2 2 0 0 0-2 2z" />
+    <path d="M20 5.5A1.5 1.5 0 0 0 18.5 4H12v15.5h6a2 2 0 0 1 2 2z" />
+  </svg>
+);
+
+export const IconAcademy = (p: P) => (
+  <svg {...base} className={p.className}>
+    <path d="M12 4 2 9l10 5 10-5z" />
+    <path d="M6 11.5V16c0 1.1 2.7 2.5 6 2.5s6-1.4 6-2.5v-4.5" />
+  </svg>
+);
+
+// --- Типы материалов базы знаний ---
+export const IconRegulation = (p: P) => (
+  <svg {...base} className={p.className}>
+    <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+    <path d="M14 3v5h5" />
+    <path d="M9.5 14.5l1.5 1.5 3-3.5" />
+  </svg>
+);
+export const IconArticle = (p: P) => (
+  <svg {...base} className={p.className}>
+    <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+    <path d="M14 3v5h5" />
+    <path d="M8 12h8M8 16h6" opacity="0.6" />
+  </svg>
+);
+export const IconChecklist = (p: P) => (
+  <svg {...base} className={p.className}>
+    <path d="M9 5h10M9 12h10M9 19h10" opacity="0.7" />
+    <path d="M3.5 5l1 1 2-2.2M3.5 12l1 1 2-2.2M3.5 19l1 1 2-2.2" />
+  </svg>
+);
+
+// --- Утилитарные ---
+export const IconClock = (p: P) => (
+  <svg {...base} className={p.className}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 7v5l3 2" />
+  </svg>
+);
+export const IconUsers = (p: P) => (
+  <svg {...base} className={p.className}>
+    <circle cx="9" cy="8" r="3" />
+    <path d="M3 20c0-3.3 2.7-5 6-5s6 1.7 6 5" />
+    <path d="M16 5.5a3 3 0 0 1 0 5.8M18 20c0-2.2-.8-3.8-2-4.6" opacity="0.6" />
+  </svg>
+);
+export const IconCheckCircle = (p: P) => (
+  <svg {...base} className={p.className}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M8.5 12.5l2.2 2.2 4.3-4.7" />
+  </svg>
+);
+export const IconPlay = (p: P) => (
+  <svg {...base} className={p.className}>
+    <path d="M8 5.5v13l11-6.5z" />
+  </svg>
+);
+
+// --- Тулбар редактора ---
+export const IconBold = (p: P) => (
+  <svg {...base} className={p.className}>
+    <path d="M7 5h6a3.5 3.5 0 0 1 0 7H7zM7 12h7a3.5 3.5 0 0 1 0 7H7z" />
+  </svg>
+);
+export const IconItalic = (p: P) => (
+  <svg {...base} className={p.className}>
+    <path d="M19 5h-6M11 19H5M15 5l-4 14" />
+  </svg>
+);
+export const IconHeading = (p: P) => (
+  <svg {...base} className={p.className}>
+    <path d="M6 5v14M18 5v14M6 12h12" />
+  </svg>
+);
+export const IconListBullet = (p: P) => (
+  <svg {...base} className={p.className}>
+    <path d="M9 6h11M9 12h11M9 18h11" />
+    <path d="M4 6h.01M4 12h.01M4 18h.01" />
+  </svg>
+);
+export const IconListOrdered = (p: P) => (
+  <svg {...base} className={p.className}>
+    <path d="M10 6h10M10 12h10M10 18h10" />
+    <path d="M4 5.5l1-.5v3M4 17.5h2l-2 2h2" opacity="0.9" />
+  </svg>
+);
+export const IconLink = (p: P) => (
+  <svg {...base} className={p.className}>
+    <path d="M10 14a4 4 0 0 0 5.7 0l2.3-2.3a4 4 0 0 0-5.7-5.7L11 7.3" />
+    <path d="M14 10a4 4 0 0 0-5.7 0L6 12.3a4 4 0 0 0 5.7 5.7L13 16.7" />
+  </svg>
+);
+export const IconImage = (p: P) => (
+  <svg {...base} className={p.className}>
+    <rect x="3" y="4" width="18" height="16" rx="2.5" />
+    <circle cx="8.5" cy="9.5" r="1.6" />
+    <path d="M5 18l4.5-4.5 3 3 3-3L20 17" />
+  </svg>
+);
+export const IconVideo = (p: P) => (
+  <svg {...base} className={p.className}>
+    <rect x="3" y="5" width="13" height="14" rx="2.5" />
+    <path d="M16 10l5-3v10l-5-3z" />
+  </svg>
+);
+export const IconEmbed = (p: P) => (
+  <svg {...base} className={p.className}>
+    <rect x="3" y="5" width="18" height="14" rx="2.5" />
+    <path d="M11 9.5l-2.5 2.5 2.5 2.5" />
+    <path d="M14 9.5l2.5 2.5-2.5 2.5" opacity="0.8" />
+  </svg>
+);
+
+export const IconAccounts = (p: P) => (
+  <svg {...base} className={p.className}>
+    <rect x="3" y="6" width="18" height="13" rx="2.5" />
+    <path d="M3 10h18" />
+    <path d="M16 14h2" />
+  </svg>
+);
+
+export const IconCounterparties = (p: P) => (
+  <svg {...base} className={p.className}>
+    <circle cx="9" cy="8" r="3" />
+    <path d="M3 20c0-3 2.7-5 6-5s6 2 6 5" />
+    <path d="M16 11a3 3 0 0 0 0-6" />
+    <path d="M18 20c0-2.2-.9-3.8-2.3-4.6" />
+  </svg>
+);
+
+export const IconProjects = (p: P) => (
+  <svg {...base} className={p.className}>
+    <path d="M3 7.5 12 3l9 4.5-9 4.5z" />
+    <path d="M3 7.5V16l9 4.5 9-4.5V7.5" />
+    <path d="M12 12v8.5" />
+  </svg>
+);
+
+export const IconDebts = (p: P) => (
+  <svg {...base} className={p.className}>
+    <path d="M12 3v18" />
+    <path d="M6 7 3 12h6z" />
+    <path d="M18 7l-3 5h6z" />
+    <path d="M7 21h10" />
+  </svg>
+);
+
+export const IconBudgets = (p: P) => (
+  <svg {...base} className={p.className}>
+    <path d="M12 3a9 9 0 1 0 9 9h-9z" />
+    <path d="M12 3v9h9" opacity="0.4" />
+  </svg>
+);
+
+export const IconReports = (p: P) => (
+  <svg {...base} className={p.className}>
+    <path d="M4 19V5" />
+    <path d="M4 19h16" />
+    <path d="M8 16v-4" />
+    <path d="M12 16V8" />
+    <path d="M16 16v-6" />
+  </svg>
+);
+
+export const IconTeam = (p: P) => (
+  <svg {...base} className={p.className}>
+    <circle cx="12" cy="8" r="3.2" />
+    <path d="M5 20c0-3.3 3.1-6 7-6s7 2.7 7 6" />
+  </svg>
+);
+
+export const IconTag = (p: P) => (
+  <svg {...base} className={p.className}>
+    <path d="M3 12V5a2 2 0 0 1 2-2h7l9 9-9 9z" />
+    <circle cx="7.5" cy="7.5" r="1.3" />
+  </svg>
+);
+
+export const IconEmployees = (p: P) => (
+  <svg {...base} className={p.className}>
+    <circle cx="9" cy="8" r="3" />
+    <path d="M3.5 20c0-3 2.5-5 5.5-5s5.5 2 5.5 5" />
+    <path d="M16 4a3 3 0 0 1 0 6" />
+    <path d="M18.5 20c0-2.4-.9-4-2.4-4.7" />
+  </svg>
+);
+
+export const IconCalendar = (p: P) => (
+  <svg {...base} className={p.className}>
+    <rect x="3" y="4.5" width="18" height="16" rx="2.5" />
+    <path d="M3 9h18M8 3v3M16 3v3" />
+  </svg>
+);
+
+export const IconSettings = (p: P) => (
+  <svg {...base} className={p.className}>
+    <circle cx="12" cy="12" r="3" />
+    <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
+  </svg>
+);
+
+export const IconBell = (p: P) => (
+  <svg {...base} className={p.className}>
+    <path d="M6 9a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6" />
+    <path d="M10.5 19a2 2 0 0 0 3 0" />
+  </svg>
+);
+
+export const IconSun = (p: P) => (
+  <svg {...base} className={p.className}>
+    <circle cx="12" cy="12" r="4" />
+    <path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5 19 19M19 5l-1.5 1.5M6.5 17.5 5 19" />
+  </svg>
+);
+
+export const IconMoon = (p: P) => (
+  <svg {...base} className={p.className}>
+    <path d="M21 12.8A8 8 0 1 1 11.2 3a6.5 6.5 0 0 0 9.8 9.8z" />
+  </svg>
+);
+
+export const IconChevronDown = (p: P) => (
+  <svg {...base} className={p.className}>
+    <path d="m6 9 6 6 6-6" />
+  </svg>
+);
+
+export const IconLogout = (p: P) => (
+  <svg {...base} className={p.className}>
+    <path d="M15 4h3a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-3" />
+    <path d="M10 12h9l-3-3M19 12l-3 3" />
+    <path d="M10 4H6a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h4" />
+  </svg>
+);
+
+export const IconWallet = (p: P) => (
+  <svg {...base} className={p.className}>
+    <path d="M3 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2H5a2 2 0 0 1-2-2z" />
+    <path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7H7" />
+    <circle cx="16.5" cy="13.5" r="1" />
+  </svg>
+);
+
+export const IconRepeat = (p: P) => (
+  <svg {...base} className={p.className}>
+    <path d="M17 2l3 3-3 3" />
+    <path d="M3 11V9a4 4 0 0 1 4-4h13" />
+    <path d="M7 22l-3-3 3-3" />
+    <path d="M21 13v2a4 4 0 0 1-4 4H4" />
+  </svg>
+);
+
+export const IconImport = (p: P) => (
+  <svg {...base} className={p.className}>
+    <path d="M12 3v12" />
+    <path d="m7 10 5 5 5-5" />
+    <path d="M5 21h14" />
+  </svg>
+);
+
+export const IconSearch = (p: P) => (
+  <svg {...base} className={p.className}>
+    <circle cx="11" cy="11" r="7" />
+    <path d="m21 21-3.5-3.5" />
+  </svg>
+);
+
+export const IconKey = (p: P) => (
+  <svg {...base} className={p.className}>
+    <circle cx="7.5" cy="15.5" r="4.5" />
+    <path d="m10.7 12.3 8.3-8.3" />
+    <path d="m16 5 3 3" />
+    <path d="m13 8 3 3" />
+  </svg>
+);
+
+export const IconChart = (p: P) => (
+  <svg {...base} className={p.className}>
+    <path d="M3 3v18h18" />
+    <path d="M7 14l3-3 3 3 4-5" />
+  </svg>
+);
