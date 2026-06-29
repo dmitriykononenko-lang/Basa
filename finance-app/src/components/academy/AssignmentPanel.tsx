@@ -16,7 +16,16 @@ type Assignment = {
   assignee_type: AcademyAssigneeType;
   label: string;
   due_date: string | null;
+  recur_months?: number;
 };
+
+const RECUR_OPTIONS = [
+  { value: "0", label: "Разово" },
+  { value: "1", label: "Ежемесячно" },
+  { value: "3", label: "Ежеквартально" },
+  { value: "12", label: "Ежегодно" },
+];
+const RECUR_LABEL: Record<number, string> = { 1: "ежемесячно", 3: "ежеквартально", 12: "ежегодно" };
 
 export default function AssignmentPanel({
   teamId,
@@ -37,6 +46,7 @@ export default function AssignmentPanel({
   const [type, setType] = useState<AcademyAssigneeType>("user");
   const [target, setTarget] = useState("");
   const [due, setDue] = useState("");
+  const [recur, setRecur] = useState("0");
   const [busy, setBusy] = useState(false);
 
   async function assign() {
@@ -52,6 +62,7 @@ export default function AssignmentPanel({
       _department_id: type === "department" ? target : null,
       _user_id: type === "user" ? target : null,
       _due_date: due || null,
+      _recur_months: Number(recur),
     });
     setBusy(false);
     if (error) {
@@ -61,6 +72,7 @@ export default function AssignmentPanel({
     toast.success("Назначено");
     setTarget("");
     setDue("");
+    setRecur("0");
     setOpen(false);
     router.refresh();
   }
@@ -94,6 +106,9 @@ export default function AssignmentPanel({
                 <IconUsers className="h-4 w-4 text-slate-400" />
                 <span>{a.assignee_type === "user" ? "Сотрудник" : "Отдел"}: <b>{a.label}</b></span>
                 {a.due_date && <span className="text-xs text-slate-400">до {a.due_date}</span>}
+                {a.recur_months ? (
+                  <span className="rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-600 dark:bg-violet-950/40 dark:text-violet-300">↻ {RECUR_LABEL[a.recur_months] ?? `каждые ${a.recur_months} мес.`}</span>
+                ) : null}
               </span>
               <button type="button" onClick={() => removeAssignment(a.id)} className="btn-ghost text-sm">Снять</button>
             </li>
@@ -132,6 +147,13 @@ export default function AssignmentPanel({
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Дедлайн (необязательно)</span>
             <input type="date" value={due} onChange={(e) => setDue(e.target.value)} className="input" />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Периодичность</span>
+            <Select value={recur} onChange={setRecur} options={RECUR_OPTIONS} />
+            {recur !== "0" && (
+              <span className="mt-1 block text-[11px] text-slate-400">Курс будет автоматически перевыдаваться, прогресс сбросится для прохождения заново.</span>
+            )}
           </label>
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={() => setOpen(false)} className="btn-ghost">Отмена</button>
