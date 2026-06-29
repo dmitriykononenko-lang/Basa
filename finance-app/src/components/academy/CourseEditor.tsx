@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/lib/toast";
@@ -14,6 +14,7 @@ export type CourseEditorData = {
   title: string;
   status: KbStatus;
   description: string;
+  cover_url: string | null;
   itemArticleIds: string[];
 };
 
@@ -30,11 +31,39 @@ export default function CourseEditor({
   const [title, setTitle] = useState(initial?.title ?? "");
   const [status, setStatus] = useState<KbStatus>(initial?.status ?? "draft");
   const [description, setDescription] = useState(initial?.description ?? "");
+  const [cover, setCover] = useState<string | null>(initial?.cover_url ?? null);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
   const [itemIds, setItemIds] = useState<string[]>(initial?.itemArticleIds ?? []);
   const [toAdd, setToAdd] = useState("");
   const [saving, setSaving] = useState(false);
 
   const byId = new Map(articles.map((a) => [a.id, a]));
+
+  async function onPickCover(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Нужен файл изображения");
+      return;
+    }
+    setUploading(true);
+    const supabase = createClient();
+    const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+    const path = `${teamId}/${crypto.randomUUID()}.${ext}`;
+    const { error } = await supabase.storage.from("kb-media").upload(path, file, {
+      cacheControl: "31536000",
+      upsert: false,
+      contentType: file.type || undefined,
+    });
+    setUploading(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    setCover(supabase.storage.from("kb-media").getPublicUrl(path).data.publicUrl);
+  }
   const available = articles.filter((a) => !itemIds.includes(a.id));
 
   function move(i: number, dir: -1 | 1) {
@@ -60,13 +89,13 @@ export default function CourseEditor({
       if (id) {
         const { error } = await supabase
           .from("academy_courses")
-          .update({ title, status, description })
+          .update({ title, status, description, cover_url: cover })
           .eq("id", id);
         if (error) throw error;
       } else {
         const { data, error } = await supabase
           .from("academy_courses")
-          .insert({ team_id: teamId, title, status, description, created_by: auth.user?.id })
+          .insert({ team_id: teamId, title, status, description, cover_url: cover, created_by: auth.user?.id })
           .select("id")
           .single();
         if (error) throw error;
@@ -112,6 +141,28 @@ export default function CourseEditor({
           <span className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Описание</span>
           <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} placeholder="Кратко о курсе" className="input resize-y" />
         </label>
+        <div>
+          <span className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Обложка</span>
+          <div className="flex items-center gap-4">
+            <div className="h-20 w-32 shrink-0 overflow-hidden rounded-xl bg-slate-100 ring-1 ring-slate-200 dark:bg-neutral-800 dark:ring-white/10">
+              {cover ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={cover} alt="" className="h-full w-full object-cover" />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center text-2xl text-slate-300">🎓</div>
+              )}
+            </div>
+            <div className="flex flex-col gap-2">
+              <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading} className="btn-ghost text-sm disabled:opacity-50">
+                {uploading ? "Загрузка…" : cover ? "Заменить" : "Загрузить обложку"}
+              </button>
+              {cover && (
+                <button type="button" onClick={() => setCover(null)} className="text-xs text-slate-400 hover:text-red-500">Убрать</button>
+              )}
+              <input ref={fileRef} type="file" accept="image/*" onChange={onPickCover} className="hidden" />
+            </div>
+          </div>
+        </div>
       </section>
 
       <section className="surface space-y-3 rounded-3xl p-5">
