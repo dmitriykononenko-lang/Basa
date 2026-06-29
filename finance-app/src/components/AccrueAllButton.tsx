@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { salaryForMonth, type SalaryRate } from "@/lib/salary";
 import { toast } from "@/lib/toast";
 
-type Emp = { id: string; name: string; salaries: SalaryRate[] };
+type Emp = { id: string; name: string; salaries: SalaryRate[]; start_date?: string | null; end_date?: string | null };
 
 // «Начислить зарплату всем за месяц»: по окладу каждого сотрудника создаёт
 // фиксированное начисление за выбранный месяц (пропуская уже начисленных).
@@ -26,12 +26,12 @@ export default function AccrueAllButton({ teamId, employees }: { teamId: string;
 
     // Кандидаты: сотрудники с действующей ставкой на этот месяц
     const candidates = employees
-      .map((e) => ({ id: e.id, rate: salaryForMonth(e.salaries, monthStart) }))
+      .map((e) => ({ id: e.id, rate: salaryForMonth(e.salaries, monthStart, { startDate: e.start_date, endDate: e.end_date }) }))
       .filter((c): c is { id: string; rate: SalaryRate } => c.rate !== null);
 
     if (candidates.length === 0) {
       setLoading(false);
-      setError("Ни у кого нет оклада на этот месяц. Задайте ставки в карточках сотрудников.");
+      setError("Ни у кого нет оклада на этот месяц (или все уволены/ещё не вышли). Задайте ставки в карточках сотрудников.");
       return;
     }
 

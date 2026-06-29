@@ -59,7 +59,7 @@ export default async function PayrollPage({
   const startStr = `${start.y}-${String(start.m + 1).padStart(2, "0")}-01`;
 
   const [{ data: employees }, { data: obls }, { data: fxRows }, { data: salaryRows }, { data: accounts }, { data: scheduledRows }] = await Promise.all([
-    supabase.from("counterparties").select("id, name, department").eq("team_id", team.id).contains("kinds", ["employee"]).eq("archived", false).order("name"),
+    supabase.from("counterparties").select("id, name, department, start_date, end_date").eq("team_id", team.id).contains("kinds", ["employee"]).eq("archived", false).order("name"),
     supabase.from("obligation_balances").select("id, counterparty_id, amount, paid, outstanding, currency, due_date, pay_part, period_month").eq("team_id", team.id).eq("type", "payable").gte("period_month", startStr),
     supabase.from("fx_rates").select("currency, rate, rate_date").eq("team_id", team.id),
     supabase.from("employee_salaries").select("counterparty_id, effective_from, amount, currency").eq("team_id", team.id).order("effective_from", { ascending: false }),
@@ -68,7 +68,7 @@ export default async function PayrollPage({
   ]);
 
   const rates = buildRateMap(fxRows ?? [], base);
-  const emps = (employees ?? []) as { id: string; name: string; department: string | null }[];
+  const emps = (employees ?? []) as { id: string; name: string; department: string | null; start_date: string | null; end_date: string | null }[];
 
   // Оклады по сотрудникам — для «Начислить всем за месяц»
   const salByEmp = new Map<string, SalaryRate[]>();
@@ -77,7 +77,7 @@ export default async function PayrollPage({
     arr.push({ effective_from: s.effective_from, amount: s.amount, currency: s.currency });
     salByEmp.set(s.counterparty_id, arr);
   }
-  const employeesWithSalary = emps.map((e) => ({ id: e.id, name: e.name, salaries: salByEmp.get(e.id) ?? [] }));
+  const employeesWithSalary = emps.map((e) => ({ id: e.id, name: e.name, salaries: salByEmp.get(e.id) ?? [], start_date: e.start_date, end_date: e.end_date }));
 
   // Непогашенные начисления по сотрудникам — для «Выплатить/Запланировать»
   const outByEmp = new Map<string, { id: string; outstanding: number; currency: string; due_date: string | null }[]>();

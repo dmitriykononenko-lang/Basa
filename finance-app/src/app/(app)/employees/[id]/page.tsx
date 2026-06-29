@@ -161,6 +161,8 @@ export default async function EmployeePage({
             projects={projects ?? []}
             salaries={salaryRows}
             categories={(expenseCats ?? []) as { id: string; name: string; kind: string }[]}
+            startDate={emp.start_date ?? null}
+            endDate={emp.end_date ?? null}
           />
         )}
       </header>
