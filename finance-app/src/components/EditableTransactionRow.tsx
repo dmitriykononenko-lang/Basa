@@ -8,7 +8,6 @@ import { formatMoney, formatDate } from "@/lib/format";
 import { toBase, type RateMap } from "@/lib/fx";
 import { toast } from "@/lib/toast";
 import { type Attachment } from "@/components/Attachments";
-import SplitTransactionModal from "@/components/SplitTransactionModal";
 import OperationCard from "@/components/OperationCard";
 
 type Account = { id: string; name: string; currency: string };
@@ -69,7 +68,6 @@ export default function EditableTransactionRow({
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [splitting, setSplitting] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const isTransfer = tx.type === "transfer";
@@ -84,17 +82,6 @@ export default function EditableTransactionRow({
     setBusy(false);
     if (error) return toast.error(error.message);
     toast.success("Операция проведена");
-    router.refresh();
-  }
-
-  async function remove() {
-    if (!confirm("Удалить операцию?")) return;
-    setBusy(true);
-    const supabase = createClient();
-    const { error } = await supabase.from("transactions").delete().eq("id", tx.id);
-    setBusy(false);
-    if (error) return toast.error(error.message);
-    toast.success("Операция удалена");
     router.refresh();
   }
 
@@ -180,36 +167,7 @@ export default function EditableTransactionRow({
                 Провести
               </button>
             )}
-            {!isTransfer && (
-              <button
-                onClick={() => setSplitting(true)}
-                className="rounded-full px-2 py-1 text-xs text-slate-500 transition hover:bg-slate-100 dark:text-neutral-400 dark:hover:bg-neutral-800"
-                title="Разбить на несколько операций"
-              >
-                Разбить
-              </button>
-            )}
-            <button
-              onClick={remove}
-              disabled={busy}
-              className="rounded-full px-2 py-1 text-xs text-red-500 transition hover:bg-red-50 dark:hover:bg-red-950/40"
-            >
-              Удалить
-            </button>
           </div>
-        )}
-        {splitting && (
-          <SplitTransactionModal
-            open={splitting}
-            onClose={() => setSplitting(false)}
-            tx={tx}
-            categories={categories}
-            counterparties={counterparties}
-            projects={projects}
-            teamId={teamId}
-            userId={userId}
-            hasAttachments={attachments.length > 0}
-          />
         )}
         {open && (
           <OperationCard
