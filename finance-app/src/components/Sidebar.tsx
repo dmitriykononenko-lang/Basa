@@ -62,6 +62,7 @@ const ANALYTICS: Item[] = [
   { href: "/reports/cashflow", label: "Движение средств", Icon: IconReports },
   { href: "/reports/pnl", label: "Прибыли и убытки", Icon: IconReports },
   { href: "/reports", label: "Анализ расходов", Icon: IconReports, exact: true },
+  { href: "/reports/team", label: "Аналитика команды", Icon: IconReports },
   { href: "/debts", label: "Задолженности", Icon: IconDebts },
   { href: "/calendar", label: "Платёжный календарь", Icon: IconCalendar },
   { href: "/recurring", label: "Регулярные операции", Icon: IconRepeat },
