@@ -32,9 +32,12 @@ export async function updateSession(request: NextRequest) {
   const path = request.nextUrl.pathname;
   const isAuthRoute =
     path.startsWith("/login") || path.startsWith("/auth");
+  // Telegram Mini App: открывается в вебвью без supabase-сессии. Доступ к
+  // /tg и /api/tg авторизуется через подпись initData в самих роутах.
+  const isTelegram = path.startsWith("/tg") || path.startsWith("/api/tg");
 
   // Неавторизованных уводим на /login, сохраняя адрес назначения в ?next
-  if (!user && !isAuthRoute) {
+  if (!user && !isAuthRoute && !isTelegram) {
     const nextPath = request.nextUrl.pathname + request.nextUrl.search;
     const url = request.nextUrl.clone();
     url.pathname = "/login";

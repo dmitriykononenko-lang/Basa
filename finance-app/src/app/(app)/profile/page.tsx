@@ -3,9 +3,11 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam } from "@/lib/team";
 import { ROLE_LABELS } from "@/lib/types";
 import { emailConfigured } from "@/lib/email";
+import { botConfigured } from "@/lib/telegram";
 import ProfileForm from "@/components/profile/ProfileForm";
 import ProfileSecurity from "@/components/profile/ProfileSecurity";
 import NotificationPrefs from "@/components/profile/NotificationPrefs";
+import ProfileTelegram from "@/components/profile/ProfileTelegram";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +22,7 @@ export default async function ProfilePage() {
   const team = current?.team ?? null;
   const role = current?.role ?? null;
 
-  const [{ data: profile }, prefsRes, cpRes] = await Promise.all([
+  const [{ data: profile }, prefsRes, cpRes, tgRes] = await Promise.all([
     supabase.from("profiles").select("full_name, avatar_url").eq("id", user.id).maybeSingle(),
     team
       ? supabase.from("notification_prefs").select("email_digest").eq("team_id", team.id).eq("user_id", user.id).maybeSingle()
@@ -28,7 +30,9 @@ export default async function ProfilePage() {
     team
       ? supabase.from("counterparties").select("unit_id").eq("team_id", team.id).eq("user_id", user.id).contains("kinds", ["employee"]).maybeSingle()
       : Promise.resolve({ data: null }),
+    supabase.from("telegram_links").select("telegram_name, telegram_username").eq("user_id", user.id).maybeSingle(),
   ]);
+  const tgLink = (tgRes.data as { telegram_name: string | null; telegram_username: string | null } | null) ?? null;
 
   // Название узла оргструктуры (если сотрудник привязан к учётке).
   let unitName: string | null = null;
@@ -62,6 +66,12 @@ export default async function ProfilePage() {
         {team && (
           <NotificationPrefs userId={user.id} teamId={team.id} initialEnabled={emailDigest} emailReady={emailReady} />
         )}
+
+        <ProfileTelegram
+          userId={user.id}
+          botConfigured={botConfigured()}
+          initialLinked={tgLink ? { name: tgLink.telegram_name, username: tgLink.telegram_username } : null}
+        />
 
         {/* Доступ (только просмотр) */}
         <div className="surface rounded-3xl p-6">
