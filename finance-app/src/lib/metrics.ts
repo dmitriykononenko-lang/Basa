@@ -103,3 +103,4 @@ export function formatMetric(value: number | null | undefined, unit: string): st
 // redeploy: подключение Git восстановлено, триггер прод-сборки
 // redeploy trigger 2: Git-доступ выдан
 // redeploy trigger 3: репозиторий подключён к Vercel
+// redeploy trigger 4: basa-16bf переподключён
