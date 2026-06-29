@@ -17,11 +17,11 @@ export default async function CourseEditPage({ params }: { params: Promise<{ id:
 
   const { data: course } = await supabase
     .from("academy_courses")
-    .select("id, title, status, description")
+    .select("id, title, status, description, cover_url")
     .eq("id", id)
     .maybeSingle();
   if (!course) notFound();
-  const c = course as { id: string; title: string; status: KbStatus; description: string };
+  const c = course as { id: string; title: string; status: KbStatus; description: string; cover_url: string | null };
 
   const [{ data: items }, { data: articles }, { data: membersRaw }, { data: depts }, { data: assignmentsRaw }, { data: progress }, { data: empCps }] =
     await Promise.all([
@@ -71,6 +71,7 @@ export default async function CourseEditPage({ params }: { params: Promise<{ id:
     title: c.title,
     status: c.status,
     description: c.description,
+    cover_url: c.cover_url,
     itemArticleIds: ((items ?? []) as { article_id: string }[]).map((i) => i.article_id),
   };
 
