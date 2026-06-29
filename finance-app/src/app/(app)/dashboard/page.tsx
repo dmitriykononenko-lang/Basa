@@ -14,6 +14,7 @@ import TotalIncomeCard from "@/components/ui/total-income-card";
 import TotalIncomeRecharts from "@/components/ui/total-income-recharts-lazy";
 import DashboardWidgets, { type Widget } from "@/components/ui/dashboard-widgets";
 import AcademyWidget from "@/components/academy/AcademyWidget";
+import MetricsWidget from "@/components/metrics/MetricsWidget";
 import CashflowHero from "@/components/CashflowHero";
 import PlannedReview from "@/components/PlannedReview";
 
@@ -581,6 +582,11 @@ export default async function DashboardPage() {
                 id: "academy",
                 label: "Обучение",
                 node: <AcademyWidget />,
+              },
+              {
+                id: "metrics",
+                label: "Показатели",
+                node: <MetricsWidget />,
               },
             ] satisfies Widget[]}
             defaultHidden={["income", "expense"]}
