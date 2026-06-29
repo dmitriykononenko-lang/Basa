@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import ArticleEditor, { type ArticleEditorData } from "@/components/kb/ArticleEditor";
 import type { KbArticle, KbDepartment, KbQuestionType } from "@/lib/kb";
+import type { Timecode } from "@/lib/kb-video";
 
 export default async function EditArticlePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -15,11 +16,11 @@ export default async function EditArticlePage({ params }: { params: Promise<{ id
   const { data: auth } = await supabase.auth.getUser();
   const { data: article } = await supabase
     .from("kb_articles")
-    .select("id, team_id, kind, status, title, body, pass_score, created_by, created_at, updated_at")
+    .select("id, team_id, kind, status, title, body, pass_score, video_url, timecodes, created_by, created_at, updated_at")
     .eq("id", id)
     .maybeSingle();
   if (!article) notFound();
-  const a = article as KbArticle;
+  const a = article as KbArticle & { video_url: string | null; timecodes: Timecode[] | null };
 
   // править может автор или менеджер+
   if (!(canEditFinance(role) || a.created_by === auth.user?.id)) redirect(`/knowledge-base/${id}`);
@@ -47,6 +48,8 @@ export default async function EditArticlePage({ params }: { params: Promise<{ id
     title: a.title,
     body: a.body,
     pass_score: a.pass_score,
+    video_url: a.video_url ?? null,
+    timecodes: Array.isArray(a.timecodes) ? a.timecodes : [],
     checklist: ((checklist ?? []) as { content: string }[]).map((c) => ({ content: c.content })),
     questions: ((questions ?? []) as { id: string; prompt: string; qtype: KbQuestionType }[]).map((q) => ({
       prompt: q.prompt,
