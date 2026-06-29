@@ -57,15 +57,10 @@ export default function TgLearningPage() {
   const [today, setToday] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
 
-  // Инициализация Telegram SDK.
+  // Инициализация Telegram SDK. Возвращает true, если WebApp уже доступен.
   const initTg = useCallback(() => {
     const wa = window.Telegram?.WebApp;
-    if (!wa) {
-      // Не в Telegram — покажем подсказку.
-      setInitData("");
-      setSdkReady(true);
-      return;
-    }
+    if (!wa) return false;
     try {
       wa.ready();
       wa.expand();
@@ -76,10 +71,26 @@ export default function TgLearningPage() {
     }
     setInitData(wa.initData || "");
     setSdkReady(true);
+    return true;
   }, []);
 
+  // SDK грузится асинхронно (telegram-web-app.js) — не полагаемся на onLoad,
+  // а опрашиваем window.Telegram.WebApp. Если за ~4 с не появился (открыто вне
+  // Telegram) — всё равно стартуем, показав экран привязки/подсказку.
   useEffect(() => {
-    if (window.Telegram?.WebApp) initTg();
+    if (initTg()) return;
+    let tries = 0;
+    const iv = setInterval(() => {
+      tries += 1;
+      if (initTg() || tries > 40) {
+        clearInterval(iv);
+        if (tries > 40) {
+          setInitData("");
+          setSdkReady(true);
+        }
+      }
+    }, 100);
+    return () => clearInterval(iv);
   }, [initTg]);
 
   // Универсальный POST к TG-роутам.
