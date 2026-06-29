@@ -10,13 +10,16 @@ import { fetchCbrRates } from "./cbr";
 import { fetchAllRows } from "./supabase/paginate";
 import { formatMoney } from "./format";
 import { dueStatus, unitAncestors } from "./academy";
+import { periodStart, addPeriods, achievement, periodLabel, type MetricPeriod, type MetricDirection } from "./metrics";
 
 export type AlertType =
   | "cash_gap"
   | "debt_overdue"
   | "budget_over"
   | "transfer_short"
-  | "training_due";
+  | "training_due"
+  | "metric_missing"
+  | "metric_below_plan";
 
 export type AlertSeverity = "info" | "warning" | "critical";
 
@@ -268,7 +271,65 @@ export async function computeTeamAlerts(
     }
   }
 
+  // ── 6. Показатели: не заполнен факт за закрытый период / факт ниже плана ──
+  const [{ data: metricsRaw }, { data: mvRaw }] = await Promise.all([
+    admin.from("metrics").select("id, name, unit, owner_user_id, period, direction, plan").eq("team_id", team.id).eq("is_active", true),
+    admin.from("metric_values").select("metric_id, period_start, value").eq("team_id", team.id),
+  ]);
+  const metricRows = (metricsRaw ?? []) as { id: string; name: string; unit: string; owner_user_id: string | null; period: MetricPeriod; direction: MetricDirection; plan: number | null }[];
+  if (metricRows.length > 0) {
+    const vmap = new Map<string, number>();
+    for (const v of (mvRaw ?? []) as { metric_id: string; period_start: string; value: number }[]) {
+      vmap.set(`${v.metric_id}|${v.period_start}`, Number(v.value));
+    }
+    for (const m of metricRows) {
+      const curStart = periodStart(now, m.period);
+      const lastClosed = addPeriods(curStart, m.period, -1); // последний завершившийся период
+
+      // не заполнен факт за закрытый период — напоминаем ответственному
+      if (m.owner_user_id && !vmap.has(`${m.id}|${lastClosed}`)) {
+        alerts.push({
+          type: "metric_missing",
+          severity: "info",
+          title: `Не заполнен показатель: ${m.name}`,
+          body: `Впишите факт за период ${periodLabel(lastClosed, m.period)}.`,
+          link: `/metrics/${m.id}`,
+          dedupeKey: `metric_missing:${m.id}`,
+          recipients: [m.owner_user_id],
+        });
+      }
+
+      // факт ниже плана (берём последнее доступное значение) — ответственному и менеджерам
+      if (m.plan != null) {
+        let lastVal: number | null = null;
+        let probe = curStart;
+        for (let i = 0; i < 12 && lastVal == null; i++) {
+          if (vmap.has(`${m.id}|${probe}`)) lastVal = vmap.get(`${m.id}|${probe}`)!;
+          probe = addPeriods(probe, m.period, -1);
+        }
+        const { good } = achievement(lastVal, m.plan, m.direction);
+        if (lastVal != null && good === false) {
+          const recipients = [...new Set([...(m.owner_user_id ? [m.owner_user_id] : []), ...financeRecipients])];
+          alerts.push({
+            type: "metric_below_plan",
+            severity: "warning",
+            title: `Показатель ниже плана: ${m.name}`,
+            body: `Факт ${fmtNum(lastVal, m.unit)} при плане ${fmtNum(m.plan, m.unit)}.`,
+            link: `/metrics/${m.id}`,
+            dedupeKey: `metric_below_plan:${m.id}`,
+            recipients,
+          });
+        }
+      }
+    }
+  }
+
   return alerts;
+}
+
+function fmtNum(value: number, unit: string): string {
+  const n = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value);
+  return unit ? `${n} ${unit}` : n;
 }
 
 function formatRu(iso: string): string {

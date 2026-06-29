@@ -28,6 +28,8 @@ const TYPE_LABELS: Record<string, string> = {
   budget_over: "Бюджеты",
   transfer_short: "Нехватка на счёте",
   training_due: "Обучение",
+  metric_missing: "Показатели",
+  metric_below_plan: "Показатели",
 };
 
 export default function NotificationList({ initial }: { initial: NotificationRow[] }) {
