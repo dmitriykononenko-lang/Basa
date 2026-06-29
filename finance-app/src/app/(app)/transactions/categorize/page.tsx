@@ -23,7 +23,7 @@ export default async function CategorizePage() {
   const { team, role } = current;
   const supabase = await createClient();
 
-  const [uncat, catPairs, { data: categories }, { data: projects }] = await Promise.all([
+  const [uncat, catPairs, { data: categories }, { data: projects }, projPairs, { data: extIdRows }] = await Promise.all([
     // Операции без статьи (доход/расход), без переводов
     fetchAllRows<RawOp>((from, to) =>
       supabase
@@ -42,6 +42,16 @@ export default async function CategorizePage() {
     ),
     supabase.from("categories").select("id, name, kind").eq("team_id", team.id).eq("archived", false),
     supabase.from("projects").select("id, name").eq("team_id", team.id).eq("archived", false).order("name"),
+    // История «контрагент → проект» (для fallback-подсказки проекта)
+    fetchAllRows<{ counterparty_id: string; project_id: string }>((from, to) =>
+      supabase
+        .from("transactions")
+        .select("counterparty_id, project_id")
+        .eq("team_id", team.id).eq("status", "actual").not("project_id", "is", null).not("counterparty_id", "is", null)
+        .order("counterparty_id").range(from, to)
+    ),
+    // Внешние ID (amoCRM/Radist/Wazzap) с привязкой к проекту
+    supabase.from("counterparty_external_ids").select("external_id, project_id").eq("team_id", team.id).not("project_id", "is", null),
   ]);
 
   // Частота статей и доминирующая статья по контрагенту
@@ -58,6 +68,25 @@ export default async function CategorizePage() {
     let best: string | null = null; let bestN = 0;
     for (const [cat, n] of m) if (n > bestN) { best = cat; bestN = n; }
     if (best && bestN >= 2) suggestionByCp[cp] = best; // уверенная подсказка
+  }
+
+  // Подсказка проекта: external_id → project_id (точная) + контрагент → доминирующий проект (fallback)
+  const extIdToProject: Record<string, string> = {};
+  for (const r of (extIdRows ?? []) as { external_id: string; project_id: string | null }[]) {
+    if (r.external_id && r.project_id) extIdToProject[r.external_id] = r.project_id;
+  }
+  const cpProj = new Map<string, Map<string, number>>();
+  for (const r of projPairs) {
+    let m = cpProj.get(r.counterparty_id);
+    if (!m) { m = new Map(); cpProj.set(r.counterparty_id, m); }
+    m.set(r.project_id, (m.get(r.project_id) ?? 0) + 1);
+  }
+  const projectByCp: Record<string, string> = {};
+  for (const [cp, m] of cpProj) {
+    if (m.size === 1) { projectByCp[cp] = [...m.keys()][0]; continue; }
+    let best: string | null = null; let bestN = 0;
+    for (const [p, n] of m) if (n > bestN) { best = p; bestN = n; }
+    if (best && bestN >= 2) projectByCp[cp] = best;
   }
 
   const cats: WizardCat[] = ((categories ?? []) as WizardCat[])
@@ -92,6 +121,8 @@ export default async function CategorizePage() {
           categories={cats}
           projects={(projects ?? []) as { id: string; name: string }[]}
           suggestionByCp={suggestionByCp}
+          extIdToProject={extIdToProject}
+          projectByCp={projectByCp}
           teamId={team.id}
           canEdit={canEditFinance(role)}
         />

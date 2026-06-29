@@ -21,12 +21,14 @@ export type WizardOp = {
 export type WizardCat = { id: string; name: string; kind: "income" | "expense"; freq?: number };
 
 export default function CategorizeWizard({
-  ops, categories, projects, suggestionByCp, teamId, canEdit,
+  ops, categories, projects, suggestionByCp, extIdToProject = {}, projectByCp = {}, teamId, canEdit,
 }: {
   ops: WizardOp[];
   categories: WizardCat[];
   projects: { id: string; name: string }[];
   suggestionByCp: Record<string, string>;
+  extIdToProject?: Record<string, string>;
+  projectByCp?: Record<string, string>;
   teamId: string;
   canEdit: boolean;
 }) {
@@ -40,6 +42,14 @@ export default function CategorizeWizard({
   const [busy, setBusy] = useState(false);
 
   const catById = useMemo(() => new Map(cats.map((c) => [c.id, c])), [cats]);
+  const projectById = useMemo(() => new Map(projects.map((p) => [p.id, p.name])), [projects]);
+  const extIdEntries = useMemo(() => Object.entries(extIdToProject).filter(([k]) => k.trim()), [extIdToProject]);
+  function suggestProjectFor(o: WizardOp): string | undefined {
+    const note = (o.note || "").toLowerCase();
+    for (const [extId, pid] of extIdEntries) if (note.includes(extId.toLowerCase())) return pid;
+    if (o.counterpartyId && projectByCp[o.counterpartyId]) return projectByCp[o.counterpartyId];
+    return undefined;
+  }
   const pending = useMemo(() => ops.filter((o) => !assigned.has(o.id)), [ops, assigned]);
   const total = ops.length;
   const doneCount = assigned.size;
@@ -59,6 +69,8 @@ export default function CategorizeWizard({
   const kindCats = cats.filter((c) => c.kind === op.type);
   const suggestId = op.counterpartyId ? suggestionByCp[op.counterpartyId] : undefined;
   const suggest = suggestId && catById.get(suggestId)?.kind === op.type ? catById.get(suggestId) : undefined;
+  const suggestProjId = suggestProjectFor(op);
+  const suggestProjName = suggestProjId ? projectById.get(suggestProjId) : undefined;
 
   const ql = q.trim().toLowerCase();
   const searchResults = ql ? kindCats.filter((c) => c.name.toLowerCase().includes(ql)) : [];
@@ -133,6 +145,27 @@ export default function CategorizeWizard({
     toast.success(`Распределено автоматически: ${ids.length}`);
   }
 
+  // Привязка проектов по подсказке (amoCRM/Radist/Wazzap-ID в назначении или единственный проект клиента)
+  async function autoLinkProjects() {
+    if (!canEdit) return;
+    const groups = new Map<string, string[]>();
+    for (const o of pending) {
+      const pid = suggestProjectFor(o);
+      if (!pid) continue;
+      const arr = groups.get(pid) ?? []; arr.push(o.id); groups.set(pid, arr);
+    }
+    const ids = [...groups.values()].flat();
+    if (ids.length === 0) { toast("Нет подсказок по проектам"); return; }
+    setBusy(true);
+    const supabase = createClient();
+    for (const [pid, list] of groups) {
+      await supabase.from("transactions").update({ project_id: pid }).in("id", list);
+    }
+    setBusy(false);
+    toast.success(`Привязано проектов: ${ids.length}`);
+  }
+
+  const projectSuggestCount = pending.filter((o) => suggestProjectFor(o)).length;
   const amountColor = op.type === "income" ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400";
 
   return (
@@ -142,9 +175,16 @@ export default function CategorizeWizard({
           {pending.length} {plural(pending.length, "операция", "операции", "операций")} осталось
         </div>
         {canEdit && (
-          <button onClick={autoDistribute} disabled={busy} className="flex items-center gap-1.5 text-sm font-medium text-brand transition hover:opacity-80 disabled:opacity-50">
-            ✨ Распределять автоматически
-          </button>
+          <div className="flex items-center gap-3">
+            {projectSuggestCount > 0 && (
+              <button onClick={autoLinkProjects} disabled={busy} className="flex items-center gap-1.5 text-sm font-medium text-brand transition hover:opacity-80 disabled:opacity-50">
+                ✨ Привязать проекты ({projectSuggestCount})
+              </button>
+            )}
+            <button onClick={autoDistribute} disabled={busy} className="flex items-center gap-1.5 text-sm font-medium text-brand transition hover:opacity-80 disabled:opacity-50">
+              ✨ Распределять автоматически
+            </button>
+          </div>
         )}
       </div>
 
@@ -177,6 +217,13 @@ export default function CategorizeWizard({
             Распределять по проектам
           </label>
         </div>
+
+        {suggestProjName && (
+          <button type="button" onClick={() => { setByProject(true); setProjectId(suggestProjId!); }}
+            className="mb-3 inline-flex items-center gap-1 rounded-full bg-brand/10 px-3 py-1.5 text-sm font-medium text-brand transition hover:bg-brand/20">
+            ✨ Проект: {suggestProjName}
+          </button>
+        )}
 
         {byProject && (
           <div className="mb-3 max-w-sm">

@@ -95,7 +95,7 @@ export default async function CounterpartyPage({
       .filter((t) => !linkedTxIds.has(t.id));
   }
 
-  const [{ data: txs }, { data: obls }, { data: fxRows }, { data: opAccounts }, { data: opCats }, { data: opProjects }, { data: opCps }] = await Promise.all([
+  const [{ data: txs }, { data: obls }, { data: fxRows }, { data: opAccounts }, { data: opCats }, { data: opProjects }, { data: opCps }, { data: extIdRows }] = await Promise.all([
     supabase
       .from("transactions")
       .select(`id, type, amount, currency, occurred_on, accrual_date, note, status,
@@ -118,7 +118,10 @@ export default async function CounterpartyPage({
     supabase.from("categories").select("id, name, kind").eq("team_id", team.id).eq("archived", false).order("name"),
     supabase.from("projects").select("id, name").eq("team_id", team.id).eq("archived", false).order("name"),
     supabase.from("counterparties").select("id, name, inn").eq("team_id", team.id).eq("archived", false).order("name"),
+    supabase.from("counterparty_external_ids").select("system, external_id, project_id").eq("counterparty_id", id),
   ]);
+  const externalIds = ((extIdRows ?? []) as { system: string; external_id: string; project_id: string | null }[])
+    .map((r) => ({ system: r.system, external_id: r.external_id, project_id: r.project_id ?? "" }));
 
   const rates = buildRateMap(fxRows ?? [], base);
   const txRows = (txs ?? []) as unknown as {
@@ -213,8 +216,11 @@ export default async function CounterpartyPage({
           {manage && (
             <EditCounterpartyForm
               agents={agents ?? []}
+              projects={opProjects ?? []}
+              externalIds={externalIds}
               initial={{
                 id: cp.id,
+                team_id: team.id,
                 name: cp.name ?? "",
                 kind: cp.kind ?? "client",
                 kinds: cpKinds,

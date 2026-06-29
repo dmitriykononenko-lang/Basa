@@ -2,10 +2,20 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Select } from "@/components/ui/select";
 import { createClient } from "@/lib/supabase/client";
 import { COUNTERPARTY_KINDS } from "@/lib/constants";
+import { EXTERNAL_SYSTEMS, type ExternalId } from "@/components/EditCounterpartyForm";
 
-export default function AddCounterpartyForm({ teamId, defaultKind = "client" }: { teamId: string; defaultKind?: string }) {
+export default function AddCounterpartyForm({
+  teamId,
+  defaultKind = "client",
+  projects = [],
+}: {
+  teamId: string;
+  defaultKind?: string;
+  projects?: { id: string; name: string }[];
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [kinds, setKinds] = useState<string[]>([defaultKind]);
@@ -18,6 +28,7 @@ export default function AddCounterpartyForm({ teamId, defaultKind = "client" }: 
     email: "",
     note: "",
   });
+  const [extIds, setExtIds] = useState<ExternalId[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -27,6 +38,15 @@ export default function AddCounterpartyForm({ teamId, defaultKind = "client" }: 
   function toggleKind(k: string) {
     setKinds((prev) => (prev.includes(k) ? prev.filter((x) => x !== k) : [...prev, k]));
   }
+  function updExt(i: number, k: keyof ExternalId, v: string) {
+    setExtIds((prev) => prev.map((r, idx) => (idx === i ? { ...r, [k]: v } : r)));
+  }
+  function addExt() {
+    setExtIds((prev) => [...prev, { system: "amocrm", external_id: "", project_id: "" }]);
+  }
+  function removeExt(i: number) {
+    setExtIds((prev) => prev.filter((_, idx) => idx !== i));
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -35,7 +55,7 @@ export default function AddCounterpartyForm({ teamId, defaultKind = "client" }: 
     setError(null);
 
     const supabase = createClient();
-    const { error } = await supabase.from("counterparties").insert({
+    const { data: created, error } = await supabase.from("counterparties").insert({
       team_id: teamId,
       name: form.name,
       kind: kinds[0],
@@ -46,14 +66,33 @@ export default function AddCounterpartyForm({ teamId, defaultKind = "client" }: 
       phone: form.phone || null,
       email: form.email || null,
       note: form.note || null,
-    });
+    }).select("id").single();
 
     if (error) {
       setError(error.message);
       setLoading(false);
       return;
     }
+    // Внешние ID (amoCRM/Radist/Wazzap) для автопривязки платежей
+    const extRows = extIds
+      .filter((r) => r.external_id.trim())
+      .map((r) => ({
+        team_id: teamId,
+        counterparty_id: created!.id,
+        system: r.system,
+        external_id: r.external_id.trim(),
+        project_id: r.project_id || null,
+      }));
+    if (extRows.length) {
+      const { error: eErr } = await supabase.from("counterparty_external_ids").insert(extRows);
+      if (eErr) {
+        setError(eErr.message);
+        setLoading(false);
+        return;
+      }
+    }
     setForm({ name: "", inn: "", kpp: "", contact_person: "", phone: "", email: "", note: "" });
+    setExtIds([]);
     setKinds([defaultKind]);
     setOpen(false);
     setLoading(false);
@@ -107,6 +146,20 @@ export default function AddCounterpartyForm({ teamId, defaultKind = "client" }: 
           <F label="Заметка">
             <input value={form.note} onChange={(e) => upd("note", e.target.value)} placeholder="Необязательно" className="input" />
           </F>
+        </div>
+        <div className="sm:col-span-2 lg:col-span-3">
+          <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Внешние ID (для автопривязки платежей)</label>
+          <div className="space-y-2">
+            {extIds.map((r, i) => (
+              <div key={i} className="flex flex-wrap items-center gap-2">
+                <div className="w-28"><Select value={r.system} onChange={(v) => updExt(i, "system", v)} options={EXTERNAL_SYSTEMS.map((s) => ({ value: s.value, label: s.label }))} /></div>
+                <input value={r.external_id} onChange={(e) => updExt(i, "external_id", e.target.value)} placeholder="ID аккаунта" className="input min-w-[120px] flex-1" />
+                <div className="min-w-[160px] flex-1"><Select value={r.project_id} onChange={(v) => updExt(i, "project_id", v)} placeholder="— проект (опц.) —" options={[{ value: "", label: "— проект (опц.) —" }, ...projects.map((p) => ({ value: p.id, label: p.name }))]} /></div>
+                <button type="button" onClick={() => removeExt(i)} className="btn-ghost text-xs" title="Удалить">✕</button>
+              </div>
+            ))}
+            <button type="button" onClick={addExt} className="btn-ghost text-xs">+ Добавить ID</button>
+          </div>
         </div>
       </div>
       {error && (
