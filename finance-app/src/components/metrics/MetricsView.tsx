@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/lib/toast";
 import EmptyState from "@/components/EmptyState";
+import ExportButton from "@/components/ExportButton";
 import { Select } from "@/components/ui/select";
 import MetricEditor from "./MetricEditor";
 import {
@@ -124,9 +126,19 @@ export default function MetricsView({
           <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">Показатели</h1>
           <p className="text-sm text-slate-500 dark:text-neutral-400">Метрики и статистика: план/факт по периодам</p>
         </div>
-        {canManage && (
-          <button onClick={openCreate} className="btn-primary">+ Показатель</button>
-        )}
+        <div className="flex items-center gap-2">
+          {items.length > 0 && (
+            <ExportButton
+              filename="metrics.csv"
+              headers={["Показатель", "Период", "Факт", "План", "%", "Ответственный", "Отдел"]}
+              rows={items.map((m) => {
+                const a = achievement(m.current, m.plan, m.direction);
+                return [m.name, PERIOD_LABELS[m.period as MetricPeriod], m.current ?? "", m.plan ?? "", a.pct != null ? Math.round(a.pct) : "", m.ownerName ?? "", m.unitName ?? ""];
+              })}
+            />
+          )}
+          {canManage && <button onClick={openCreate} className="btn-primary">+ Показатель</button>}
+        </div>
       </header>
 
       <div className="mb-5 flex flex-wrap items-center gap-2">
@@ -220,7 +232,7 @@ function MetricCard({
     <li className="surface flex flex-col rounded-3xl p-5">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <h3 className="truncate font-semibold text-slate-900 dark:text-white">{m.name}</h3>
+          <Link href={`/metrics/${m.id}`} className="block truncate font-semibold text-slate-900 transition hover:text-brand dark:text-white">{m.name}</Link>
           <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400 dark:text-neutral-500">
             <span className="rounded-full bg-slate-100 px-2 py-0.5 dark:bg-neutral-800">{PERIOD_LABELS[m.period as MetricPeriod]}</span>
             {m.unitName && <span className="rounded-full bg-slate-100 px-2 py-0.5 dark:bg-neutral-800">{m.unitName}</span>}
