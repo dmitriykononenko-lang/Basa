@@ -101,3 +101,4 @@ export function formatMetric(value: number | null | undefined, unit: string): st
 }
 
 // redeploy: подключение Git восстановлено, триггер прод-сборки
+// redeploy trigger 2: Git-доступ выдан
