@@ -9,6 +9,7 @@ import Modal from "@/components/Modal";
 import Combobox, { type ComboOption } from "@/components/Combobox";
 import Attachments, { type Attachment } from "@/components/Attachments";
 import OperationHistory from "@/components/OperationHistory";
+import SplitTransactionModal from "@/components/SplitTransactionModal";
 import type { TxData } from "@/components/EditableTransactionRow";
 
 type Account = { id: string; name: string; currency: string };
@@ -88,6 +89,7 @@ export default function OperationCard({
   const [planned, setPlanned] = useState(tx.status === "planned");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [splitting, setSplitting] = useState(false);
 
   const imported = !!tx.import_batch_id;
   const acc = accounts.find((a) => a.id === accountId);
@@ -141,6 +143,7 @@ export default function OperationCard({
   }
 
   return (
+    <>
     <Modal
       open={open}
       onClose={onClose}
@@ -303,6 +306,13 @@ export default function OperationCard({
             {busy ? "…" : "Сохранить"}
           </button>
           <button onClick={onClose} className="btn-ghost">Отмена</button>
+          {!isTransfer && (
+            <button onClick={() => setSplitting(true)} disabled={busy}
+              title="Разбить операцию на части по статьям и проектам"
+              className="rounded-full px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-100 disabled:opacity-50 dark:text-neutral-300 dark:hover:bg-white/[0.06]">
+              Разбить
+            </button>
+          )}
           <button onClick={remove} disabled={busy}
             className="ml-auto rounded-full px-4 py-2.5 text-sm font-medium text-red-500 transition hover:bg-red-50 disabled:opacity-50 dark:hover:bg-red-500/10">
             Удалить
@@ -310,6 +320,20 @@ export default function OperationCard({
         </div>
       )}
     </Modal>
+    {splitting && (
+      <SplitTransactionModal
+        open={splitting}
+        onClose={() => setSplitting(false)}
+        tx={tx}
+        categories={categories}
+        counterparties={counterparties}
+        projects={projects}
+        teamId={teamId}
+        userId={userId}
+        hasAttachments={attachments.length > 0}
+      />
+    )}
+    </>
   );
 }
 
