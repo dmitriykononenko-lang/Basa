@@ -108,7 +108,7 @@ export default async function EmployeePage({
   let totalAccrued = 0, totalPaid = 0, totalOut = 0;
   type M = { fixed: number; variable: number; paid: number };
   const byMonth = new Map<string, M>();
-  const variableByProject = new Map<string, number>();
+  const variableByProject = new Map<string, { name: string; val: number }>();
 
   for (const o of rows) {
     const v = toBase(o.amount, o.currency, rates);
@@ -119,8 +119,11 @@ export default async function EmployeePage({
     const m = byMonth.get(ym) ?? { fixed: 0, variable: 0, paid: 0 };
     if (o.pay_part === "variable") {
       m.variable += v;
+      const pkey = o.project_id ?? "";
       const pn = o.project_id ? projName.get(o.project_id) ?? "Проект" : "Без проекта";
-      variableByProject.set(pn, (variableByProject.get(pn) ?? 0) + v);
+      const cur = variableByProject.get(pkey) ?? { name: pn, val: 0 };
+      cur.val += v;
+      variableByProject.set(pkey, cur);
     } else {
       m.fixed += v;
     }
@@ -136,7 +139,9 @@ export default async function EmployeePage({
   for (const p of payoutRows) totalPaidActual += toBase(p.amount, p.currency, rates);
 
   const months = [...byMonth.keys()].filter((x) => x !== "—").sort().reverse();
-  const projectRows = [...variableByProject.entries()].sort((a, b) => b[1] - a[1]);
+  const projectRows = [...variableByProject.entries()]
+    .map(([pid, x]) => ({ pid: pid || null, name: x.name, val: x.val }))
+    .sort((a, b) => b.val - a.val);
   const manage = canEditFinance(role);
 
   return (
@@ -285,10 +290,16 @@ export default async function EmployeePage({
           <div className="overflow-hidden rounded-3xl bg-white ring-1 ring-slate-200/70 dark:bg-[#15171c] dark:ring-white/[0.07]">
             <table className="w-full text-sm">
               <tbody>
-                {projectRows.map(([name, val]) => (
-                  <tr key={name} className="border-b border-slate-50 last:border-0 dark:border-white/[0.05]">
-                    <td className="px-5 py-2.5 text-slate-700 dark:text-neutral-300">{name}</td>
-                    <td className="px-5 py-2.5 text-right font-medium text-slate-800 dark:text-neutral-200">{formatMoney(val, base)}</td>
+                {projectRows.map((r) => (
+                  <tr key={r.pid ?? r.name} className="border-b border-slate-50 last:border-0 dark:border-white/[0.05]">
+                    <td className="px-5 py-2.5 text-slate-700 dark:text-neutral-300">
+                      {r.pid ? (
+                        <Link href={`/projects/${r.pid}`} className="hover:text-brand hover:underline">{r.name}</Link>
+                      ) : (
+                        r.name
+                      )}
+                    </td>
+                    <td className="px-5 py-2.5 text-right font-medium text-slate-800 dark:text-neutral-200">{formatMoney(r.val, base)}</td>
                   </tr>
                 ))}
               </tbody>
