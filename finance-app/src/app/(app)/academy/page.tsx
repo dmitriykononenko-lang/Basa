@@ -4,6 +4,7 @@ import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import { KB_STATUS_LABELS, kbStatusBadgeClass } from "@/lib/kb";
 import { courseProgressPercent, dueStatus, DUE_LABELS, dueBadgeClass, unitAncestors } from "@/lib/academy";
 import EmptyState from "@/components/EmptyState";
+import { ensureVisible } from "@/lib/visibility-guard";
 
 export default async function AcademyPage({
   searchParams,
@@ -11,6 +12,7 @@ export default async function AcademyPage({
   searchParams: Promise<{ tab?: string; f?: string }>;
 }) {
   const { tab: tabRaw, f } = await searchParams;
+  await ensureVisible("learning");
   const current = await getCurrentTeam();
   if (!current) {
     return (

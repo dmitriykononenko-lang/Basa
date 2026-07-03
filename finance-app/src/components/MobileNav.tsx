@@ -32,11 +32,13 @@ const ITEMS = [
   { href: "/settings", title: "Настройки", icon: IconSettings, match: "/settings" },
 ];
 
-export default function MobileNav() {
+export default function MobileNav({ hidden = [] }: { hidden?: string[] }) {
   const pathname = usePathname();
   const router = useRouter();
+  const hiddenSet = new Set(hidden);
+  const items = ITEMS.filter((it) => !hiddenSet.has(it.href));
 
-  const active = ITEMS.findIndex((it) => {
+  const active = items.findIndex((it) => {
     const base = it.match ?? it.href;
     return pathname === it.href || pathname === base || pathname.startsWith(base + "/");
   });
@@ -47,9 +49,9 @@ export default function MobileNav() {
         <ExpandableTabs
           className="w-max"
           selected={active === -1 ? null : active}
-          tabs={ITEMS.map(({ title, icon }) => ({ title, icon }))}
+          tabs={items.map(({ title, icon }) => ({ title, icon }))}
           onChange={(i) => {
-            if (i !== null && ITEMS[i]) router.push(ITEMS[i].href);
+            if (i !== null && items[i]) router.push(items[i].href);
           }}
         />
       </div>
