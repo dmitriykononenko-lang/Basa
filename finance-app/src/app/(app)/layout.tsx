@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam } from "@/lib/team";
-import { loadVisibility, hiddenHrefs } from "@/lib/visibility";
+import { loadRoleTemplates, loadMemberOverrides, hiddenHrefs } from "@/lib/visibility";
 import Sidebar from "@/components/Sidebar";
 import MobileNav from "@/components/MobileNav";
 import SignOutButton from "@/components/SignOutButton";
@@ -48,9 +48,14 @@ export default async function AppLayout({
   const current = await getCurrentTeam();
   const company = current?.team.name ?? null;
 
-  // Скрытие разделов по настраиваемой видимости ролей.
-  const visibility = current ? await loadVisibility(supabase, current.team.id) : {};
-  const hidden = current ? hiddenHrefs(current.role, visibility) : [];
+  // Скрытие разделов по видимости: шаблон роли + индивидуальные переопределения.
+  const [tmpl, ovr] = current
+    ? await Promise.all([
+        loadRoleTemplates(supabase, current.team.id),
+        loadMemberOverrides(supabase, current.team.id, user.id),
+      ])
+    : [{}, {}];
+  const hidden = current ? hiddenHrefs(current.role, tmpl, ovr) : [];
 
   return (
     <div className="min-h-screen p-2 sm:p-3">

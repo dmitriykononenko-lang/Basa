@@ -18,10 +18,13 @@ export const VIS_RESOURCES: { key: VisResource; label: string; desc: string }[] 
 export const CONFIGURABLE_ROLES: AppRole[] = ["admin", "manager", "employee", "viewer"];
 export const ALL_ROLES: AppRole[] = ["owner", "admin", "manager", "employee", "viewer"];
 
+// Шаблоны по ролям: resource → список ролей, которым видно.
 export type VisibilityMap = Record<string, AppRole[]>;
+// Индивидуальные переопределения сотрудника: resource → видно/нет.
+export type MemberOverrides = Record<string, boolean>;
 
-// Загрузка правил команды. Отсутствие строки = ресурс виден всем.
-export async function loadVisibility(supabase: SupabaseClient, teamId: string): Promise<VisibilityMap> {
+// Шаблоны видимости по ролям (team_visibility). Нет строки = видно всем.
+export async function loadRoleTemplates(supabase: SupabaseClient, teamId: string): Promise<VisibilityMap> {
   const { data } = await supabase
     .from("team_visibility")
     .select("resource, allowed_roles")
@@ -33,9 +36,35 @@ export async function loadVisibility(supabase: SupabaseClient, teamId: string): 
   return map;
 }
 
-export function canView(role: AppRole, resource: VisResource, map: VisibilityMap): boolean {
+// Индивидуальные переопределения конкретного сотрудника (member_visibility).
+export async function loadMemberOverrides(
+  supabase: SupabaseClient,
+  teamId: string,
+  userId: string,
+): Promise<MemberOverrides> {
+  const { data } = await supabase
+    .from("member_visibility")
+    .select("resource, visible")
+    .eq("team_id", teamId)
+    .eq("user_id", userId);
+  const map: MemberOverrides = {};
+  for (const r of (data ?? []) as { resource: string; visible: boolean }[]) map[r.resource] = r.visible;
+  return map;
+}
+
+// Обратная совместимость: прежнее имя.
+export const loadVisibility = loadRoleTemplates;
+
+// Итоговая видимость: owner → да; индивидуально → по роли-шаблону → по умолчанию.
+export function canView(
+  role: AppRole,
+  resource: VisResource,
+  templates: VisibilityMap,
+  overrides: MemberOverrides = {},
+): boolean {
   if (role === "owner") return true;
-  const allowed = map[resource];
+  if (resource in overrides) return overrides[resource];
+  const allowed = templates[resource];
   if (!allowed) return true; // по умолчанию — видно
   return allowed.includes(role);
 }
@@ -61,9 +90,9 @@ export const HREF_RESOURCE: Record<string, VisResource> = {
   "/vault": "vault",
 };
 
-// Список href'ов, которые надо скрыть для роли по правилам видимости.
-export function hiddenHrefs(role: AppRole, map: VisibilityMap): string[] {
+// Список href'ов, которые надо скрыть для пользователя по итоговой видимости.
+export function hiddenHrefs(role: AppRole, templates: VisibilityMap, overrides: MemberOverrides = {}): string[] {
   return Object.entries(HREF_RESOURCE)
-    .filter(([, res]) => !canView(role, res, map))
+    .filter(([, res]) => !canView(role, res, templates, overrides))
     .map(([href]) => href);
 }

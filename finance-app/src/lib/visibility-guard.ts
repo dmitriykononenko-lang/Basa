@@ -1,14 +1,18 @@
-// Серверный гард: редирект, если роль не видит ресурс. Держим отдельно от
-// visibility.ts, чтобы клиентские компоненты не тянули серверные импорты.
+// Серверный гард: редирект, если текущий пользователь не видит ресурс.
+// Использует can_view_resource (БД) — авторитетный источник: учитывает
+// индивидуальные переопределения сотрудника и шаблон роли.
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam } from "@/lib/team";
-import { loadVisibility, canView, type VisResource } from "@/lib/visibility";
+import type { VisResource } from "@/lib/visibility";
 
 export async function ensureVisible(resource: VisResource, redirectTo = "/dashboard") {
   const current = await getCurrentTeam();
   if (!current) redirect("/login");
   const supabase = await createClient();
-  const map = await loadVisibility(supabase, current.team.id);
-  if (!canView(current.role, resource, map)) redirect(redirectTo);
+  const { data } = await supabase.rpc("can_view_resource", {
+    _team_id: current.team.id,
+    _resource: resource,
+  });
+  if (data === false) redirect(redirectTo);
 }

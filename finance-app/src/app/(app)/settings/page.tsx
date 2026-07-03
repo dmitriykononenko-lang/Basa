@@ -69,8 +69,8 @@ const GROUPS: { title: string; items: Card[] }[] = [
       },
       {
         href: "/settings/visibility",
-        title: "Роли и видимость",
-        desc: "Какие роли видят разделы приложения",
+        title: "Шаблоны видимости",
+        desc: "Что видит каждая роль по умолчанию",
         Icon: IconSettings,
         color: "bg-indigo-600 text-white",
       },
