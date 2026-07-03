@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Script from "next/script";
 import LessonVideo from "@/components/kb/LessonVideo";
 import type { Timecode } from "@/lib/kb-video";
 
@@ -48,6 +47,16 @@ const ERR_LABELS: Record<string, string> = {
   no_init_data: "Откройте эту страницу из Telegram.",
 };
 
+// Диагностический маяк (виден в рантайм-логах): показывает, докуда дошёл клиент.
+function ping(stage: string) {
+  try {
+    const img = new Image();
+    img.src = `/api/tg/diag?stage=${stage}&t=${Date.now()}`;
+  } catch {
+    /* noop */
+  }
+}
+
 export default function TgLearningPage() {
   const [initData, setInitData] = useState<string | null>(null);
   const [sdkReady, setSdkReady] = useState(false);
@@ -78,12 +87,17 @@ export default function TgLearningPage() {
   // а опрашиваем window.Telegram.WebApp. Если за ~4 с не появился (открыто вне
   // Telegram) — всё равно стартуем, показав экран привязки/подсказку.
   useEffect(() => {
-    if (initTg()) return;
+    ping("react-mount");
+    if (initTg()) {
+      ping("sdk-ok-immediate");
+      return;
+    }
     let tries = 0;
     const iv = setInterval(() => {
       tries += 1;
       if (initTg() || tries > 40) {
         clearInterval(iv);
+        ping(tries > 40 ? "sdk-timeout" : "sdk-ok-poll");
         if (tries > 40) {
           setInitData("");
           setSdkReady(true);
@@ -162,8 +176,6 @@ export default function TgLearningPage() {
 
   return (
     <div className="mx-auto max-w-md px-4 py-5">
-      <Script src="https://telegram.org/js/telegram-web-app.js" strategy="afterInteractive" onLoad={initTg} />
-
       {view.name === "loading" && <Centered>Загрузка…</Centered>}
 
       {view.name === "link" && (
