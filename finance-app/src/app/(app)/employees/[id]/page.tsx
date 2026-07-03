@@ -95,7 +95,7 @@ export default async function EmployeePage({
     .eq("counterparty_id", id)
     .eq("type", "expense")
     .eq("status", "actual")
-    .order("occurred_on", { ascending: false })
+    .order("occurred_on", { ascending: true })
     .limit(500);
   const salaryRows = (salaries ?? []) as { id: string; effective_from: string; amount: number; currency: string }[];
   const positionRows = (positions ?? []) as { id: string; effective_from: string; position: string }[];
@@ -104,7 +104,9 @@ export default async function EmployeePage({
 
   const rates = buildRateMap([], base); // курсы не критичны на карточке; суммы в валюте обязательства
   const projName = new Map((projects ?? []).map((p) => [p.id, p.name]));
-  const rows = (bals ?? []) as unknown as Bal[];
+  const rows = ((bals ?? []) as unknown as Bal[]).slice().sort((a, b) =>
+    ((a.period_month ?? a.due_date ?? "") as string).localeCompare((b.period_month ?? b.due_date ?? "") as string)
+  );
 
   let totalAccrued = 0, totalPaid = 0, totalOut = 0;
   type M = { fixed: number; variable: number; paid: number };
