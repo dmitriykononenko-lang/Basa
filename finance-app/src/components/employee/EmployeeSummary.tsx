@@ -12,7 +12,7 @@ export type MonthPoint = { ym: string; accrued: number; paid: number };
 // Дизайн-система референса: Manrope (наследуется от обёртки), палитра
 // синий #3C91E6 · зелёный #29BF12 · красный #F4442E · текст #272727 · near-white карточки.
 const CARD = "relative rounded-[26px] bg-[#fbfcf9] ring-1 ring-black/[0.05] shadow-[0_1px_2px_rgba(20,25,15,0.04),0_16px_34px_-22px_rgba(20,25,15,0.20)] dark:bg-[#191d19] dark:ring-white/[0.06] dark:shadow-none";
-const LABEL = "text-[11px] font-semibold uppercase tracking-[0.11em] text-[#9a9e95] dark:text-neutral-500";
+const LABEL = "text-[11px] font-semibold uppercase tracking-[0.11em] text-[#82867b] dark:text-neutral-500";
 const INK = "text-[#272727] dark:text-neutral-100";
 
 function Pie() {
@@ -31,7 +31,18 @@ function Arrow() {
   );
 }
 function Corner() {
-  return <div className="absolute right-4 top-4 grid h-7 w-7 place-items-center rounded-full bg-black/[0.03] ring-1 ring-black/[0.04] transition hover:bg-black/[0.06] dark:bg-white/[0.04] dark:ring-white/[0.06]"><Arrow /></div>;
+  return (
+    <button type="button" aria-label="Открыть детали"
+      className="absolute right-4 top-4 grid h-7 w-7 cursor-pointer place-items-center rounded-full bg-black/[0.03] ring-1 ring-black/[0.04] transition hover:bg-black/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3C91E6] motion-reduce:transition-none dark:bg-white/[0.04] dark:ring-white/[0.06]">
+      <Arrow />
+    </button>
+  );
+}
+function DeltaUp() {
+  return <svg className="mb-2.5" width="11" height="11" viewBox="0 0 10 10" aria-hidden><path d="M5 1.5 L9 8 L1 8 Z" fill="#29BF12" /></svg>;
+}
+function DeltaDown() {
+  return <svg className="mb-2.5" width="11" height="11" viewBox="0 0 10 10" aria-hidden><path d="M5 8.5 L1 2 L9 2 Z" fill="#F4442E" /></svg>;
 }
 
 export default function EmployeeSummary({
@@ -112,17 +123,26 @@ export default function EmployeeSummary({
           <svg viewBox="0 0 300 150" preserveAspectRatio="none" className="mt-3 h-[150px] w-full">
             <defs>
               <linearGradient id="emptrend" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0" stopColor="#3C91E6" stopOpacity="0.18" />
+                <stop offset="0" stopColor="#3C91E6" stopOpacity="0.13" />
                 <stop offset="1" stopColor="#3C91E6" stopOpacity="0" />
               </linearGradient>
             </defs>
+            {/* тонкая сетка (gridlines) */}
+            {[26, 60, 94].map((gy) => (
+              <line key={gy} x1="14" x2="286" y1={gy} y2={gy} stroke="#000" strokeOpacity="0.05" strokeWidth="1" className="dark:[stroke:#fff] dark:[stroke-opacity:0.06]" />
+            ))}
             {payArea && <polygon points={payArea} fill="url(#emptrend)" />}
             <polyline points={accLine} fill="none" stroke="#c7c9c1" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="1 6" className="dark:stroke-white/20" />
             <polyline points={payLine} fill="none" stroke="#3C91E6" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
             {n > 0 && <circle cx={xAt(n - 1)} cy={yAt(cum[n - 1].cp)} r="4.5" fill="#3C91E6" />}
           </svg>
-          <div className="mt-1 flex justify-between text-[11px] font-medium text-[#b0b4ac] dark:text-neutral-600">
+          <div className="mt-1 flex justify-between text-[11px] font-medium text-[#9a9e95] dark:text-neutral-600">
             {monthly.map((m) => <span key={m.ym}>{mLabel(m.ym)}</span>)}
+          </div>
+          {/* прямые подписи значений (direct labeling) */}
+          <div className="mt-2.5 flex flex-wrap gap-x-4 gap-y-1 text-[11.5px] font-medium text-[#83877c] dark:text-neutral-400">
+            <span className="flex items-center gap-1.5"><i className="inline-block h-2 w-2 rounded-full bg-[#3C91E6]" />выплачено <b className="font-semibold text-[#272727] dark:text-neutral-200">{formatMoney(totalPaid, base)}</b></span>
+            <span className="flex items-center gap-1.5"><i className="inline-block h-2 w-2 rounded-full bg-[#c7c9c1] dark:bg-white/25" />начислено <b className="font-semibold text-[#272727] dark:text-neutral-200">{formatMoney(totalAccrued, base)}</b></span>
           </div>
         </div>
       </div>
@@ -166,8 +186,8 @@ function Insight({ label, desc, value, tint, delta, extra }: {
       <div className="relative mt-1 max-w-[80%] text-[12px] leading-snug text-[#9a9e95] dark:text-neutral-500">{desc}</div>
       {extra}
       <div className="relative mt-auto flex items-end justify-end gap-1.5 pt-3">
-        {delta === "up" && <span className="mb-2 text-[13px] text-[#29BF12]">▲</span>}
-        {delta === "down" && <span className="mb-2 text-[13px] text-[#F4442E]">▼</span>}
+        {delta === "up" && <DeltaUp />}
+        {delta === "down" && <DeltaDown />}
         <span className={`text-[34px] font-light leading-none tracking-tight ${INK}`}>{value}</span>
       </div>
     </div>
