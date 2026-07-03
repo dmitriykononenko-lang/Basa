@@ -9,7 +9,7 @@ import AddAccrualForm from "@/components/AddAccrualForm";
 import SalaryEditor from "@/components/SalaryEditor";
 import CopyField from "@/components/CopyField";
 import EditEmployeePayment from "@/components/EditEmployeePayment";
-import Kpi from "@/components/employee/Kpi";
+import EmployeeSummary from "@/components/employee/EmployeeSummary";
 import AccrualsTable, { type AccrualRow } from "@/components/employee/AccrualsTable";
 import { effectiveDue, businessDaysBetween, workdaysLabel } from "@/lib/workdays";
 
@@ -103,20 +103,35 @@ export default async function EmployeePage({
   );
 
   let totalAccrued = 0, totalPaid = 0, totalOut = 0;
+  const fix = { acc: 0, paid: 0 };
+  const variable = { acc: 0, paid: 0 };
+  const monthMap = new Map<string, { accrued: number; paid: number }>();
   const variableByProject = new Map<string, { name: string; val: number }>();
   for (const o of rows) {
-    const v = toBase(o.amount, o.currency, rates);
-    totalAccrued += v;
-    totalPaid += toBase(o.paid, o.currency, rates);
+    const a = toBase(o.amount, o.currency, rates);
+    const p = toBase(o.paid, o.currency, rates);
+    totalAccrued += a;
+    totalPaid += p;
     totalOut += toBase(o.outstanding, o.currency, rates);
+    const ym = (o.period_month ?? o.due_date ?? "—").slice(0, 7);
+    const mm = monthMap.get(ym) ?? { accrued: 0, paid: 0 };
+    mm.accrued += a; mm.paid += p; monthMap.set(ym, mm);
     if (o.pay_part === "variable") {
+      variable.acc += a; variable.paid += p;
       const pkey = o.project_id ?? "";
       const pn = o.project_id ? projName.get(o.project_id) ?? "Проект" : "Без проекта";
       const cur = variableByProject.get(pkey) ?? { name: pn, val: 0 };
-      cur.val += v;
+      cur.val += a;
       variableByProject.set(pkey, cur);
+    } else {
+      fix.acc += a; fix.paid += p;
     }
   }
+  const monthly = [...monthMap.entries()]
+    .filter(([k]) => k !== "—")
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([ym, v]) => ({ ym, accrued: v.accrued, paid: v.paid }));
+  const initials = String(emp.name).split(/\s+/).filter(Boolean).slice(0, 2).map((s: string) => s[0]).join("").toUpperCase() || "?";
 
   const payoutRows = (payouts ?? []) as unknown as {
     id: string; occurred_on: string; amount: number; currency: string;
@@ -184,38 +199,25 @@ export default async function EmployeePage({
       </header>
 
       {/* Сводка */}
-      <div className="mb-3 grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Kpi title="Начислено" value={formatMoney(totalAccrued, base)} />
-        <Kpi
-          title="Закрыто начислений"
-          value={formatMoney(totalPaid, base)}
-          accent="brand"
-          progress={totalAccrued > 0 ? totalPaid / totalAccrued : 0}
+      <div className="mb-4">
+        <EmployeeSummary
+          base={base}
+          initials={initials}
+          totalAccrued={totalAccrued}
+          totalPaid={totalPaid}
+          totalOut={totalOut}
+          totalPaidActual={totalPaidActual}
+          paidByCur={curChips}
+          fix={fix}
+          variable={variable}
+          monthly={monthly}
         />
-        <Kpi
-          title="Выплачено деньгами"
-          value={formatMoney(totalPaidActual, base)}
-          sub={
-            curChips.length > 1
-              ? curChips.map(([cur, sum]) => (
-                  <span key={cur} className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500 dark:bg-neutral-800 dark:text-neutral-400">
-                    {formatMoney(sum, cur)}
-                  </span>
-                ))
-              : undefined
-          }
-        />
-        <Kpi title="Остаток к выплате" value={formatMoney(totalOut, base)} accent={totalOut > 0 ? "amber" : "emerald"} />
       </div>
 
-      {/* Сверка двух «выплачено» */}
-      {payoutRows.length > 0 && (
-        <div className={`mb-6 rounded-2xl px-4 py-2.5 text-sm ring-1 ${reconciled ? "bg-emerald-50/60 text-emerald-700 ring-emerald-200/60 dark:bg-emerald-950/30 dark:text-emerald-400 dark:ring-emerald-900/40" : "bg-amber-50/60 text-amber-800 ring-amber-200/60 dark:bg-amber-950/30 dark:text-amber-300 dark:ring-amber-900/40"}`}>
-          {reconciled ? (
-            <>Начисления и фактические выплаты сходятся ✓ — «закрыто начислений» = «выплачено деньгами».</>
-          ) : (
-            <>Расхождение {formatMoney(Math.abs(diff), base)}: «закрыто начислений» {formatMoney(totalPaid, base)} против «выплачено деньгами» {formatMoney(totalPaidActual, base)}. Обычно это погашения без операции или непривязанные выплаты.</>
-          )}
+      {/* Сверка — только если расходится */}
+      {payoutRows.length > 0 && !reconciled && (
+        <div className="mb-6 rounded-2xl bg-amber-50/60 px-4 py-2.5 text-sm text-amber-800 ring-1 ring-amber-200/60 dark:bg-amber-950/30 dark:text-amber-300 dark:ring-amber-900/40">
+          Расхождение {formatMoney(Math.abs(diff), base)}: закрыто начислений {formatMoney(totalPaid, base)}, выплачено деньгами {formatMoney(totalPaidActual, base)}. Обычно это погашения без операции или непривязанные выплаты.
         </div>
       )}
 
@@ -224,7 +226,6 @@ export default async function EmployeePage({
         <AccrualsTable
           rows={accrualRows}
           base={base}
-          rates={rates}
           manage={manage}
           userId={user?.id ?? null}
           teamId={team.id}
