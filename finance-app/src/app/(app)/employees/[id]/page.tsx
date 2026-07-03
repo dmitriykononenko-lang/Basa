@@ -12,6 +12,7 @@ import EditEmployeePayment from "@/components/EditEmployeePayment";
 import PayObligationButton from "@/components/PayObligationButton";
 import PlanObligationButton from "@/components/PlanObligationButton";
 import EditObligationForm from "@/components/EditObligationForm";
+import LinkPaymentButton from "@/components/LinkPaymentButton";
 import { effectiveDue, businessDaysBetween, workdaysLabel } from "@/lib/workdays";
 
 const MONTHS_RU = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
@@ -455,6 +456,15 @@ export default async function EmployeePage({
                             dueDate={o.due_date}
                             accounts={accounts ?? []}
                             alreadyScheduled={scheduledOblIds.has(o.id)}
+                          />
+                          <LinkPaymentButton
+                            obligationId={o.id}
+                            oblType="payable"
+                            counterpartyId={emp.id}
+                            currency={o.currency}
+                            outstanding={o.outstanding}
+                            teamId={team.id}
+                            userId={user.id}
                           />
                           <PayObligationButton
                             obligationId={o.id}
