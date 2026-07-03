@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { parseMoney, formatMoney, formatDate } from "@/lib/format";
 import { CURRENCIES } from "@/lib/constants";
+import { toast } from "@/lib/toast";
 
 export type SalaryRow = { id: string; effective_from: string; amount: number; currency: string };
 export type PositionRow = { id: string; effective_from: string; position: string };
@@ -99,8 +100,30 @@ export default function SalaryEditor({
       .from("counterparties")
       .update({ end_date: end || null, auto_accrue: auto })
       .eq("id", counterpartyId);
+    if (error) { setBusy(false); setError(error.message); return; }
+
+    // При увольнении убираем открытые (неоплаченные) фикс-начисления оклада
+    // за месяцы СТРОГО после месяца увольнения — оклад уволенному не начисляется.
+    let removed = 0;
+    if (end) {
+      const endMonthStart = `${end.slice(0, 7)}-01`;
+      const { data: future } = await supabase
+        .from("obligations").select("id")
+        .eq("team_id", teamId).eq("counterparty_id", counterpartyId)
+        .eq("type", "payable").eq("pay_part", "fixed").gt("period_month", endMonthStart);
+      const ids = ((future ?? []) as { id: string }[]).map((o) => o.id);
+      if (ids.length) {
+        const { data: paid } = await supabase.from("obligation_payments").select("obligation_id").in("obligation_id", ids);
+        const paidSet = new Set(((paid ?? []) as { obligation_id: string }[]).map((p) => p.obligation_id));
+        const toDel = ids.filter((id) => !paidSet.has(id));
+        if (toDel.length) {
+          const { error: dErr } = await supabase.from("obligations").delete().in("id", toDel);
+          if (!dErr) removed = toDel.length;
+        }
+      }
+    }
     setBusy(false);
-    if (error) { setError(error.message); return; }
+    toast.success(removed ? `Сохранено. Убрано начислений оклада после увольнения: ${removed}` : "Сохранено");
     router.refresh();
   }
 
