@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam } from "@/lib/team";
+import { loadVisibility, hiddenHrefs } from "@/lib/visibility";
 import Sidebar from "@/components/Sidebar";
 import MobileNav from "@/components/MobileNav";
 import SignOutButton from "@/components/SignOutButton";
@@ -46,6 +47,10 @@ export default async function AppLayout({
 
   const current = await getCurrentTeam();
   const company = current?.team.name ?? null;
+
+  // Скрытие разделов по настраиваемой видимости ролей.
+  const visibility = current ? await loadVisibility(supabase, current.team.id) : {};
+  const hidden = current ? hiddenHrefs(current.role, visibility) : [];
 
   return (
     <div className="min-h-screen p-2 sm:p-3">
@@ -93,12 +98,12 @@ export default async function AppLayout({
         <CommandPalette />
 
         {/* Мобильное меню (только узкие экраны) */}
-        <MobileNav />
+        <MobileNav hidden={hidden} />
 
         {/* Тело */}
         <div className="flex flex-1">
           <aside className="hidden w-60 shrink-0 flex-col py-4 md:flex">
-            <Sidebar />
+            <Sidebar hidden={hidden} />
             <div className="mt-auto px-3 pt-3">
               <SignOutButton />
             </div>

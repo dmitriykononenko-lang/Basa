@@ -87,8 +87,14 @@ const SETTINGS: Item = {
   match: ["/settings", "/accounts", "/categories", "/team"],
 };
 
-export default function Sidebar() {
+export default function Sidebar({ hidden = [] }: { hidden?: string[] }) {
   const pathname = usePathname();
+  const hiddenSet = new Set(hidden);
+  const visibleGroups = GROUPS.map((g) => ({
+    ...g,
+    items: g.items.filter((i) => !hiddenSet.has(i.href)),
+  })).filter((g) => g.items.length > 0);
+  const topItems = TOP.filter((i) => !hiddenSet.has(i.href));
 
   function isActive({ href, match, exact }: Item) {
     if (exact) return pathname === href;
@@ -125,9 +131,9 @@ export default function Sidebar() {
 
   return (
     <nav className="flex flex-1 flex-col gap-1 px-3">
-      {TOP.map(link)}
+      {topItems.map(link)}
 
-      {GROUPS.map((g) => {
+      {visibleGroups.map((g) => {
         const active = groupActive(g);
         const isOpen = open[g.label];
         return (

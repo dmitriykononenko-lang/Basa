@@ -3,8 +3,10 @@ import { getCurrentTeam, canEditFinance, canManageTeam } from "@/lib/team";
 import { vaultKeyConfigured } from "@/lib/vault-crypto";
 import VaultManager from "@/components/vault/VaultManager";
 import type { VaultEntry, VaultGrant, VaultLogRow } from "@/lib/vault";
+import { ensureVisible } from "@/lib/visibility-guard";
 
 export default async function VaultPage() {
+  await ensureVisible("vault");
   const current = await getCurrentTeam();
   if (!current) {
     return (

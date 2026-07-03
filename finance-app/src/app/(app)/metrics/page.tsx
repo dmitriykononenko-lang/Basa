@@ -2,10 +2,12 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import { recentPeriodStarts, type Metric, type MetricPeriod } from "@/lib/metrics";
 import MetricsView, { type MetricWithData, type OwnerOption, type UnitOption } from "@/components/metrics/MetricsView";
+import { ensureVisible } from "@/lib/visibility-guard";
 
 export const dynamic = "force-dynamic";
 
 export default async function MetricsPage() {
+  await ensureVisible("metrics");
   const current = await getCurrentTeam();
   if (!current) {
     return (
