@@ -27,9 +27,10 @@ export default async function VisibilitySettingsPage() {
     <div className="mx-auto max-w-3xl p-6 sm:p-8">
       <Link href="/settings" className="text-sm text-slate-400 hover:text-brand">← Настройки</Link>
       <header className="mb-6 mt-2">
-        <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">Роли и видимость</h1>
+        <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">Шаблоны видимости по ролям</h1>
         <p className="mt-1 text-sm text-slate-500 dark:text-neutral-400">
-          Какие роли видят разделы приложения. Снимите галочку, чтобы скрыть раздел от роли.
+          Что видит каждая роль по умолчанию. Индивидуально для сотрудника можно переопределить в{" "}
+          <Link href="/team" className="text-brand hover:underline">Участники и роли</Link> → карточка сотрудника.
         </p>
       </header>
       <VisibilitySettings teamId={current.team.id} initial={initial} />
