@@ -9,17 +9,9 @@ import AddAccrualForm from "@/components/AddAccrualForm";
 import SalaryEditor from "@/components/SalaryEditor";
 import CopyField from "@/components/CopyField";
 import EditEmployeePayment from "@/components/EditEmployeePayment";
-import PayObligationButton from "@/components/PayObligationButton";
-import PlanObligationButton from "@/components/PlanObligationButton";
-import EditObligationForm from "@/components/EditObligationForm";
-import LinkPaymentButton from "@/components/LinkPaymentButton";
+import Kpi from "@/components/employee/Kpi";
+import AccrualsTable, { type AccrualRow } from "@/components/employee/AccrualsTable";
 import { effectiveDue, businessDaysBetween, workdaysLabel } from "@/lib/workdays";
-
-const MONTHS_RU = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
-function monthLabel(ym: string) {
-  const [y, m] = ym.split("-");
-  return `${MONTHS_RU[parseInt(m) - 1]} ${y}`;
-}
 
 type Bal = {
   id: string;
@@ -54,7 +46,7 @@ export default async function EmployeePage({
     .maybeSingle();
   if (!emp) notFound();
 
-  const [{ data: bals }, { data: projects }, { data: accounts }, { data: salaries }] = await Promise.all([
+  const [{ data: bals }, { data: projects }, { data: accounts }, { data: salaries }, { data: fxRows }] = await Promise.all([
     supabase
       .from("obligation_balances")
       .select("id, amount, paid, outstanding, currency, project_id, pay_part, period_month, due_date, note")
@@ -64,6 +56,7 @@ export default async function EmployeePage({
     supabase.from("projects").select("id, name").eq("team_id", team.id).order("name"),
     supabase.from("accounts").select("id, name, currency").eq("team_id", team.id).eq("archived", false).order("created_at"),
     supabase.from("employee_salaries").select("id, effective_from, amount, currency").eq("counterparty_id", id).order("effective_from", { ascending: false }),
+    supabase.from("fx_rates").select("currency, rate, rate_date").eq("team_id", team.id),
   ]);
   const { data: positions } = await supabase
     .from("employee_positions").select("id, effective_from, position").eq("counterparty_id", id).order("effective_from", { ascending: false });
@@ -102,36 +95,27 @@ export default async function EmployeePage({
   const todayStr = new Date().toISOString().slice(0, 10);
   const currentPosition = positionRows.find((p) => p.effective_from <= todayStr)?.position ?? null;
 
-  const rates = buildRateMap([], base); // курсы не критичны на карточке; суммы в валюте обязательства
+  // Реальные курсы валют (USDT→RUB и т.п.) — иначе мультивалютные суммы считались 1:1
+  const rates = buildRateMap(fxRows ?? [], base);
   const projName = new Map((projects ?? []).map((p) => [p.id, p.name]));
   const rows = ((bals ?? []) as unknown as Bal[]).slice().sort((a, b) =>
     ((a.period_month ?? a.due_date ?? "") as string).localeCompare((b.period_month ?? b.due_date ?? "") as string)
   );
 
   let totalAccrued = 0, totalPaid = 0, totalOut = 0;
-  type M = { fixed: number; variable: number; paid: number };
-  const byMonth = new Map<string, M>();
   const variableByProject = new Map<string, { name: string; val: number }>();
-
   for (const o of rows) {
     const v = toBase(o.amount, o.currency, rates);
     totalAccrued += v;
     totalPaid += toBase(o.paid, o.currency, rates);
     totalOut += toBase(o.outstanding, o.currency, rates);
-    const ym = (o.period_month ?? o.due_date ?? "").slice(0, 7) || "—";
-    const m = byMonth.get(ym) ?? { fixed: 0, variable: 0, paid: 0 };
     if (o.pay_part === "variable") {
-      m.variable += v;
       const pkey = o.project_id ?? "";
       const pn = o.project_id ? projName.get(o.project_id) ?? "Проект" : "Без проекта";
       const cur = variableByProject.get(pkey) ?? { name: pn, val: 0 };
       cur.val += v;
       variableByProject.set(pkey, cur);
-    } else {
-      m.fixed += v;
     }
-    m.paid += toBase(o.paid, o.currency, rates);
-    byMonth.set(ym, m);
   }
 
   const payoutRows = (payouts ?? []) as unknown as {
@@ -139,13 +123,37 @@ export default async function EmployeePage({
     project_id: string | null; note: string | null; account: { name: string } | null;
   }[];
   let totalPaidActual = 0;
-  for (const p of payoutRows) totalPaidActual += toBase(p.amount, p.currency, rates);
+  const paidByCur = new Map<string, number>();
+  for (const p of payoutRows) {
+    totalPaidActual += toBase(p.amount, p.currency, rates);
+    paidByCur.set(p.currency, (paidByCur.get(p.currency) ?? 0) + p.amount);
+  }
+  const curChips = [...paidByCur.entries()];
 
-  const months = [...byMonth.keys()].filter((x) => x !== "—").sort().reverse();
   const projectRows = [...variableByProject.entries()]
     .map(([pid, x]) => ({ pid: pid || null, name: x.name, val: x.val }))
     .sort((a, b) => b.val - a.val);
   const manage = canEditFinance(role);
+
+  // сверка «закрыто начислений» vs «выплачено деньгами»
+  const diff = totalPaidActual - totalPaid;
+  const reconciled = Math.abs(diff) < 100; // разница < 1 ₽ считаем сходящейся
+
+  const accrualRows: AccrualRow[] = rows.map((o) => ({
+    id: o.id,
+    amount: o.amount,
+    paid: o.paid,
+    outstanding: o.outstanding,
+    currency: o.currency,
+    project_id: o.project_id,
+    project_name: o.project_id ? projName.get(o.project_id) ?? null : null,
+    pay_part: o.pay_part,
+    period_month: o.period_month,
+    due_date: o.due_date,
+    note: o.note,
+    category_id: oblCatId.get(o.id) ?? null,
+    alreadyScheduled: scheduledOblIds.has(o.id),
+  }));
 
   return (
     <div className="p-6 sm:p-8">
@@ -175,18 +183,126 @@ export default async function EmployeePage({
         )}
       </header>
 
-      <div className="mb-6 grid grid-cols-3 gap-3">
+      {/* Сводка */}
+      <div className="mb-3 grid grid-cols-2 gap-3 md:grid-cols-4">
         <Kpi title="Начислено" value={formatMoney(totalAccrued, base)} />
-        <Kpi title="Выплачено по начислениям" value={formatMoney(totalPaid, base)} />
+        <Kpi
+          title="Закрыто начислений"
+          value={formatMoney(totalPaid, base)}
+          accent="brand"
+          progress={totalAccrued > 0 ? totalPaid / totalAccrued : 0}
+        />
+        <Kpi
+          title="Выплачено деньгами"
+          value={formatMoney(totalPaidActual, base)}
+          sub={
+            curChips.length > 1
+              ? curChips.map(([cur, sum]) => (
+                  <span key={cur} className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500 dark:bg-neutral-800 dark:text-neutral-400">
+                    {formatMoney(sum, cur)}
+                  </span>
+                ))
+              : undefined
+          }
+        />
         <Kpi title="Остаток к выплате" value={formatMoney(totalOut, base)} accent={totalOut > 0 ? "amber" : "emerald"} />
       </div>
 
+      {/* Сверка двух «выплачено» */}
+      {payoutRows.length > 0 && (
+        <div className={`mb-6 rounded-2xl px-4 py-2.5 text-sm ring-1 ${reconciled ? "bg-emerald-50/60 text-emerald-700 ring-emerald-200/60 dark:bg-emerald-950/30 dark:text-emerald-400 dark:ring-emerald-900/40" : "bg-amber-50/60 text-amber-800 ring-amber-200/60 dark:bg-amber-950/30 dark:text-amber-300 dark:ring-amber-900/40"}`}>
+          {reconciled ? (
+            <>Начисления и фактические выплаты сходятся ✓ — «закрыто начислений» = «выплачено деньгами».</>
+          ) : (
+            <>Расхождение {formatMoney(Math.abs(diff), base)}: «закрыто начислений» {formatMoney(totalPaid, base)} против «выплачено деньгами» {formatMoney(totalPaidActual, base)}. Обычно это погашения без операции или непривязанные выплаты.</>
+          )}
+        </div>
+      )}
+
+      {/* Начисления (к выплате) — главная рабочая таблица */}
+      {accrualRows.length > 0 ? (
+        <AccrualsTable
+          rows={accrualRows}
+          base={base}
+          rates={rates}
+          manage={manage}
+          userId={user?.id ?? null}
+          teamId={team.id}
+          counterpartyId={emp.id}
+          categories={(expenseCats ?? []) as { id: string; name: string; kind: string }[]}
+          projects={projects ?? []}
+          accounts={accounts ?? []}
+          projectRollup={projectRows}
+        />
+      ) : (
+        <p className="mb-6 rounded-3xl bg-white p-6 text-sm text-slate-500 ring-1 ring-slate-200/70 dark:bg-[#15171c] dark:text-neutral-400 dark:ring-white/[0.07]">
+          Нет начислений. Нажмите «Начислить».
+        </p>
+      )}
+
+      {/* Фактические выплаты (операции) */}
+      {payoutRows.length > 0 && (
+        <section className="mb-6">
+          <div className="mb-3 flex items-baseline justify-between gap-3">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">
+              Выплаты (операции)
+            </h2>
+            <span className="text-sm font-semibold text-slate-700 dark:text-neutral-200">
+              Всего: {formatMoney(totalPaidActual, base)}
+            </span>
+          </div>
+          <div className="surface overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wider text-slate-400 dark:border-white/[0.07] dark:text-neutral-500">
+                  <th className="px-5 py-3 font-medium">Дата</th>
+                  <th className="px-5 py-3 font-medium">Проект · описание</th>
+                  <th className="px-5 py-3 font-medium">Счёт</th>
+                  <th className="px-5 py-3 text-right font-medium">Сумма</th>
+                </tr>
+              </thead>
+              <tbody>
+                {payoutRows.map((p) => {
+                  const pn = p.project_id ? projName.get(p.project_id) : null;
+                  const eq = p.currency === base ? null : toBase(p.amount, p.currency, rates);
+                  return (
+                    <tr key={p.id} className="border-b border-slate-50 last:border-0 dark:border-white/[0.05]">
+                      <td className="whitespace-nowrap px-5 py-3 text-slate-600 dark:text-neutral-400">{formatDate(p.occurred_on)}</td>
+                      <td className="px-5 py-3 text-slate-700 dark:text-neutral-300">
+                        {pn && (
+                          p.project_id ? (
+                            <Link href={`/projects/${p.project_id}`} className="font-medium text-slate-800 hover:text-brand hover:underline dark:text-neutral-200">{pn}</Link>
+                          ) : (
+                            <span className="font-medium text-slate-800 dark:text-neutral-200">{pn}</span>
+                          )
+                        )}
+                        {p.note && <span className={pn ? "ml-2 text-xs text-slate-400" : ""}>{p.note}</span>}
+                        {!pn && !p.note && <span className="text-slate-400">—</span>}
+                      </td>
+                      <td className="px-5 py-3 text-slate-500 dark:text-neutral-400">{p.account?.name ?? "—"}</td>
+                      <td className="whitespace-nowrap px-5 py-3 text-right font-medium text-slate-800 dark:text-neutral-200">
+                        {formatMoney(p.amount, p.currency)}
+                        {eq != null && <div className="text-xs font-normal text-slate-400">≈ {formatMoney(eq, base)}</div>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-3 text-xs leading-relaxed text-slate-400 dark:text-neutral-600">
+            Все расходные операции по этому контрагенту со статусом «факт», независимо от начислений — включая прямые выплаты с номинального/расчётного счёта. Суммы в валюте операции; «≈» — эквивалент в {base} по курсу.
+          </p>
+        </section>
+      )}
+
+      {/* Проекты в работе */}
       {(activeProjects ?? []).length > 0 && (
         <section className="mb-6">
           <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">
             Проекты в работе
           </h2>
-          <div className="overflow-hidden rounded-3xl bg-white ring-1 ring-slate-200/70 dark:bg-[#15171c] dark:ring-white/[0.07]">
+          <div className="surface overflow-hidden">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wider text-slate-400 dark:border-white/[0.07] dark:text-neutral-500">
@@ -240,7 +356,7 @@ export default async function EmployeePage({
       )}
 
       {/* Реквизиты */}
-      <section className="mb-6 rounded-3xl bg-white p-6 ring-1 ring-slate-200/70 dark:bg-[#15171c] dark:ring-white/[0.07]">
+      <section className="surface mb-6 p-6">
         <div className="flex items-center justify-between">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">
             Платёжные реквизиты
@@ -283,226 +399,6 @@ export default async function EmployeePage({
           )}
         </div>
       </section>
-
-      {/* Переменная по проектам */}
-      {projectRows.length > 0 && (
-        <section className="mb-6">
-          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">
-            Переменная оплата по проектам (начислено)
-          </h2>
-          <div className="overflow-hidden rounded-3xl bg-white ring-1 ring-slate-200/70 dark:bg-[#15171c] dark:ring-white/[0.07]">
-            <table className="w-full text-sm">
-              <tbody>
-                {projectRows.map((r) => (
-                  <tr key={r.pid ?? r.name} className="border-b border-slate-50 last:border-0 dark:border-white/[0.05]">
-                    <td className="px-5 py-2.5 text-slate-700 dark:text-neutral-300">
-                      {r.pid ? (
-                        <Link href={`/projects/${r.pid}`} className="hover:text-brand hover:underline">{r.name}</Link>
-                      ) : (
-                        r.name
-                      )}
-                    </td>
-                    <td className="px-5 py-2.5 text-right font-medium text-slate-800 dark:text-neutral-200">{formatMoney(r.val, base)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
-
-      {/* Фактические выплаты (операции) */}
-      {payoutRows.length > 0 && (
-        <section className="mb-6">
-          <div className="mb-3 flex items-baseline justify-between gap-3">
-            <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">
-              Выплаты (операции)
-            </h2>
-            <span className="text-sm font-semibold text-slate-700 dark:text-neutral-200">
-              Всего по факту: {formatMoney(totalPaidActual, base)}
-            </span>
-          </div>
-          <div className="overflow-hidden rounded-3xl bg-white ring-1 ring-slate-200/70 dark:bg-[#15171c] dark:ring-white/[0.07]">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wider text-slate-400 dark:border-white/[0.07] dark:text-neutral-500">
-                  <th className="px-5 py-3 font-medium">Дата</th>
-                  <th className="px-5 py-3 font-medium">Проект · описание</th>
-                  <th className="px-5 py-3 font-medium">Счёт</th>
-                  <th className="px-5 py-3 text-right font-medium">Сумма</th>
-                </tr>
-              </thead>
-              <tbody>
-                {payoutRows.map((p) => {
-                  const pn = p.project_id ? projName.get(p.project_id) : null;
-                  return (
-                    <tr key={p.id} className="border-b border-slate-50 last:border-0 dark:border-white/[0.05]">
-                      <td className="whitespace-nowrap px-5 py-3 text-slate-600 dark:text-neutral-400">{formatDate(p.occurred_on)}</td>
-                      <td className="px-5 py-3 text-slate-700 dark:text-neutral-300">
-                        {pn && <span className="font-medium text-slate-800 dark:text-neutral-200">{pn}</span>}
-                        {p.note && <span className={pn ? "ml-2 text-xs text-slate-400" : ""}>{p.note}</span>}
-                        {!pn && !p.note && <span className="text-slate-400">—</span>}
-                      </td>
-                      <td className="px-5 py-3 text-slate-500 dark:text-neutral-400">{p.account?.name ?? "—"}</td>
-                      <td className="px-5 py-3 text-right font-medium text-slate-800 dark:text-neutral-200">{formatMoney(p.amount, p.currency)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          <p className="mt-3 text-xs leading-relaxed text-slate-400 dark:text-neutral-600">
-            Все расходные операции по этому контрагенту со статусом «факт», независимо от начислений — включая прямые выплаты с номинального/расчётного счёта.
-          </p>
-        </section>
-      )}
-
-      {/* По месяцам */}
-      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">
-        По месяцам
-      </h2>
-      {months.length > 0 ? (
-        <div className="mb-6 overflow-hidden rounded-3xl bg-white ring-1 ring-slate-200/70 dark:bg-[#15171c] dark:ring-white/[0.07]">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wider text-slate-400 dark:border-white/[0.07] dark:text-neutral-500">
-                <th className="px-5 py-3 font-medium">Месяц</th>
-                <th className="px-5 py-3 text-right font-medium">Фикс. начислено</th>
-                <th className="px-5 py-3 text-right font-medium">Перем. начислено</th>
-                <th className="px-5 py-3 text-right font-medium">Выплачено</th>
-              </tr>
-            </thead>
-            <tbody>
-              {months.map((ym) => {
-                const m = byMonth.get(ym)!;
-                return (
-                  <tr key={ym} className="border-b border-slate-50 last:border-0 dark:border-white/[0.05]">
-                    <td className="px-5 py-3 font-medium text-slate-800 dark:text-neutral-200">{monthLabel(ym)}</td>
-                    <td className="px-5 py-3 text-right text-slate-600 dark:text-neutral-400">{formatMoney(m.fixed, base)}</td>
-                    <td className="px-5 py-3 text-right text-slate-600 dark:text-neutral-400">{formatMoney(m.variable, base)}</td>
-                    <td className="px-5 py-3 text-right text-slate-600 dark:text-neutral-400">{formatMoney(m.paid, base)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <p className="mb-6 rounded-3xl bg-white p-6 text-sm text-slate-500 ring-1 ring-slate-200/70 dark:bg-[#15171c] dark:text-neutral-400 dark:ring-white/[0.07]">
-          Нет начислений. Нажмите «Начислить».
-        </p>
-      )}
-
-      {/* Начисления и выплаты */}
-      {rows.length > 0 && (
-        <>
-          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">
-            Начисления (к выплате)
-          </h2>
-          <div className="overflow-hidden rounded-3xl bg-white ring-1 ring-slate-200/70 dark:bg-[#15171c] dark:ring-white/[0.07]">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wider text-slate-400 dark:border-white/[0.07] dark:text-neutral-500">
-                  <th className="px-5 py-3 font-medium">Месяц · тип · за что</th>
-                  <th className="px-5 py-3 text-right font-medium">Остаток к выплате · начислено</th>
-                  <th className="px-5 py-3 text-right font-medium">Действия</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((o) => (
-                  <tr key={o.id} className="border-b border-slate-50 last:border-0 dark:border-white/[0.05]">
-                    <td className="px-5 py-3 text-slate-700 dark:text-neutral-300">
-                      {o.period_month ? monthLabel(o.period_month.slice(0, 7)) : "—"}
-                      <span className="ml-2 text-xs text-slate-400">
-                        {o.pay_part === "variable" ? "переменная" : "фиксированная"}
-                        {o.project_id && projName.get(o.project_id) ? ` · ${projName.get(o.project_id)}` : ""}
-                      </span>
-                    </td>
-                    <td className="px-5 py-3 text-right font-medium text-slate-800 dark:text-neutral-200">
-                      {formatMoney(o.outstanding, o.currency)}
-                      {o.outstanding !== o.amount && (
-                        <span className="ml-1 text-xs font-normal text-slate-400">из {formatMoney(o.amount, o.currency)}</span>
-                      )}
-                    </td>
-                    <td className="px-5 py-3 text-right">
-                      {manage && user && (
-                        <div className="flex items-center justify-end gap-1">
-                          <EditObligationForm
-                            mode="accrual"
-                            obligation={{
-                              id: o.id,
-                              type: "payable",
-                              amount: o.amount,
-                              currency: o.currency,
-                              due_date: o.due_date,
-                              period_month: o.period_month,
-                              pay_part: o.pay_part,
-                              project_id: o.project_id,
-                              category_id: oblCatId.get(o.id) ?? null,
-                              note: o.note,
-                              paid: o.paid,
-                            }}
-                            categories={(expenseCats ?? []) as { id: string; name: string; kind: string }[]}
-                            projects={projects ?? []}
-                          />
-                          <PlanObligationButton
-                            obligationId={o.id}
-                            teamId={team.id}
-                            userId={user.id}
-                            oblType="payable"
-                            outstanding={o.outstanding}
-                            currency={o.currency}
-                            counterpartyId={emp.id}
-                            categoryId={oblCatId.get(o.id) ?? null}
-                            projectId={o.project_id}
-                            dueDate={o.due_date}
-                            accounts={accounts ?? []}
-                            alreadyScheduled={scheduledOblIds.has(o.id)}
-                          />
-                          <LinkPaymentButton
-                            obligationId={o.id}
-                            oblType="payable"
-                            counterpartyId={emp.id}
-                            currency={o.currency}
-                            outstanding={o.outstanding}
-                            teamId={team.id}
-                            userId={user.id}
-                          />
-                          <PayObligationButton
-                            obligationId={o.id}
-                            userId={user.id}
-                            outstanding={o.outstanding}
-                            currency={o.currency}
-                            teamId={team.id}
-                            counterpartyId={emp.id}
-                            accounts={accounts ?? []}
-                          />
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="mt-3 text-xs leading-relaxed text-slate-400 dark:text-neutral-600">
-            <b>Месяц · тип · за что</b> — период начисления, фиксированная (оклад) или переменная (бонус) часть и проект.{" "}
-            <b>Остаток к выплате</b> — сколько ещё не выплачено из общей суммы начисления («из …»).{" "}
-            <b>Изм.</b> — изменить или удалить начисление. <b>Запланировать</b> — поставить плановый платёж по сроку.{" "}
-            <b>Погасить</b> — отметить выплату сотруднику (уменьшает остаток и кредиторку). <b>Погашено</b> — начисление полностью выплачено.
-          </p>
-        </>
-      )}
-    </div>
-  );
-}
-
-function Kpi({ title, value, accent }: { title: string; value: string; accent?: "amber" | "emerald" }) {
-  const color = accent === "amber" ? "text-amber-600 dark:text-amber-400" : accent === "emerald" ? "text-emerald-600 dark:text-emerald-400" : "text-slate-900 dark:text-white";
-  return (
-    <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200/70 dark:bg-[#15171c] dark:ring-white/[0.07]">
-      <div className="text-sm text-slate-500 dark:text-neutral-400">{title}</div>
-      <div className={`mt-2 text-lg font-bold ${color}`}>{value}</div>
     </div>
   );
 }
