@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Manrope } from "next/font/google";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canEditFinance } from "@/lib/team";
@@ -12,6 +13,9 @@ import EditEmployeePayment from "@/components/EditEmployeePayment";
 import EmployeeSummary from "@/components/employee/EmployeeSummary";
 import AccrualsTable, { type AccrualRow } from "@/components/employee/AccrualsTable";
 import { effectiveDue, businessDaysBetween, workdaysLabel } from "@/lib/workdays";
+
+// Шрифт карточки — Manrope (геометрический, с кириллицей и весом 300; Urbanist кириллицу не покрывает)
+const manrope = Manrope({ subsets: ["latin", "cyrillic"], weight: ["300", "400", "500", "600", "700"], display: "swap" });
 
 type Bal = {
   id: string;
@@ -171,7 +175,7 @@ export default async function EmployeePage({
   }));
 
   return (
-    <div className="p-6 sm:p-8">
+    <div className={`${manrope.className} p-6 sm:p-8`}>
       <Link href="/employees" className="text-sm text-slate-400 hover:text-brand">← Сотрудники</Link>
       <header className="mb-6 mt-2 flex flex-wrap items-center justify-between gap-3">
         <div>
