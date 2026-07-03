@@ -9,6 +9,7 @@ import DeleteCounterpartyButton from "@/components/DeleteCounterpartyButton";
 
 export type CounterpartyEdit = {
   id: string;
+  team_id: string;
   name: string;
   kind: string;
   kinds: string[];
@@ -24,12 +25,32 @@ export type CounterpartyEdit = {
 };
 
 type Agent = { id: string; name: string };
+type ProjectOpt = { id: string; name: string };
+export type ExternalId = { system: string; external_id: string; project_id: string };
 
-export default function EditCounterpartyForm({ initial, agents = [] }: { initial: CounterpartyEdit; agents?: Agent[] }) {
+export const EXTERNAL_SYSTEMS = [
+  { value: "amocrm", label: "amoCRM" },
+  { value: "radist", label: "Radist" },
+  { value: "wazzap", label: "Wazzap" },
+  { value: "other", label: "Другое" },
+];
+
+export default function EditCounterpartyForm({
+  initial,
+  agents = [],
+  projects = [],
+  externalIds = [],
+}: {
+  initial: CounterpartyEdit;
+  agents?: Agent[];
+  projects?: ProjectOpt[];
+  externalIds?: ExternalId[];
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [c, setC] = useState<CounterpartyEdit>(initial);
   const [kinds, setKinds] = useState<string[]>(initial.kinds.length ? initial.kinds : [initial.kind]);
+  const [extIds, setExtIds] = useState<ExternalId[]>(externalIds);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,6 +59,15 @@ export default function EditCounterpartyForm({ initial, agents = [] }: { initial
   }
   function toggleKind(k: string) {
     setKinds((prev) => (prev.includes(k) ? prev.filter((x) => x !== k) : [...prev, k]));
+  }
+  function updExt(i: number, k: keyof ExternalId, v: string) {
+    setExtIds((prev) => prev.map((r, idx) => (idx === i ? { ...r, [k]: v } : r)));
+  }
+  function addExt() {
+    setExtIds((prev) => [...prev, { system: "amocrm", external_id: "", project_id: "" }]);
+  }
+  function removeExt(i: number) {
+    setExtIds((prev) => prev.filter((_, idx) => idx !== i));
   }
 
   async function save() {
@@ -66,6 +96,25 @@ export default function EditCounterpartyForm({ initial, agents = [] }: { initial
       setError(error.message);
       setBusy(false);
       return;
+    }
+    // Синхронизация внешних ID (amoCRM/Radist/Wazzap): пересоздаём набор по контрагенту.
+    await supabase.from("counterparty_external_ids").delete().eq("counterparty_id", c.id);
+    const rows = extIds
+      .filter((r) => r.external_id.trim())
+      .map((r) => ({
+        team_id: initial.team_id,
+        counterparty_id: c.id,
+        system: r.system,
+        external_id: r.external_id.trim(),
+        project_id: r.project_id || null,
+      }));
+    if (rows.length) {
+      const { error: eErr } = await supabase.from("counterparty_external_ids").insert(rows);
+      if (eErr) {
+        setError(eErr.message);
+        setBusy(false);
+        return;
+      }
     }
     setBusy(false);
     setOpen(false);
@@ -112,6 +161,20 @@ export default function EditCounterpartyForm({ initial, agents = [] }: { initial
           </>
         )}
         <div className="sm:col-span-2"><F label="Заметка"><input value={c.note} onChange={(e) => upd("note", e.target.value)} className="input" /></F></div>
+        <div className="sm:col-span-2">
+          <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Внешние ID (для автопривязки платежей)</label>
+          <div className="space-y-2">
+            {extIds.map((r, i) => (
+              <div key={i} className="flex flex-wrap items-center gap-2">
+                <div className="w-28"><Select value={r.system} onChange={(v) => updExt(i, "system", v)} options={EXTERNAL_SYSTEMS.map((s) => ({ value: s.value, label: s.label }))} /></div>
+                <input value={r.external_id} onChange={(e) => updExt(i, "external_id", e.target.value)} placeholder="ID аккаунта" className="input min-w-[120px] flex-1" />
+                <div className="min-w-[160px] flex-1"><Select value={r.project_id} onChange={(v) => updExt(i, "project_id", v)} placeholder="— проект (опц.) —" options={[{ value: "", label: "— проект (опц.) —" }, ...projects.map((p) => ({ value: p.id, label: p.name }))]} /></div>
+                <button type="button" onClick={() => removeExt(i)} className="btn-ghost text-xs" title="Удалить">✕</button>
+              </div>
+            ))}
+            <button type="button" onClick={addExt} className="btn-ghost text-xs">+ Добавить ID</button>
+          </div>
+        </div>
       </div>
       {error && <p className="text-sm text-red-600">{error}</p>}
       <div className="flex items-center gap-2">

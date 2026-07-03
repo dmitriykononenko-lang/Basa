@@ -15,6 +15,8 @@ export default function AddAccrualForm({
   projects = [],
   salaries = [],
   categories = [],
+  startDate = null,
+  endDate = null,
 }: {
   teamId: string;
   employeeId: string;
@@ -22,6 +24,8 @@ export default function AddAccrualForm({
   projects?: { id: string; name: string }[];
   salaries?: Salary[];
   categories?: { id: string; name: string; kind: string }[];
+  startDate?: string | null;
+  endDate?: string | null;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -39,7 +43,7 @@ export default function AddAccrualForm({
   const [error, setError] = useState<string | null>(null);
 
   // Подстановка оклада: при открытии и смене месяца, если часть фиксированная
-  const subst = kind === "fixed" ? salaryForMonth(salaries, `${month}-01`) : null;
+  const subst = kind === "fixed" ? salaryForMonth(salaries, `${month}-01`, { startDate, endDate }) : null;
   function applySalary() {
     if (subst) {
       setAmount((subst.amount / 100).toFixed(2).replace(".", ","));

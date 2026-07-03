@@ -59,12 +59,15 @@ export default async function CounterpartiesPage() {
   const { team, role } = current;
   const supabase = await createClient();
 
-  const { data: items } = await supabase
-    .from("counterparties")
-    .select("id, name, kind, kinds, inn, contact_person")
-    .eq("team_id", team.id)
-    .eq("archived", false)
-    .order("name");
+  const [{ data: items }, { data: projects }] = await Promise.all([
+    supabase
+      .from("counterparties")
+      .select("id, name, kind, kinds, inn, contact_person")
+      .eq("team_id", team.id)
+      .eq("archived", false)
+      .order("name"),
+    supabase.from("projects").select("id, name").eq("team_id", team.id).eq("archived", false).order("name"),
+  ]);
 
   const manage = canEditFinance(role);
   const dupGroups = manage ? findDuplicateGroups((items ?? []) as CpItem[]) : [];
@@ -80,7 +83,7 @@ export default async function CounterpartiesPage() {
             Клиенты, поставщики, партнёры и сотрудники
           </p>
         </div>
-        {manage && <AddCounterpartyForm teamId={team.id} />}
+        {manage && <AddCounterpartyForm teamId={team.id} projects={(projects ?? []) as { id: string; name: string }[]} />}
       </header>
 
       {dupGroups.length > 0 && <DuplicateSuggestions groups={dupGroups} />}
