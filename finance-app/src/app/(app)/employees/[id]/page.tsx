@@ -218,6 +218,23 @@ export default async function EmployeePage({
         />
       </div>
 
+      {/* Отдел, должность и оклад — подняли выше */}
+      {manage && user && (
+        <div className="mb-4">
+          <SalaryEditor
+            teamId={team.id}
+            userId={user.id}
+            counterpartyId={emp.id}
+            defaultCurrency={emp.payout_currency ?? base}
+            salaries={salaryRows}
+            positions={positionRows}
+            endDate={emp.end_date ?? null}
+            department={emp.department ?? null}
+            autoAccrue={emp.auto_accrue ?? false}
+          />
+        </div>
+      )}
+
       {/* Сверка — только если расходится */}
       {payoutRows.length > 0 && !reconciled && (
         <div className="mb-6 rounded-2xl bg-amber-50/60 px-4 py-2.5 text-sm text-amber-800 ring-1 ring-amber-200/60 dark:bg-amber-950/30 dark:text-amber-300 dark:ring-amber-900/40">
@@ -342,22 +359,6 @@ export default async function EmployeePage({
             </table>
           </div>
         </section>
-      )}
-
-      {manage && user && (
-        <div className="mb-6">
-          <SalaryEditor
-            teamId={team.id}
-            userId={user.id}
-            counterpartyId={emp.id}
-            defaultCurrency={emp.payout_currency ?? base}
-            salaries={salaryRows}
-            positions={positionRows}
-            endDate={emp.end_date ?? null}
-            department={emp.department ?? null}
-            autoAccrue={emp.auto_accrue ?? false}
-          />
-        </div>
       )}
 
       {/* Реквизиты */}

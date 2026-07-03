@@ -14,8 +14,11 @@ function monthLabel(ym: string) {
   return `${MONTHS_RU[parseInt(m) - 1] ?? m} ${y}`;
 }
 
-const CARD = "rounded-3xl bg-white ring-1 ring-slate-200/70 shadow-[0_2px_8px_-2px_rgba(20,30,20,0.06),0_18px_40px_-24px_rgba(20,30,20,0.25)] dark:bg-[#15171c] dark:ring-white/[0.07] dark:shadow-none";
-const LBL = "text-[10.5px] font-bold uppercase tracking-[0.12em] text-slate-400 dark:text-neutral-500";
+// Дизайн-система референса (Manrope наследуется от обёртки страницы):
+// синий #3C91E6 · зелёный #29BF12 · красный #F4442E · текст #272727 · near-white карточки.
+const CARD = "rounded-[26px] bg-[#fbfcf9] ring-1 ring-black/[0.05] shadow-[0_1px_2px_rgba(20,25,15,0.04),0_16px_34px_-22px_rgba(20,25,15,0.20)] dark:bg-[#191d19] dark:ring-white/[0.06] dark:shadow-none";
+const LABEL = "text-[11px] font-bold uppercase tracking-[0.12em] text-[#82867b] dark:text-neutral-500";
+const PILL = "rounded-full border border-black/[0.06] bg-black/[0.02] px-3 py-1.5 text-[12.5px] font-medium text-[#6f736c] transition hover:text-[#272727] dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-neutral-400";
 
 export type AccrualRow = {
   id: string;
@@ -63,22 +66,22 @@ export default function AccrualsTable({
     if (last && last.ym === ym) last.items.push(r);
     else groups.push({ ym, items: [r] });
   }
+  const colSpan = manage ? 4 : 3;
 
   return (
-    <section className="flex flex-col gap-2.5">
+    <section className="mb-4 flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-3 px-1">
-        <div className={LBL}>Начисления · к выплате</div>
+        <div className={LABEL}>Начисления · к выплате</div>
         <div className="flex items-center gap-2">
           {projectRollup.length > 0 && (
-            <button onClick={() => setRollupOpen((v) => !v)}
-              className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-[12.5px] font-medium text-slate-500 transition hover:text-slate-700 dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-neutral-400">
+            <button onClick={() => setRollupOpen((v) => !v)} className={PILL}>
               {rollupOpen ? "Скрыть свод" : "Свод по проектам"}
             </button>
           )}
           {paidCount > 0 && (
-            <label className="flex cursor-pointer items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-[12.5px] font-medium text-slate-500 dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-neutral-400">
+            <label className={`flex cursor-pointer items-center gap-2 ${PILL}`}>
               <input type="checkbox" checked={showPaid} onChange={(e) => setShowPaid(e.target.checked)}
-                className="h-3.5 w-3.5 rounded border-slate-300 text-brand focus:ring-brand" />
+                className="h-3.5 w-3.5 rounded border-slate-300 text-[#3C91E6] focus:ring-[#3C91E6]" />
               Показать оплаченные ({paidCount})
             </label>
           )}
@@ -87,15 +90,15 @@ export default function AccrualsTable({
 
       {rollupOpen && projectRollup.length > 0 && (
         <div className={`${CARD} overflow-hidden`}>
-          <div className={`${LBL} border-b border-slate-100 px-6 py-3 dark:border-white/[0.06]`}>Переменная оплата по проектам (начислено)</div>
+          <div className={`${LABEL} border-b border-black/[0.05] px-6 py-3 dark:border-white/[0.06]`}>Переменная оплата по проектам (начислено)</div>
           <table className="w-full text-sm">
             <tbody>
               {projectRollup.map((r) => (
-                <tr key={r.pid ?? r.name} className="border-b border-slate-50 last:border-0 dark:border-white/[0.05]">
-                  <td className="px-6 py-2.5 text-slate-700 dark:text-neutral-300">
-                    {r.pid ? <Link href={`/projects/${r.pid}`} className="hover:text-brand hover:underline">{r.name}</Link> : r.name}
+                <tr key={r.pid ?? r.name} className="border-b border-black/[0.04] last:border-0 dark:border-white/[0.05]">
+                  <td className="px-6 py-2.5 text-[#3a3d34] dark:text-neutral-300">
+                    {r.pid ? <Link href={`/projects/${r.pid}`} className="hover:text-[#3C91E6] hover:underline">{r.name}</Link> : r.name}
                   </td>
-                  <td className="px-6 py-2.5 text-right font-semibold text-slate-800 tabular-nums dark:text-neutral-200">{formatMoney(r.val, base)}</td>
+                  <td className="px-6 py-2.5 text-right font-semibold tabular-nums text-[#272727] dark:text-neutral-200">{formatMoney(r.val, base)}</td>
                 </tr>
               ))}
             </tbody>
@@ -107,28 +110,28 @@ export default function AccrualsTable({
         <table className="w-full text-sm">
           <thead>
             <tr>
-              <th className="px-6 pb-2.5 pt-4 text-left text-[10.5px] font-bold uppercase tracking-[0.1em] text-slate-400 dark:text-neutral-500">Тип · за что</th>
-              <th className="px-6 pb-2.5 pt-4 text-right text-[10.5px] font-bold uppercase tracking-[0.1em] text-slate-400 dark:text-neutral-500">Начислено</th>
-              <th className="px-6 pb-2.5 pt-4 text-right text-[10.5px] font-bold uppercase tracking-[0.1em] text-slate-400 dark:text-neutral-500">Остаток</th>
+              <th className={`px-6 pb-3 pt-5 text-left ${LABEL}`}>Тип · за что</th>
+              <th className={`px-6 pb-3 pt-5 text-right ${LABEL}`}>Начислено</th>
+              <th className={`px-6 pb-3 pt-5 text-right ${LABEL}`}>Остаток</th>
               {manage && <th className="px-6" />}
             </tr>
           </thead>
           <tbody>
-            {groups.map((g) => {
+            {groups.map((g, gi) => {
               const out = g.items.reduce((s, r) => s + r.outstanding, 0);
-              const colSpan = manage ? 4 : 3;
               return (
                 <Fragment key={g.ym}>
+                  {/* разделитель + шапка месяца */}
                   <tr>
-                    <td colSpan={colSpan} className="px-6 pb-1.5 pt-3.5">
+                    <td colSpan={colSpan} className={`bg-black/[0.015] px-6 py-2.5 dark:bg-white/[0.03] ${gi > 0 ? "border-t-4 border-[#fbfcf9] dark:border-[#0f120f]" : ""}`}>
                       <div className="flex items-center justify-between">
-                        <span className="text-[10.5px] font-bold uppercase tracking-[0.09em] text-slate-400 dark:text-neutral-500">{g.ym === "—" ? "Без месяца" : monthLabel(g.ym)}</span>
-                        {out > 0 && <span className="text-[11.5px] font-medium text-amber-600 dark:text-amber-400">остаток {formatMoney(out, base)}</span>}
+                        <span className="text-[11px] font-bold uppercase tracking-[0.1em] text-[#6f736c] dark:text-neutral-400">{g.ym === "—" ? "Без месяца" : monthLabel(g.ym)}</span>
+                        {out > 0 && <span className="text-[12px] font-semibold tabular-nums text-[#F4442E]">остаток {formatMoney(out, base)}</span>}
                       </div>
                     </td>
                   </tr>
                   {g.items.map((o) => (
-                    <AccrualLine key={o.id} o={o} manage={manage} userId={userId} teamId={teamId}
+                    <AccrualLine key={o.id} o={o} base={base} manage={manage} userId={userId} teamId={teamId}
                       counterpartyId={counterpartyId} categories={categories} projects={projects} accounts={accounts} />
                   ))}
                 </Fragment>
@@ -136,28 +139,29 @@ export default function AccrualsTable({
             })}
           </tbody>
         </table>
-        <p className="px-6 pb-4 pt-2 text-[11.5px] leading-relaxed text-slate-400 dark:text-neutral-600">
-          Показаны неоплаченные. Статус — точка слева от суммы. «Погасить» — отметить выплату, «Привязать» — связать с операцией; «⋯» — изменить/запланировать.
-        </p>
       </div>
+      <p className="px-1 text-[11.5px] leading-relaxed text-[#9a9e95] dark:text-neutral-600">
+        Показаны неоплаченные. Статус — точка слева. «Погасить» — отметить выплату, «Привязать» — связать с операцией; «⋯» — изменить/запланировать.
+      </p>
     </section>
   );
 }
 
 function StatusDot({ paid, amount, base }: { paid: number; amount: number; base: string }) {
   if (amount > 0 && paid >= amount) {
-    return <span className="inline-flex items-center gap-1.5 text-[11.5px] font-medium text-slate-400"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />Погашено</span>;
+    return <span className="inline-flex items-center gap-1.5 text-[11.5px] font-medium text-[#82867b]"><span className="h-1.5 w-1.5 rounded-full bg-[#29BF12]" />Погашено</span>;
   }
   if (paid > 0) {
-    return <span className="inline-flex items-center gap-1.5 text-[11.5px] font-medium text-slate-500 dark:text-neutral-400"><span className="h-1.5 w-1.5 rounded-full bg-amber-500" />Частично · {formatMoney(paid, base)}</span>;
+    return <span className="inline-flex items-center gap-1.5 text-[11.5px] font-medium text-[#6f736c] dark:text-neutral-400"><span className="h-1.5 w-1.5 rounded-full bg-[#3C91E6]" />Частично · {formatMoney(paid, base)}</span>;
   }
-  return <span className="inline-flex items-center gap-1.5 text-[11.5px] font-medium text-slate-400 dark:text-neutral-500"><span className="h-1.5 w-1.5 rounded-full bg-slate-300 dark:bg-neutral-600" />Ожидает</span>;
+  return <span className="inline-flex items-center gap-1.5 text-[11.5px] font-medium text-[#9a9e95] dark:text-neutral-500"><span className="h-1.5 w-1.5 rounded-full bg-[#cfd2c9] dark:bg-neutral-600" />Ожидает</span>;
 }
 
 function AccrualLine({
-  o, manage, userId, teamId, counterpartyId, categories, projects, accounts,
+  o, base, manage, userId, teamId, counterpartyId, categories, projects, accounts,
 }: {
   o: AccrualRow;
+  base: string;
   manage: boolean;
   userId: string | null;
   teamId: string;
@@ -168,26 +172,25 @@ function AccrualLine({
 }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const done = o.outstanding <= 0;
-  const base = o.currency;
   const typeLabel = o.pay_part === "variable" ? "переменная" : "фиксированная";
 
   return (
-    <tr className={`border-t border-slate-50 dark:border-white/[0.05] ${done ? "opacity-60" : "hover:bg-slate-50/70 dark:hover:bg-white/[0.02]"}`}>
-      <td className="px-6 py-3.5">
+    <tr className={`border-t border-black/[0.05] transition dark:border-white/[0.05] ${done ? "opacity-60" : "hover:bg-black/[0.015] dark:hover:bg-white/[0.02]"}`}>
+      <td className="px-6 py-4">
         <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
           {o.project_id && o.project_name ? (
-            <Link href={`/projects/${o.project_id}`} className="font-semibold text-slate-800 hover:text-brand hover:underline dark:text-neutral-200">{o.project_name}</Link>
+            <Link href={`/projects/${o.project_id}`} className="font-semibold text-[#272727] hover:text-[#3C91E6] hover:underline dark:text-neutral-100">{o.project_name}</Link>
           ) : (
-            <span className="font-semibold text-slate-800 dark:text-neutral-200">Оклад{o.note && o.note.includes("аванс") ? " (аванс)" : ""}</span>
+            <span className="font-semibold text-[#272727] dark:text-neutral-100">Оклад{o.note && o.note.includes("аванс") ? " (аванс)" : ""}</span>
           )}
-          <span className="text-[12px] text-slate-400 dark:text-neutral-500">{typeLabel}</span>
+          <span className="text-[12px] text-[#a7aba2] dark:text-neutral-500">{typeLabel}</span>
           <StatusDot paid={o.paid} amount={o.amount} base={base} />
         </div>
       </td>
-      <td className="whitespace-nowrap px-6 py-3.5 text-right font-medium text-slate-600 tabular-nums dark:text-neutral-400">{formatMoney(o.amount, o.currency)}</td>
-      <td className={`whitespace-nowrap px-6 py-3.5 text-right font-semibold tabular-nums ${done ? "text-slate-400" : "text-amber-600 dark:text-amber-400"}`}>{formatMoney(o.outstanding, o.currency)}</td>
+      <td className="whitespace-nowrap px-6 py-4 text-right font-light tabular-nums text-[#6f736c] dark:text-neutral-400">{formatMoney(o.amount, o.currency)}</td>
+      <td className={`whitespace-nowrap px-6 py-4 text-right font-medium tabular-nums ${done ? "text-[#a7aba2] dark:text-neutral-600" : "text-[#272727] dark:text-neutral-100"}`}>{formatMoney(o.outstanding, o.currency)}</td>
       {manage && (
-        <td className="px-6 py-3.5 text-right">
+        <td className="px-6 py-4 text-right">
           {userId && (
             <div className="flex items-center justify-end gap-1">
               <LinkPaymentButton obligationId={o.id} oblType="payable" counterpartyId={counterpartyId} currency={o.currency} outstanding={o.outstanding} teamId={teamId} userId={userId} />
@@ -203,8 +206,8 @@ function AccrualLine({
                   )}
                 </>
               )}
-              <button onClick={() => setMoreOpen((v) => !v)} title="Ещё: изменить, запланировать"
-                className="rounded-full px-2 py-1 text-xs text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-white/[0.06]">⋯</button>
+              <button onClick={() => setMoreOpen((v) => !v)} title="Ещё: изменить, запланировать" aria-label="Ещё действия"
+                className="cursor-pointer rounded-full px-2 py-1 text-xs text-[#a7aba2] transition hover:bg-black/[0.04] hover:text-[#6f736c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3C91E6] dark:hover:bg-white/[0.06]">⋯</button>
             </div>
           )}
         </td>
