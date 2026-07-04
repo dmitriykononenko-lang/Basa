@@ -306,3 +306,10 @@ export const IconKey = (p: P) => (
     <path d="m13 8 3 3" />
   </svg>
 );
+
+export const IconChart = (p: P) => (
+  <svg {...base} className={p.className}>
+    <path d="M3 3v18h18" />
+    <path d="M7 14l3-3 3 3 4-5" />
+  </svg>
+);

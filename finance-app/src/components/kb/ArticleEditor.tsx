@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/lib/toast";
 import { Select } from "@/components/ui/select";
 import RichEditor from "@/components/kb/RichEditor";
+import { loomEmbedUrl, type Timecode } from "@/lib/kb-video";
 import {
   KB_KIND_LABELS,
   KB_STATUS_LABELS,
@@ -26,6 +27,8 @@ export type ArticleEditorData = {
   title: string;
   body: string;
   pass_score: number;
+  video_url: string | null;
+  timecodes: Timecode[];
   checklist: { content: string }[];
   questions: QuestionDraft[];
   departmentIds: string[];
@@ -48,6 +51,8 @@ export default function ArticleEditor({
   const [title, setTitle] = useState(initial?.title ?? "");
   const [body, setBody] = useState(initial?.body ?? "");
   const [passScore, setPassScore] = useState(initial?.pass_score ?? 80);
+  const [videoUrl, setVideoUrl] = useState(initial?.video_url ?? "");
+  const [timecodes, setTimecodes] = useState<Timecode[]>(initial?.timecodes ?? []);
   const [checklist, setChecklist] = useState<{ content: string }[]>(initial?.checklist ?? []);
   const [questions, setQuestions] = useState<QuestionDraft[]>(initial?.questions ?? []);
   const [deptIds, setDeptIds] = useState<string[]>(initial?.departmentIds ?? []);
@@ -115,18 +120,22 @@ export default function ArticleEditor({
       const { data: auth } = await supabase.auth.getUser();
       const uid = auth.user?.id;
 
+      // нормализуем видео и тайм-коды
+      const vid = videoUrl.trim() ? (loomEmbedUrl(videoUrl) ?? videoUrl.trim()) : null;
+      const tcs = timecodes.map((t) => ({ t: t.t.trim(), label: t.label.trim() })).filter((t) => t.t && t.label);
+
       // 1) статья
       let articleId = initial?.id;
       if (articleId) {
         const { error } = await supabase
           .from("kb_articles")
-          .update({ kind, status, title, body, pass_score: passScore })
+          .update({ kind, status, title, body, pass_score: passScore, video_url: vid, timecodes: tcs })
           .eq("id", articleId);
         if (error) throw error;
       } else {
         const { data, error } = await supabase
           .from("kb_articles")
-          .insert({ team_id: teamId, kind, status, title, body, pass_score: passScore, created_by: uid })
+          .insert({ team_id: teamId, kind, status, title, body, pass_score: passScore, video_url: vid, timecodes: tcs, created_by: uid })
           .select("id")
           .single();
         if (error) throw error;
@@ -227,6 +236,46 @@ export default function ArticleEditor({
         <Field label="Содержание">
           <RichEditor value={body} onChange={setBody} teamId={teamId} placeholder="Текст регламента / статьи… Добавляйте картинки, видео (загрузка) и Loom/YouTube по ссылке." />
         </Field>
+      </section>
+
+      {/* Видео урока (Loom) + тайм-коды */}
+      <section className="surface space-y-3 rounded-3xl p-5">
+        <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Видео урока (Loom)</h2>
+        <Field label="Ссылка на Loom (share или embed)">
+          <input value={videoUrl} onChange={(e) => setVideoUrl(e.target.value)} placeholder="https://www.loom.com/share/…" className="input" />
+        </Field>
+        {videoUrl.trim() && !loomEmbedUrl(videoUrl) && (
+          <p className="text-xs text-amber-600">Ссылка не распознана как Loom — сохраню как есть, но перемотка по тайм-кодам может не работать.</p>
+        )}
+        <div>
+          <div className="mb-1 flex items-center justify-between">
+            <span className="text-xs font-medium text-slate-500 dark:text-neutral-400">Тайм-коды</span>
+            <button type="button" onClick={() => setTimecodes((tc) => [...tc, { t: "", label: "" }])} className="btn-ghost px-2 py-1 text-xs">+ Тайм-код</button>
+          </div>
+          {timecodes.length === 0 ? (
+            <p className="text-xs text-slate-400">Например: <span className="font-mono">1:12</span> — «Открыли меню». Клик по тайм-коду перематывает видео.</p>
+          ) : (
+            <div className="space-y-2">
+              {timecodes.map((tc, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <input
+                    value={tc.t}
+                    onChange={(e) => setTimecodes((arr) => arr.map((x, idx) => (idx === i ? { ...x, t: e.target.value } : x)))}
+                    placeholder="1:12"
+                    className="input w-24 font-mono"
+                  />
+                  <input
+                    value={tc.label}
+                    onChange={(e) => setTimecodes((arr) => arr.map((x, idx) => (idx === i ? { ...x, label: e.target.value } : x)))}
+                    placeholder="Что происходит в этот момент"
+                    className="input flex-1"
+                  />
+                  <button type="button" onClick={() => setTimecodes((arr) => arr.filter((_, idx) => idx !== i))} className="btn-ghost px-2 text-sm">×</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </section>
 
       {/* Целевая аудитория */}

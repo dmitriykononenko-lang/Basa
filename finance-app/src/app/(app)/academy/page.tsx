@@ -4,6 +4,7 @@ import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import { KB_STATUS_LABELS, kbStatusBadgeClass } from "@/lib/kb";
 import { courseProgressPercent, dueStatus, DUE_LABELS, dueBadgeClass, unitAncestors } from "@/lib/academy";
 import EmptyState from "@/components/EmptyState";
+import { ensureVisible } from "@/lib/visibility-guard";
 
 export default async function AcademyPage({
   searchParams,
@@ -11,6 +12,7 @@ export default async function AcademyPage({
   searchParams: Promise<{ tab?: string; f?: string }>;
 }) {
   const { tab: tabRaw, f } = await searchParams;
+  await ensureVisible("learning");
   const current = await getCurrentTeam();
   if (!current) {
     return (
@@ -42,9 +44,9 @@ export default async function AcademyPage({
   }
   const myCourseIds = [...byCourse.keys()];
   const { data: myCoursesData } = myCourseIds.length
-    ? await supabase.from("academy_courses").select("id, title").in("id", myCourseIds)
-    : { data: [] as { id: string; title: string }[] };
-  const myCourses = (myCoursesData ?? []) as { id: string; title: string }[];
+    ? await supabase.from("academy_courses").select("id, title, cover_url").in("id", myCourseIds)
+    : { data: [] as { id: string; title: string; cover_url: string | null }[] };
+  const myCourses = (myCoursesData ?? []) as { id: string; title: string; cover_url: string | null }[];
 
   // дедлайны
   const today = new Date().toISOString().slice(0, 10);
@@ -125,7 +127,12 @@ export default async function AcademyPage({
                 const ds = dueStatus(c.due, c.allDone, today);
                 return (
                   <li key={c.id}>
-                    <Link href={`/academy/${c.id}`} className="surface group flex h-full flex-col rounded-3xl p-5 transition hover:ring-brand/40">
+                    <Link href={`/academy/${c.id}`} className="surface group flex h-full flex-col overflow-hidden rounded-3xl transition hover:ring-brand/40">
+                      {c.cover_url && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={c.cover_url} alt="" className="h-28 w-full object-cover" />
+                      )}
+                      <div className="flex flex-1 flex-col p-5">
                       <div className="flex items-start justify-between gap-2">
                         <h3 className="font-semibold text-slate-900 transition group-hover:text-brand dark:text-white">{c.title}</h3>
                         {c.allDone ? (
@@ -143,6 +150,7 @@ export default async function AcademyPage({
                           <span className="font-medium">{c.pct}%</span>
                         </div>
                         {c.due && !c.allDone && <div className="mt-1 text-[11px] text-slate-400">срок до {c.due}</div>}
+                      </div>
                       </div>
                     </Link>
                   </li>

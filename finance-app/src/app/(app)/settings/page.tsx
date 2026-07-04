@@ -67,6 +67,13 @@ const GROUPS: { title: string; items: Card[] }[] = [
         Icon: IconTeam,
         color: "bg-rose-500 text-white",
       },
+      {
+        href: "/settings/visibility",
+        title: "Шаблоны видимости",
+        desc: "Что видит каждая роль по умолчанию",
+        Icon: IconSettings,
+        color: "bg-indigo-600 text-white",
+      },
     ],
   },
 ];

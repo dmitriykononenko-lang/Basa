@@ -7,6 +7,12 @@ import {
   IconTransactions,
   IconCounterparties,
   IconProjects,
+  IconEmployees,
+  IconChart,
+  IconBook,
+  IconAcademy,
+  IconKey,
+  IconBudgets,
   IconReports,
   IconSettings,
 } from "./icons";
@@ -16,15 +22,23 @@ const ITEMS = [
   { href: "/transactions", title: "Операции", icon: IconTransactions },
   { href: "/counterparties", title: "Контрагенты", icon: IconCounterparties },
   { href: "/projects", title: "Проекты", icon: IconProjects },
+  { href: "/employees", title: "Сотрудники", icon: IconEmployees, match: "/employees" },
+  { href: "/metrics", title: "Показатели", icon: IconChart, match: "/metrics" },
+  { href: "/budgets", title: "Бюджеты", icon: IconBudgets },
+  { href: "/knowledge-base", title: "База знаний", icon: IconBook, match: "/knowledge-base" },
+  { href: "/academy", title: "Академия", icon: IconAcademy, match: "/academy" },
+  { href: "/vault", title: "Пароли", icon: IconKey, match: "/vault" },
   { href: "/reports/cashflow", title: "Аналитика", icon: IconReports, match: "/reports" },
   { href: "/settings", title: "Настройки", icon: IconSettings, match: "/settings" },
 ];
 
-export default function MobileNav() {
+export default function MobileNav({ hidden = [] }: { hidden?: string[] }) {
   const pathname = usePathname();
   const router = useRouter();
+  const hiddenSet = new Set(hidden);
+  const items = ITEMS.filter((it) => !hiddenSet.has(it.href));
 
-  const active = ITEMS.findIndex((it) => {
+  const active = items.findIndex((it) => {
     const base = it.match ?? it.href;
     return pathname === it.href || pathname === base || pathname.startsWith(base + "/");
   });
@@ -35,9 +49,9 @@ export default function MobileNav() {
         <ExpandableTabs
           className="w-max"
           selected={active === -1 ? null : active}
-          tabs={ITEMS.map(({ title, icon }) => ({ title, icon }))}
+          tabs={items.map(({ title, icon }) => ({ title, icon }))}
           onChange={(i) => {
-            if (i !== null && ITEMS[i]) router.push(ITEMS[i].href);
+            if (i !== null && items[i]) router.push(items[i].href);
           }}
         />
       </div>

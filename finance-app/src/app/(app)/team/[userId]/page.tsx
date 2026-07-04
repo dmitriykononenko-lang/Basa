@@ -3,7 +3,9 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentTeam, canManageTeam } from "@/lib/team";
 import { ROLE_LABELS, type AppRole } from "@/lib/types";
+import { loadRoleTemplates, loadMemberOverrides } from "@/lib/visibility";
 import UserRoleCard from "@/components/UserRoleCard";
+import MemberVisibility from "@/components/team/MemberVisibility";
 
 function initials(name: string) {
   return name.split(" ").map((p) => p[0]).filter(Boolean).slice(0, 2).join("").toUpperCase();
@@ -67,6 +69,16 @@ export default async function TeamUserPage({ params }: { params: { userId: strin
 
   const name = profile?.full_name ?? email ?? "Без имени";
   const isSelf = params.userId === user?.id;
+  const memberRole = member.role as AppRole;
+
+  // Видимость разделов (для не-владельцев): шаблон роли + индивидуальные правила.
+  const [templates, overrides] =
+    memberRole !== "owner"
+      ? await Promise.all([
+          loadRoleTemplates(supabase, team.id),
+          loadMemberOverrides(supabase, team.id, params.userId),
+        ])
+      : [{}, {}];
 
   return (
     <div className="p-6 sm:p-8">
@@ -107,6 +119,24 @@ export default async function TeamUserPage({ params }: { params: { userId: strin
           isSelf={isSelf}
         />
       </div>
+
+      {memberRole !== "owner" ? (
+        <div className="max-w-2xl">
+          <MemberVisibility
+            teamId={team.id}
+            userId={params.userId}
+            memberRole={memberRole}
+            templates={templates}
+            initialOverrides={overrides}
+          />
+        </div>
+      ) : (
+        <div className="max-w-2xl">
+          <p className="mt-4 rounded-3xl bg-white p-6 text-sm text-slate-500 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:text-neutral-400 dark:ring-white/[0.07]">
+            Владелец видит все разделы приложения.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

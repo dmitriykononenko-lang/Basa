@@ -11,6 +11,7 @@ import { htmlToPreviewText } from "@/lib/sanitize";
 import KindIcon from "@/components/kb/KindIcon";
 import KbFilters from "@/components/kb/KbFilters";
 import EmptyState from "@/components/EmptyState";
+import { ensureVisible } from "@/lib/visibility-guard";
 
 function fmtDate(iso: string): string {
   try {
@@ -26,6 +27,7 @@ export default async function KnowledgeBasePage({
   searchParams: Promise<{ q?: string; kind?: string; status?: string }>;
 }) {
   const { q, kind, status } = await searchParams;
+  await ensureVisible("learning");
   const current = await getCurrentTeam();
   if (!current) {
     return (

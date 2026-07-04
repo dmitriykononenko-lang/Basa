@@ -17,11 +17,11 @@ export default async function CourseEditPage({ params }: { params: Promise<{ id:
 
   const { data: course } = await supabase
     .from("academy_courses")
-    .select("id, title, status, description")
+    .select("id, title, status, description, cover_url")
     .eq("id", id)
     .maybeSingle();
   if (!course) notFound();
-  const c = course as { id: string; title: string; status: KbStatus; description: string };
+  const c = course as { id: string; title: string; status: KbStatus; description: string; cover_url: string | null };
 
   const [{ data: items }, { data: articles }, { data: membersRaw }, { data: depts }, { data: assignmentsRaw }, { data: progress }, { data: empCps }] =
     await Promise.all([
@@ -29,7 +29,7 @@ export default async function CourseEditPage({ params }: { params: Promise<{ id:
       supabase.from("kb_articles").select("id, title, kind").eq("team_id", team.id).order("title"),
       supabase.from("team_members").select("user_id, profiles(full_name)").eq("team_id", team.id),
       supabase.from("kb_departments").select("id, name, parent_id, sort").eq("team_id", team.id),
-      supabase.from("academy_assignments").select("id, assignee_type, department_id, user_id, due_date").eq("course_id", id),
+      supabase.from("academy_assignments").select("id, assignee_type, department_id, user_id, due_date, recur_months").eq("course_id", id),
       supabase.from("academy_progress").select("user_id, status").eq("course_id", id),
       supabase.from("counterparties").select("user_id, unit_id").eq("team_id", team.id).contains("kinds", ["employee"]).eq("archived", false).not("user_id", "is", null),
     ]);
@@ -71,6 +71,7 @@ export default async function CourseEditPage({ params }: { params: Promise<{ id:
     title: c.title,
     status: c.status,
     description: c.description,
+    cover_url: c.cover_url,
     itemArticleIds: ((items ?? []) as { article_id: string }[]).map((i) => i.article_id),
   };
 
@@ -80,10 +81,12 @@ export default async function CourseEditPage({ params }: { params: Promise<{ id:
     department_id: string | null;
     user_id: string | null;
     due_date: string | null;
+    recur_months: number | null;
   }[]).map((a) => ({
     id: a.id,
     assignee_type: a.assignee_type,
     due_date: a.due_date,
+    recur_months: a.recur_months ?? 0,
     label: a.assignee_type === "user" ? memberName.get(a.user_id ?? "") ?? "—" : deptName.get(a.department_id ?? "") ?? "—",
   }));
 

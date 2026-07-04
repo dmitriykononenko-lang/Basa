@@ -4,7 +4,9 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import QuizRunner from "@/components/kb/QuizRunner";
 import KindIcon from "@/components/kb/KindIcon";
+import LessonVideo from "@/components/kb/LessonVideo";
 import { sanitizeRichHtml } from "@/lib/sanitize";
+import type { Timecode } from "@/lib/kb-video";
 import {
   KB_KIND_LABELS,
   KB_STATUS_LABELS,
@@ -22,11 +24,11 @@ export default async function ArticlePage({ params }: { params: Promise<{ id: st
   const { data: auth } = await supabase.auth.getUser();
   const { data: article } = await supabase
     .from("kb_articles")
-    .select("id, team_id, kind, status, title, body, pass_score, created_by, created_at, updated_at")
+    .select("id, team_id, kind, status, title, body, pass_score, video_url, timecodes, created_by, created_at, updated_at")
     .eq("id", id)
     .maybeSingle();
   if (!article) notFound();
-  const a = article as KbArticle;
+  const a = article as KbArticle & { video_url: string | null; timecodes: Timecode[] | null };
 
   const canEdit = canEditFinance(role) || a.created_by === auth.user?.id;
 
@@ -71,6 +73,12 @@ export default async function ArticlePage({ params }: { params: Promise<{ id: st
           </p>
         </div>
       </header>
+
+      {a.video_url?.startsWith("https://www.loom.com/embed/") && (
+        <div className="mb-4">
+          <LessonVideo embedUrl={a.video_url} timecodes={Array.isArray(a.timecodes) ? a.timecodes : []} />
+        </div>
+      )}
 
       {a.body && (
         <article
