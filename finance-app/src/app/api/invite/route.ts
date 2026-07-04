@@ -3,13 +3,13 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function POST(request: Request) {
-  let body: { teamId?: string; email?: string; role?: string };
+  let body: { teamId?: string; email?: string; role?: string; counterpartyId?: string };
   try {
     body = await request.json();
   } catch {
     return NextResponse.json({ error: "Некорректный запрос" }, { status: 400 });
   }
-  const { teamId, email, role } = body;
+  const { teamId, email, role, counterpartyId } = body;
   if (!teamId || !email) {
     return NextResponse.json({ error: "Укажите email" }, { status: 400 });
   }
@@ -30,6 +30,7 @@ export async function POST(request: Request) {
       email: email.trim().toLowerCase(),
       role: role || "employee",
       invited_by: user.id,
+      counterparty_id: counterpartyId ?? null,
     })
     .select("id")
     .single();

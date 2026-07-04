@@ -32,7 +32,7 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
   if (isOrg) {
     const [{ data: unitsRaw }, { data: empRaw }, { data: membersRaw }, { data: posRaw }, { data: salRaw }] = await Promise.all([
       supabase.from("kb_departments").select("id, name, parent_id, unit_type, result_text, functions_text, head_counterparty_id, sort").eq("team_id", team.id),
-      supabase.from("counterparties").select("id, name, unit_id, user_id").eq("team_id", team.id).contains("kinds", ["employee"]).eq("archived", false).order("name"),
+      supabase.from("counterparties").select("id, name, unit_id, user_id, email").eq("team_id", team.id).contains("kinds", ["employee"]).eq("archived", false).order("name"),
       supabase.from("team_members").select("user_id, profiles(full_name)").eq("team_id", team.id),
       supabase.from("employee_positions").select("counterparty_id, effective_from, position").eq("team_id", team.id).order("effective_from", { ascending: false }),
       supabase.from("employee_salaries").select("counterparty_id, effective_from, amount, currency").eq("team_id", team.id).order("effective_from", { ascending: false }),
@@ -44,7 +44,7 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
     const curSal = new Map<string, { amount: number; currency: string }>();
     for (const s of (salRaw ?? []) as { counterparty_id: string; amount: number; currency: string }[]) if (!curSal.has(s.counterparty_id)) curSal.set(s.counterparty_id, { amount: s.amount, currency: s.currency });
     const positionOptions = [...new Set(((posRaw ?? []) as { position: string }[]).map((p) => p.position).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ru"));
-    const employees = ((empRaw ?? []) as { id: string; name: string; unit_id: string | null; user_id: string | null }[]).map((e) => ({
+    const employees = ((empRaw ?? []) as { id: string; name: string; unit_id: string | null; user_id: string | null; email: string | null }[]).map((e) => ({
       ...e, position: curPos.get(e.id) ?? null, salary: curSal.get(e.id) ?? null,
     }));
     const members = ((membersRaw ?? []) as { user_id: string; profiles: { full_name: string | null } | { full_name: string | null }[] | null }[]).map((m) => ({

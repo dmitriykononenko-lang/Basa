@@ -6,9 +6,11 @@ import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/lib/toast";
 import { Select } from "@/components/ui/select";
 import { formatMoney } from "@/lib/format";
+import InviteEmployee from "@/components/org/InviteEmployee";
 
 type Emp = {
   id: string; name: string; unit_id: string | null; user_id: string | null;
+  email?: string | null;
   position?: string | null; salary?: { amount: number; currency: string } | null;
 };
 type Opt = { value: string; label: string };
@@ -103,7 +105,10 @@ export default function EmployeeOrgAssign({
                     {e.user_id ? (
                       <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400">есть доступ</span>
                     ) : (
-                      <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs text-slate-500 dark:bg-neutral-800 dark:text-neutral-400">нет доступа</span>
+                      <div className="flex items-center gap-2">
+                        <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs text-slate-500 dark:bg-neutral-800 dark:text-neutral-400">нет доступа</span>
+                        {teamId && <InviteEmployee teamId={teamId} counterpartyId={e.id} name={e.name} defaultEmail={e.email} />}
+                      </div>
                     )}
                   </td>
                 </tr>
