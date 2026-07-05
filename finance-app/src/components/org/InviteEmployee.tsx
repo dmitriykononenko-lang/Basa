@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Modal from "@/components/Modal";
 import { Select } from "@/components/ui/select";
 import { toast } from "@/lib/toast";
@@ -21,6 +22,7 @@ export default function InviteEmployee({
   name: string;
   defaultEmail?: string | null;
 }) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState(defaultEmail ?? "");
   const [role, setRole] = useState<AppRole>("employee");
@@ -41,6 +43,7 @@ export default function InviteEmployee({
       if (!res.ok) return toast.error(data.error || "Ошибка");
       setResult({ emailed: data.emailed, link: data.link, note: data.emailNote });
       if (data.emailed) toast.success("Приглашение отправлено");
+      router.refresh();
     } finally {
       setBusy(false);
     }
