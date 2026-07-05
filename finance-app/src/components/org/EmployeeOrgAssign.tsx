@@ -11,6 +11,7 @@ import InviteEmployee from "@/components/org/InviteEmployee";
 type Emp = {
   id: string; name: string; unit_id: string | null; user_id: string | null;
   email?: string | null;
+  invite?: { id: string; email: string } | null;
   position?: string | null; salary?: { amount: number; currency: string } | null;
 };
 type Opt = { value: string; label: string };
@@ -59,6 +60,16 @@ export default function EmployeeOrgAssign({
     router.refresh();
   }
 
+  async function cancelInvite(inviteId: string, key: string) {
+    setBusy(key);
+    const supabase = createClient();
+    const { error } = await supabase.from("invites").delete().eq("id", inviteId);
+    setBusy(null);
+    if (error) { toast.error(error.message); return; }
+    toast.success("Приглашение отменено");
+    router.refresh();
+  }
+
   const unitOpts = [{ value: "", label: "— без узла —" }, ...unitOptions];
   const memberOpts = [{ value: "", label: "— нет доступа —" }, ...members.map((m) => ({ value: m.id, label: m.name }))];
   const posOpts = [{ value: "", label: "— не задана —" }, ...positionOptions.map((p) => ({ value: p, label: p }))];
@@ -104,6 +115,23 @@ export default function EmployeeOrgAssign({
                   <td className="py-2">
                     {e.user_id ? (
                       <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400">есть доступ</span>
+                    ) : e.invite ? (
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-400"
+                          title={`Приглашён: ${e.invite.email}`}
+                        >
+                          приглашён
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => cancelInvite(e.invite!.id, `i-${e.id}`)}
+                          disabled={busy === `i-${e.id}`}
+                          className="text-xs text-slate-400 transition hover:text-red-600"
+                        >
+                          Отменить
+                        </button>
+                      </div>
                     ) : (
                       <div className="flex items-center gap-2">
                         <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs text-slate-500 dark:bg-neutral-800 dark:text-neutral-400">нет доступа</span>
