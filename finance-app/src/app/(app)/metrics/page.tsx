@@ -70,6 +70,7 @@ export default async function MetricsPage() {
       owners={owners}
       units={units}
       uid={uid}
+      teamId={team.id}
       canManage={canManage}
     />
   );
