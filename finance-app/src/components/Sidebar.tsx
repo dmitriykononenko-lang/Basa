@@ -22,6 +22,7 @@ import {
   IconAcademy,
   IconKey,
   IconChart,
+  IconCompany,
 } from "./icons";
 
 type Item = {
@@ -36,6 +37,7 @@ type Group = { label: string; Icon: (p: { className?: string }) => JSX.Element; 
 
 // Верхний уровень — самое частое и приоритетное.
 const TOP: Item[] = [
+  { href: "/os", label: "ОС компании", Icon: IconCompany, match: ["/os"] },
   { href: "/dashboard", label: "Дашборд", Icon: IconDashboard },
   { href: "/transactions", label: "Операции", Icon: IconTransactions },
   { href: "/metrics", label: "Показатели", Icon: IconChart, match: ["/metrics"] },

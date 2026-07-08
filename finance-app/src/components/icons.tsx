@@ -20,6 +20,14 @@ export const IconDashboard = (p: P) => (
   </svg>
 );
 
+export const IconCompany = (p: P) => (
+  <svg {...base} className={p.className}>
+    <rect x="3" y="8" width="8" height="13" rx="1.5" />
+    <rect x="13" y="3" width="8" height="18" rx="1.5" />
+    <path d="M6 12h2M6 15h2M16 7h2M16 11h2M16 15h2" />
+  </svg>
+);
+
 export const IconTransactions = (p: P) => (
   <svg {...base} className={p.className}>
     <path d="M7 7h13l-3-3" />
