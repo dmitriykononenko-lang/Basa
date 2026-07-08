@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentTeam } from "@/lib/team";
+import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import { loadRoleTemplates, loadMemberOverrides, hiddenHrefs } from "@/lib/visibility";
 import Sidebar from "@/components/Sidebar";
 import MobileNav from "@/components/MobileNav";
@@ -56,6 +56,8 @@ export default async function AppLayout({
       ])
     : [{}, {}];
   const hidden = current ? hiddenHrefs(current.role, tmpl, ovr) : [];
+  // «ОС компании» — обзор для руководителей (owner/admin/manager).
+  if (current && !canEditFinance(current.role)) hidden.push("/os");
 
   return (
     <div className="min-h-screen p-2 sm:p-3">
