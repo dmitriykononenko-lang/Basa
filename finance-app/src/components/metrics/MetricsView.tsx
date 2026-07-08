@@ -53,12 +53,14 @@ export default function MetricsView({
   owners,
   units,
   uid,
+  teamId,
   canManage,
 }: {
   metrics: MetricWithData[];
   owners: OwnerOption[];
   units: UnitOption[];
   uid: string | null;
+  teamId: string;
   canManage: boolean;
 }) {
   const supabase = useState(() => createClient())[0];
@@ -192,7 +194,7 @@ export default function MetricsView({
         <MetricEditor
           open={editorOpen}
           onClose={() => setEditorOpen(false)}
-          teamId={(items[0]?.team_id) ?? editing?.team_id ?? ""}
+          teamId={teamId}
           metric={editing}
           owners={owners}
           unitOptions={unitOptions}
