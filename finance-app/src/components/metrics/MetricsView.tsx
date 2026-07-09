@@ -13,8 +13,12 @@ import {
   formatMetric,
   periodLabel,
   PERIOD_LABELS,
+  metricStatus,
+  STATE_LABELS,
+  stateColor,
   type Metric,
   type MetricPeriod,
+  type MetricStatus,
 } from "@/lib/metrics";
 
 export type OwnerOption = { user_id: string; name: string };
@@ -73,6 +77,12 @@ export default function MetricsView({
 
   const unitOptions = useMemo(() => buildUnitOptions(units), [units]);
   const hasMine = !!uid && items.some((m) => m.owner_user_id === uid);
+
+  // Авто-состояние каждой метрики + счётчики сверху.
+  const statuses = useMemo(() => new Map(items.map((m) => [m.id, metricStatus(m.series, m)])), [items]);
+  const activeItems = useMemo(() => items.filter((m) => m.is_active), [items]);
+  const growingCount = activeItems.filter((m) => statuses.get(m.id)?.trend === "up").length;
+  const fallingCount = activeItems.filter((m) => statuses.get(m.id)?.trend === "down").length;
 
   const visible = items.filter((m) => {
     if (tab === "mine" && m.owner_user_id !== uid) return false;
@@ -143,6 +153,15 @@ export default function MetricsView({
         </div>
       </header>
 
+      {/* Счётчики состояния (авто) */}
+      {items.length > 0 && (
+        <div className="mb-5 grid grid-cols-3 gap-3">
+          <CounterCard label="Активные метрики" value={activeItems.length} />
+          <CounterCard label="Растущие" value={growingCount} accent="text-emerald-600 dark:text-emerald-400" />
+          <CounterCard label="Падающие" value={fallingCount} accent="text-amber-600 dark:text-amber-400" />
+        </div>
+      )}
+
       <div className="mb-5 flex flex-wrap items-center gap-2">
         {hasMine && (
           <div className="inline-flex rounded-full bg-slate-100 p-1 text-sm dark:bg-neutral-800">
@@ -181,6 +200,7 @@ export default function MetricsView({
             <MetricCard
               key={m.id}
               m={m}
+              status={statuses.get(m.id)!}
               canEnter={canManage || m.owner_user_id === uid}
               canManage={canManage}
               onSaveValue={(raw) => saveValue(m, raw)}
@@ -204,14 +224,35 @@ export default function MetricsView({
   );
 }
 
+function CounterCard({ label, value, accent = "text-slate-900 dark:text-white" }: { label: string; value: number; accent?: string }) {
+  return (
+    <div className="surface rounded-2xl p-4">
+      <div className={`text-3xl font-extrabold ${accent}`}>{value}</div>
+      <div className="mt-0.5 text-xs text-slate-400 dark:text-neutral-500">{label}</div>
+    </div>
+  );
+}
+
+function StateBadge({ state }: { state: MetricStatus["state"] }) {
+  const c = stateColor(state);
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium" style={{ color: c, background: `${c}1a` }}>
+      <span className="h-1.5 w-1.5 rounded-full" style={{ background: c }} />
+      {STATE_LABELS[state]}
+    </span>
+  );
+}
+
 function MetricCard({
   m,
+  status,
   canEnter,
   canManage,
   onSaveValue,
   onEdit,
 }: {
   m: MetricWithData;
+  status: MetricStatus;
   canEnter: boolean;
   canManage: boolean;
   onSaveValue: (raw: string) => Promise<void>;
@@ -235,7 +276,8 @@ function MetricCard({
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <Link href={`/metrics/${m.id}`} className="block truncate font-semibold text-slate-900 transition hover:text-brand dark:text-white">{m.name}</Link>
-          <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400 dark:text-neutral-500">
+          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400 dark:text-neutral-500">
+            <StateBadge state={status.state} />
             <span className="rounded-full bg-slate-100 px-2 py-0.5 dark:bg-neutral-800">{PERIOD_LABELS[m.period as MetricPeriod]}</span>
             {m.unitName && <span className="rounded-full bg-slate-100 px-2 py-0.5 dark:bg-neutral-800">{m.unitName}</span>}
             {m.ownerName && <span>· {m.ownerName}</span>}
@@ -258,7 +300,7 @@ function MetricCard({
             </div>
           )}
         </div>
-        <Sparkline series={m.series} good={good} />
+        <Sparkline series={m.series} color={stateColor(status.state)} />
       </div>
 
       {m.plan != null && pct != null && (
@@ -287,7 +329,7 @@ function MetricCard({
   );
 }
 
-function Sparkline({ series, good }: { series: { period_start: string; value: number | null }[]; good: boolean | null }) {
+function Sparkline({ series, color }: { series: { period_start: string; value: number | null }[]; color: string }) {
   const pts = series.map((p) => p.value).filter((v): v is number => v != null);
   if (pts.length < 2) return <div className="h-8 w-20" />;
   const min = Math.min(...pts);
@@ -302,10 +344,9 @@ function Sparkline({ series, good }: { series: { period_start: string; value: nu
     lastY = H - ((p.value - min) / span) * H;
     return `${x.toFixed(1)},${lastY.toFixed(1)}`;
   }).filter(Boolean) as string[];
-  const stroke = good == null ? "#94a3b8" : good ? "#10b981" : "#f59e0b";
   return (
     <svg width={W} height={H} className="shrink-0">
-      <polyline points={coords.join(" ")} fill="none" stroke={stroke} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <polyline points={coords.join(" ")} fill="none" stroke={color} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

@@ -97,10 +97,76 @@ export function achievement(
 export function formatMetric(value: number | null | undefined, unit: string): string {
   if (value == null) return "—";
   const n = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value);
-  return unit ? `${n} ${unit}` : n;
+  return unit ? `${n} ${unit}` : n;
 }
 
-// redeploy: подключение Git восстановлено, триггер прод-сборки
-// redeploy trigger 2: Git-доступ выдан
-// redeploy trigger 3: репозиторий подключён к Vercel
-// redeploy trigger 4: basa-16bf переподключён
+// ─── Авто-состояние метрики ──────────────────────────────────────────────────
+// «Формулы состояния» зашиты здесь: график/карточки определяют состояние сами
+// из ряда значений, направления и плана. Ничего вручную выставлять не нужно.
+
+export type MetricTrend = "up" | "down" | "flat" | "none";
+export type MetricStateKey = "growing" | "falling" | "steady" | "problem" | "empty";
+
+export type MetricStatus = {
+  trend: MetricTrend; // движение факта в «хорошую» сторону к прошлому периоду
+  belowPlan: boolean; // факт хуже плана
+  filledCurrent: boolean; // заполнен ли текущий период
+  problem: boolean; // требует внимания (ниже плана или не заполнено)
+  state: MetricStateKey; // итоговое состояние (приоритет: проблема → рост/падение → стабильно)
+  last: number | null;
+  prev: number | null;
+};
+
+export function metricStatus(
+  series: { period_start: string; value: number | null }[],
+  metric: { period: MetricPeriod; direction: MetricDirection; plan: number | null },
+  today: Date = new Date(),
+): MetricStatus {
+  const entered = series
+    .filter((s): s is { period_start: string; value: number } => s.value != null)
+    .slice()
+    .sort((a, b) => (a.period_start < b.period_start ? -1 : 1));
+  const curStart = periodStart(today, metric.period);
+  const filledCurrent = entered.some((v) => v.period_start === curStart);
+  if (entered.length === 0) {
+    return { trend: "none", belowPlan: false, filledCurrent: false, problem: true, state: "empty", last: null, prev: null };
+  }
+  const last = entered[entered.length - 1].value;
+  const prev = entered.length >= 2 ? entered[entered.length - 2].value : null;
+  const { good } = achievement(last, metric.plan, metric.direction);
+  const belowPlan = metric.plan != null && good === false;
+  let trend: MetricTrend = "none";
+  if (prev != null) {
+    const improving = metric.direction === "up_good" ? last > prev : last < prev;
+    const worsening = metric.direction === "up_good" ? last < prev : last > prev;
+    trend = improving ? "up" : worsening ? "down" : "flat";
+  }
+  const problem = belowPlan || !filledCurrent;
+  const state: MetricStateKey = belowPlan
+    ? "problem"
+    : trend === "up"
+      ? "growing"
+      : trend === "down"
+        ? "falling"
+        : "steady";
+  return { trend, belowPlan, filledCurrent, problem, state, last, prev };
+}
+
+export const STATE_LABELS: Record<MetricStateKey, string> = {
+  growing: "Растёт",
+  falling: "Падает",
+  steady: "Стабильно",
+  problem: "Проблема",
+  empty: "Нет данных",
+};
+
+// Цвет состояния — для точки/бейджа/линии графика.
+export function stateColor(state: MetricStateKey): string {
+  return state === "growing"
+    ? "#10b981"
+    : state === "falling"
+      ? "#f59e0b"
+      : state === "problem"
+        ? "#ef4444"
+        : "#94a3b8";
+}
