@@ -13,6 +13,9 @@ import {
   formatMetric,
   periodLabel,
   recentPeriodStarts,
+  metricStatus,
+  STATE_LABELS,
+  stateColor,
   PERIOD_LABELS,
   DIRECTION_LABELS,
   type Metric,
@@ -51,17 +54,23 @@ export default function MetricDetail({
 
   const byPeriod = useMemo(() => new Map(rows.map((r) => [r.period_start, r])), [rows]);
 
+  // Авто-состояние метрики по всему ряду.
+  const status = useMemo(
+    () => metricStatus(rows.map((r) => ({ period_start: r.period_start, value: r.value })), metric),
+    [rows, metric],
+  );
+
   // график: последние 12 периодов, точки с фактом + линия плана
   const chartSeries: ChartSeries[] = useMemo(() => {
     const starts = recentPeriodStarts(new Date(), metric.period as MetricPeriod, 12);
     const plotted = starts.filter((ps) => byPeriod.has(ps));
     const fact = plotted.map((ps) => ({ value: byPeriod.get(ps)!.value, date: periodLabel(ps, metric.period as MetricPeriod) }));
-    const out: ChartSeries[] = [{ name: "Факт", data: fact, color: metric.direction === "down_good" ? "#8b5cf6" : "#2f6df6" }];
+    const out: ChartSeries[] = [{ name: "Факт", data: fact, color: stateColor(status.state) }];
     if (metric.plan != null && plotted.length > 0) {
       out.push({ name: "План", data: plotted.map((ps) => ({ value: metric.plan as number, date: periodLabel(ps, metric.period as MetricPeriod) })), color: "#f59e0b" });
     }
     return out;
-  }, [byPeriod, metric.period, metric.plan, metric.direction]);
+  }, [byPeriod, metric.period, metric.plan, status.state]);
   const hasChart = (chartSeries[0]?.data.length ?? 0) >= 2;
 
   // текущее значение и тренд
@@ -127,6 +136,13 @@ export default function MetricDetail({
       <header className="mb-5">
         <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">{metric.name}</h1>
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-slate-400 dark:text-neutral-500">
+          <span
+            className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium"
+            style={{ color: stateColor(status.state), background: `${stateColor(status.state)}1a` }}
+          >
+            <span className="h-1.5 w-1.5 rounded-full" style={{ background: stateColor(status.state) }} />
+            {STATE_LABELS[status.state]}
+          </span>
           <span className="rounded-full bg-slate-100 px-2 py-0.5 dark:bg-neutral-800">{PERIOD_LABELS[metric.period as MetricPeriod]}</span>
           <span className="rounded-full bg-slate-100 px-2 py-0.5 dark:bg-neutral-800">{DIRECTION_LABELS[metric.direction]}</span>
           {unitName && <span className="rounded-full bg-slate-100 px-2 py-0.5 dark:bg-neutral-800">{unitName}</span>}
