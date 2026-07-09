@@ -29,6 +29,9 @@ export default function TransactionsFilter({
       if (value && value !== "all") params.set(key, value);
       else params.delete(key);
     }
+    // Смена любого фильтра всегда возвращает на первую страницу,
+    // иначе остаётся ст'old page (напр. «Страница 2 из 1» → пусто).
+    params.delete("page");
     router.push(`/transactions?${params.toString()}`);
   }
   const setParam = (k: string, v: string) => setParams({ [k]: v });
