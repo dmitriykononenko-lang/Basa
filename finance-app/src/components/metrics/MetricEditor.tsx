@@ -50,6 +50,15 @@ export default function MetricEditor({
       toast.error("Укажите название показателя");
       return;
     }
+    // Метрика обязательно закрепляется за сотрудником и узлом оргструктуры.
+    if (!owner) {
+      toast.error("Назначьте ответственного");
+      return;
+    }
+    if (!unitId) {
+      toast.error("Укажите отдел / узел оргструктуры");
+      return;
+    }
     const planNum = plan.trim() === "" ? null : Number(plan.replace(",", "."));
     if (planNum != null && !Number.isFinite(planNum)) {
       toast.error("План — число");
@@ -125,11 +134,11 @@ export default function MetricEditor({
         </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Field label="Ответственный">
-            <Select value={owner} onChange={setOwner} placeholder="— не назначен —" options={[{ value: "", label: "— не назначен —" }, ...owners.map((o) => ({ value: o.user_id, label: o.name }))]} />
+          <Field label="Ответственный" required>
+            <Select value={owner} onChange={setOwner} placeholder="— выберите —" options={[{ value: "", label: "— выберите —" }, ...owners.map((o) => ({ value: o.user_id, label: o.name }))]} />
           </Field>
-          <Field label="Отдел / узел">
-            <Select value={unitId} onChange={setUnitId} placeholder="— не привязан —" options={[{ value: "", label: "— не привязан —" }, ...unitOptions]} />
+          <Field label="Отдел / узел (должность)" required>
+            <Select value={unitId} onChange={setUnitId} placeholder="— выберите —" options={[{ value: "", label: "— выберите —" }, ...unitOptions]} />
           </Field>
         </div>
 
@@ -160,10 +169,13 @@ export default function MetricEditor({
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">{label}</span>
+      <span className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">
+        {label}
+        {required && <span className="ml-0.5 text-red-500">*</span>}
+      </span>
       {children}
     </label>
   );
