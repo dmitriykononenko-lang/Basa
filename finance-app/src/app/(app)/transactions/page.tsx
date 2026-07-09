@@ -84,7 +84,7 @@ export default async function TransactionsPage({
 
   const { gte, lte } = periodRange(period, sp.from, sp.to);
   const PAGE_SIZE = 50;
-  const page = Math.max(1, Number(sp.page) || 1);
+  const rawPage = Math.max(1, Number(sp.page) || 1);
 
   // Одни и те же фильтры применяем и к выборке страницы, и к подсчёту total.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -105,6 +105,8 @@ export default async function TransactionsPage({
     supabase.from("transactions").select("id", { count: "exact", head: true }).eq("team_id", team.id),
   );
   const totalPages = Math.max(1, Math.ceil((totalCount ?? 0) / PAGE_SIZE));
+  // Не даём выйти за пределы: устаревший page из URL/фильтра → пустая страница.
+  const page = Math.min(rawPage, totalPages);
 
   const { data: txs } = await applyFilters(
     supabase
