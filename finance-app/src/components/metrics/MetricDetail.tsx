@@ -12,6 +12,7 @@ import {
   achievement,
   formatMetric,
   periodLabel,
+  periodStart,
   recentPeriodStarts,
   metricStatus,
   STATE_LABELS,
@@ -42,9 +43,9 @@ export default function MetricDetail({
   const supabase = useState(() => createClient())[0];
   const [rows, setRows] = useState<MetricValue[]>(values);
 
-  // форма ввода
+  // форма ввода: последние 26 периодов + выбор произвольной даты (за старый период)
   const periodOptions = useMemo(() => {
-    const starts = recentPeriodStarts(new Date(), metric.period as MetricPeriod, 12);
+    const starts = recentPeriodStarts(new Date(), metric.period as MetricPeriod, 26);
     return starts.slice().reverse().map((ps) => ({ value: ps, label: periodLabel(ps, metric.period as MetricPeriod) }));
   }, [metric.period]);
   const [pStart, setPStart] = useState(periodOptions[0]?.value ?? "");
@@ -83,6 +84,11 @@ export default function MetricDetail({
     setPStart(r.period_start);
     setVal(String(r.value));
     setNote(r.note);
+  }
+
+  function pickDate(dateStr: string) {
+    if (!dateStr) return;
+    setPStart(periodStart(new Date(`${dateStr}T00:00:00Z`), metric.period as MetricPeriod));
   }
 
   async function save() {
@@ -178,11 +184,16 @@ export default function MetricDetail({
       {/* Ввод значения */}
       {canEnter && (
         <div className="surface mb-5 rounded-3xl p-5">
-          <h2 className="mb-3 text-sm font-semibold text-slate-800 dark:text-neutral-100">Вписать факт</h2>
+          <h2 className="mb-1 text-sm font-semibold text-slate-800 dark:text-neutral-100">Вписать факт</h2>
+          <p className="mb-3 text-xs text-slate-400 dark:text-neutral-500">Вносим за период: <b className="text-slate-600 dark:text-neutral-300">{pStart ? periodLabel(pStart, metric.period as MetricPeriod) : "—"}</b></p>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
             <label className="sm:w-40">
               <span className="mb-1 block text-xs text-slate-500 dark:text-neutral-400">Период</span>
               <Select value={pStart} onChange={setPStart} options={periodOptions} />
+            </label>
+            <label className="sm:w-40">
+              <span className="mb-1 block text-xs text-slate-500 dark:text-neutral-400">…или дата (старый период)</span>
+              <input type="date" onChange={(e) => pickDate(e.target.value)} className="input w-full" />
             </label>
             <label className="flex-1">
               <span className="mb-1 block text-xs text-slate-500 dark:text-neutral-400">Значение</span>
