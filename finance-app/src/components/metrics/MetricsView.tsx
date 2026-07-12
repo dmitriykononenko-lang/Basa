@@ -32,6 +32,13 @@ export type MetricWithData = Metric & {
   currentPeriodStart: string;
 };
 
+// Дот-матрица для крупных чисел (как в витрине). С @supports-фолбэком:
+// без поддержки background-clip:text цифры остаются обычными.
+const DOT_CSS = `@supports ((-webkit-background-clip:text) or (background-clip:text)){
+  .dotnum{background-image:radial-gradient(circle at 50% 50%,currentColor 42%,transparent 46%);
+  background-size:.14em .14em;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+}`;
+
 // Индентированные подписи узлов оргструктуры (дерево по parent_id).
 function buildUnitOptions(units: UnitOption[]): { value: string; label: string }[] {
   const children = new Map<string | null, UnitOption[]>();
@@ -133,6 +140,7 @@ export default function MetricsView({
 
   return (
     <div className="p-6 sm:p-8">
+      <style dangerouslySetInnerHTML={{ __html: DOT_CSS }} />
       <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">Показатели</h1>
@@ -153,12 +161,12 @@ export default function MetricsView({
         </div>
       </header>
 
-      {/* Счётчики состояния (авто) */}
+      {/* Счётчики состояния (авто) — стиль витрины */}
       {items.length > 0 && (
         <div className="mb-5 grid grid-cols-3 gap-3">
-          <CounterCard label="Активные метрики" value={activeItems.length} />
-          <CounterCard label="Растущие" value={growingCount} accent="text-emerald-600 dark:text-emerald-400" />
-          <CounterCard label="Падающие" value={fallingCount} accent="text-amber-600 dark:text-amber-400" />
+          <CounterCard label="Активные метрики" value={activeItems.length} tone="ink" />
+          <CounterCard label="Растущие" value={growingCount} tone="good" />
+          <CounterCard label="Падающие" value={fallingCount} tone="warn" />
         </div>
       )}
 
@@ -224,11 +232,17 @@ export default function MetricsView({
   );
 }
 
-function CounterCard({ label, value, accent = "text-slate-900 dark:text-white" }: { label: string; value: number; accent?: string }) {
+function CounterCard({ label, value, tone }: { label: string; value: number; tone: "ink" | "good" | "warn" }) {
+  const map = {
+    ink: { color: "text-slate-900 dark:text-white", grad: "from-slate-500/[0.06]" },
+    good: { color: "text-emerald-600 dark:text-emerald-400", grad: "from-emerald-500/[0.12]" },
+    warn: { color: "text-amber-600 dark:text-amber-400", grad: "from-amber-500/[0.12]" },
+  }[tone];
   return (
-    <div className="surface rounded-2xl p-4">
-      <div className={`text-3xl font-extrabold ${accent}`}>{value}</div>
-      <div className="mt-0.5 text-xs text-slate-400 dark:text-neutral-500">{label}</div>
+    <div className="surface relative overflow-hidden rounded-3xl p-5">
+      <div className={`pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t ${map.grad} to-transparent`} />
+      <div className={`dotnum relative text-[46px] font-bold leading-none tabular-nums ${map.color}`}>{String(value).padStart(2, "0")}</div>
+      <div className="relative mt-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">{label}</div>
     </div>
   );
 }
@@ -292,9 +306,9 @@ function MetricCard({
 
       <div className="mt-3 flex items-end justify-between gap-2">
         <div>
-          <div className={`text-2xl font-bold ${valueColor}`}>{formatMetric(m.current, m.unit)}</div>
+          <div className={`dotnum text-[32px] font-bold leading-none tabular-nums ${valueColor}`}>{formatMetric(m.current, m.unit)}</div>
           {m.plan != null && (
-            <div className="text-xs text-slate-400 dark:text-neutral-500">
+            <div className="mt-1 text-xs text-slate-400 dark:text-neutral-500">
               план {formatMetric(m.plan, m.unit)}
               {pct != null && <span className={`ml-1 font-medium ${good ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}`}>· {Math.round(pct)}%</span>}
             </div>
