@@ -40,7 +40,7 @@ export default function RootLayout({
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
-      <body>{children}</body>
+      <body className={manrope.className}>{children}</body>
     </html>
   );
 }
