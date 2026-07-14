@@ -23,6 +23,7 @@ import {
   IconKey,
   IconChart,
   IconCompany,
+  IconChecklist,
 } from "./icons";
 
 type Item = {
@@ -62,6 +63,7 @@ const GROUPS: Group[] = [
     Icon: IconEmployees,
     items: [
       { href: "/employees", label: "Сотрудники", Icon: IconEmployees },
+      { href: "/assess", label: "Оценка", Icon: IconChecklist, match: ["/assess"] },
       { href: "/knowledge-base", label: "База знаний", Icon: IconBook, match: ["/knowledge-base"] },
       { href: "/academy", label: "Академия", Icon: IconAcademy, match: ["/academy"] },
       { href: "/vault", label: "Пароли", Icon: IconKey, match: ["/vault"] },
