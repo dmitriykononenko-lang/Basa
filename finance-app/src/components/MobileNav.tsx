@@ -15,6 +15,7 @@ import {
   IconBudgets,
   IconReports,
   IconSettings,
+  IconChecklist,
 } from "./icons";
 
 const ITEMS = [
@@ -23,6 +24,7 @@ const ITEMS = [
   { href: "/counterparties", title: "Контрагенты", icon: IconCounterparties },
   { href: "/projects", title: "Проекты", icon: IconProjects },
   { href: "/employees", title: "Сотрудники", icon: IconEmployees, match: "/employees" },
+  { href: "/assess", title: "Оценка", icon: IconChecklist, match: "/assess" },
   { href: "/metrics", title: "Показатели", icon: IconChart, match: "/metrics" },
   { href: "/budgets", title: "Бюджеты", icon: IconBudgets },
   { href: "/knowledge-base", title: "База знаний", icon: IconBook, match: "/knowledge-base" },
