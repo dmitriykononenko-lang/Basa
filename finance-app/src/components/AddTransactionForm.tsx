@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Select } from "@/components/ui/select";
+import Combobox from "@/components/Combobox";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { parseMoney } from "@/lib/format";
@@ -224,18 +224,18 @@ export default function AddTransactionForm({
         </Field>
 
         <Field label={type === "transfer" ? "Со счёта" : "Счёт"}>
-          <Select value={accountId} onChange={setAccountId} options={accounts.map((a) => ({ value: a.id, label: `${a.name} (${a.currency})` }))} />
+          <Combobox value={accountId} onChange={setAccountId} options={accounts.map((a) => ({ value: a.id, label: `${a.name} (${a.currency})` }))} />
         </Field>
 
         {type === "transfer" && (
           <Field label="На счёт">
-            <Select value={transferAccountId} onChange={setTransferAccountId} placeholder="— выберите —" options={[{ value: "", label: "— выберите —" }, ...accounts.filter((a) => a.id !== accountId).map((a) => ({ value: a.id, label: `${a.name} (${a.currency})` }))]} />
+            <Combobox value={transferAccountId} onChange={setTransferAccountId} placeholder="— выберите —" emptyLabel="— выберите —" options={accounts.filter((a) => a.id !== accountId).map((a) => ({ value: a.id, label: `${a.name} (${a.currency})` }))} />
           </Field>
         )}
 
         {type !== "transfer" && (
           <Field label="Категория">
-            <Select value={categoryId} onChange={setCategoryId} placeholder="— без категории —" options={[{ value: "", label: "— без категории —" }, ...filteredCategories.map((c) => ({ value: c.id, label: c.name }))]} />
+            <Combobox value={categoryId} onChange={setCategoryId} placeholder="— без категории —" emptyLabel="— без категории —" options={filteredCategories.map((c) => ({ value: c.id, label: c.name }))} />
           </Field>
         )}
 
@@ -251,7 +251,7 @@ export default function AddTransactionForm({
               </div>
             ) : (
               <div className="flex gap-1">
-                <Select value={counterpartyId} onChange={setCounterpartyId} placeholder="— не указан —" options={[{ value: "", label: "— не указан —" }, ...cps.map((c) => ({ value: c.id, label: c.name }))]} />
+                <Combobox className="flex-1" value={counterpartyId} onChange={setCounterpartyId} placeholder="— не указан —" emptyLabel="— не указан —" options={cps.map((c) => ({ value: c.id, label: c.name }))} />
                 <button type="button" onClick={() => setCpAdd(true)} title="Новый контрагент" className="shrink-0 rounded-xl border border-slate-200 px-3 text-sm text-brand transition hover:bg-brand/5 dark:border-white/10">
                   +
                 </button>
@@ -271,7 +271,7 @@ export default function AddTransactionForm({
             </div>
           ) : (
             <div className="flex gap-1">
-              <Select value={projectId} onChange={setProjectId} placeholder="— без проекта —" options={[{ value: "", label: "— без проекта —" }, ...projs.map((p) => ({ value: p.id, label: p.name }))]} />
+              <Combobox className="flex-1" value={projectId} onChange={setProjectId} placeholder="— без проекта —" emptyLabel="— без проекта —" options={projs.map((p) => ({ value: p.id, label: p.name }))} />
               <button type="button" onClick={() => setPrAdd(true)} title="Новый проект" className="shrink-0 rounded-xl border border-slate-200 px-3 text-sm text-brand transition hover:bg-brand/5 dark:border-white/10">
                 +
               </button>
