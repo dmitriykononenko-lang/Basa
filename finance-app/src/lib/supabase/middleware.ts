@@ -35,9 +35,12 @@ export async function updateSession(request: NextRequest) {
   // Telegram Mini App: открывается в вебвью без supabase-сессии. Доступ к
   // /tg и /api/tg авторизуется через подпись initData в самих роутах.
   const isTelegram = path.startsWith("/tg") || path.startsWith("/api/tg");
+  // Публичное прохождение оценки по ссылке-токену: сотрудник без входа в Basa.
+  // Авторизация — по неугадываемому токену внутри RPC (assess_public_*).
+  const isPublicAssess = path === "/t" || path.startsWith("/t/");
 
   // Неавторизованных уводим на /login, сохраняя адрес назначения в ?next
-  if (!user && !isAuthRoute && !isTelegram) {
+  if (!user && !isAuthRoute && !isTelegram && !isPublicAssess) {
     const nextPath = request.nextUrl.pathname + request.nextUrl.search;
     const url = request.nextUrl.clone();
     url.pathname = "/login";
