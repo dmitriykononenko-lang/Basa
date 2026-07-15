@@ -16,7 +16,7 @@ import {
   type AssessItem,
 } from "@/lib/assess";
 
-type EmployeeOption = { id: string; name: string };
+type EmployeeOption = { id: string; name: string; email: string | null };
 type AssessmentCard = {
   id: string;
   counterparty_id: string | null;
@@ -61,17 +61,25 @@ export default function AssessView({
 
   const [mode, setMode] = useState<"list" | "test">("list");
   const [subjectId, setSubjectId] = useState("");
+  const [email, setEmail] = useState("");
   const [assessmentId, setAssessmentId] = useState<string | null>(null);
   const [answers, setAnswers] = useState<Record<string, number>>({});
   const [starting, setStarting] = useState(false);
-  const [sharing, setSharing] = useState(false);
+  const [sending, setSending] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [shared, setShared] = useState<{ name: string; url: string } | null>(null);
+  const [result, setResult] = useState<{ name: string; email: string; emailed: boolean; url: string; note: string | null } | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const empOptions: ComboOption[] = employees.map((e) => ({ value: e.id, label: e.name }));
   const subjectName = employees.find((e) => e.id === subjectId)?.name ?? "";
+
+  function pickSubject(v: string) {
+    setSubjectId(v);
+    setEmail(employees.find((e) => e.id === v)?.email ?? "");
+    setResult(null);
+    setError(null);
+  }
 
   const totalItems = items.length;
   const answeredCount = Object.keys(answers).length;
@@ -115,7 +123,7 @@ export default function AssessView({
     if (!subjectId) return;
     setStarting(true);
     setError(null);
-    setShared(null);
+    setResult(null);
     const res = await createAssessment();
     setStarting(false);
     if (!res) return;
@@ -125,18 +133,38 @@ export default function AssessView({
     window.scrollTo({ top: 0 });
   }
 
-  async function createLink() {
+  // Создать оценку и отправить сотруднику ссылку на его email.
+  async function sendInvite() {
     if (!subjectId) return;
-    setSharing(true);
+    const mail = email.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) {
+      setError("Укажите корректный email сотрудника");
+      return;
+    }
+    setSending(true);
     setError(null);
-    const res = await createAssessment();
-    setSharing(false);
-    if (!res) return;
-    const url = takeUrl(res.token);
-    await copy(url);
-    setShared({ name: subjectName, url });
-    setSubjectId("");
-    router.refresh();
+    setResult(null);
+    try {
+      const resp = await fetch("/api/assess/invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ counterpartyId: subjectId, email: mail }),
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data.ok) {
+        setError(data.error ?? "Не удалось отправить приглашение");
+        return;
+      }
+      if (!data.emailed) await copy(data.link);
+      setResult({ name: subjectName, email: mail, emailed: Boolean(data.emailed), url: data.link, note: data.note ?? null });
+      setSubjectId("");
+      setEmail("");
+      router.refresh();
+    } catch {
+      setError("Сеть недоступна, попробуйте ещё раз");
+    } finally {
+      setSending(false);
+    }
   }
 
   async function submit() {
@@ -163,6 +191,7 @@ export default function AssessView({
     setAssessmentId(null);
     setAnswers({});
     setSubjectId("");
+    setEmail("");
     setError(null);
   }
 
@@ -192,24 +221,37 @@ export default function AssessView({
         <div className="surface mt-6 p-5 sm:p-6">
           <h2 className="text-sm font-bold text-slate-900 dark:text-white">Новая оценка</h2>
           <p className="mt-1 text-xs text-slate-500 dark:text-neutral-400">
-            Выберите сотрудника, затем отправьте ему ссылку на тест или пройдите опросник сами.
+            Выберите сотрудника и отправьте ссылку на тест ему на почту. Результат привяжется к его карточке автоматически.
           </p>
-          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
-            <Combobox
-              value={subjectId}
-              onChange={setSubjectId}
-              options={empOptions}
-              placeholder="— выберите сотрудника —"
-              className="sm:max-w-sm sm:flex-1"
-            />
-            <div className="flex gap-2">
-              <button type="button" className="btn-primary shrink-0" disabled={!subjectId || sharing || starting} onClick={createLink}>
-                {sharing ? "Создаём…" : "Ссылка для сотрудника"}
-              </button>
-              <button type="button" className="btn-ghost shrink-0" disabled={!subjectId || starting || sharing} onClick={startTest}>
-                {starting ? "…" : "Пройти самому"}
-              </button>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Сотрудник</label>
+              <Combobox
+                value={subjectId}
+                onChange={pickSubject}
+                options={empOptions}
+                placeholder="— выберите сотрудника —"
+              />
             </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Email сотрудника</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="name@example.com"
+                className="input"
+                disabled={!subjectId}
+              />
+            </div>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button type="button" className="btn-primary shrink-0" disabled={!subjectId || !email.trim() || sending || starting} onClick={sendInvite}>
+              {sending ? "Отправляем…" : "Отправить на почту"}
+            </button>
+            <button type="button" className="btn-ghost shrink-0" disabled={!subjectId || starting || sending} onClick={startTest}>
+              {starting ? "…" : "Пройти самому"}
+            </button>
           </div>
           {employees.length === 0 && (
             <p className="mt-3 text-xs text-amber-600 dark:text-amber-400">
@@ -218,17 +260,21 @@ export default function AssessView({
           )}
           {error && <p className="mt-3 text-xs text-rose-600 dark:text-rose-400">{error}</p>}
 
-          {shared && (
+          {result && (
             <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-500/25 dark:bg-emerald-500/10">
               <div className="text-sm font-semibold text-emerald-800 dark:text-emerald-300">
-                Ссылка для «{shared.name}» скопирована
+                {result.emailed
+                  ? `Письмо отправлено «${result.name}» на ${result.email}`
+                  : `Ссылка для «${result.name}» готова`}
               </div>
               <p className="mt-1 text-xs text-emerald-700/80 dark:text-emerald-300/70">
-                Отправьте её сотруднику — он пройдёт тест без входа в Basa, отчёт появится здесь автоматически.
+                {result.emailed
+                  ? "Сотрудник пройдёт тест по ссылке из письма — отчёт появится здесь и в его карточке автоматически."
+                  : (result.note ? `${result.note}. ` : "") + "Скопируйте ссылку и отправьте сотруднику вручную."}
               </p>
               <div className="mt-2 flex items-center gap-2">
-                <input readOnly value={shared.url} onFocus={(e) => e.currentTarget.select()} className="input font-mono text-xs" />
-                <button type="button" className="btn-ghost shrink-0" onClick={() => copy(shared.url)}>
+                <input readOnly value={result.url} onFocus={(e) => e.currentTarget.select()} className="input font-mono text-xs" />
+                <button type="button" className="btn-ghost shrink-0" onClick={() => copy(result.url)}>
                   Копировать
                 </button>
               </div>

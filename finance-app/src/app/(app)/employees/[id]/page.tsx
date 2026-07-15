@@ -13,6 +13,7 @@ import EditEmployeePayment from "@/components/EditEmployeePayment";
 import EmployeeSummary from "@/components/employee/EmployeeSummary";
 import AccrualsTable, { type AccrualRow } from "@/components/employee/AccrualsTable";
 import { effectiveDue, businessDaysBetween, workdaysLabel } from "@/lib/workdays";
+import { levelColor, levelName, DEFAULT_BAND } from "@/lib/assess";
 
 // Шрифт карточки — Manrope (геометрический, с кириллицей и весом 300; Urbanist кириллицу не покрывает)
 const manrope = Manrope({ subsets: ["latin", "cyrillic"], weight: ["300", "400", "500", "600", "700"], display: "swap" });
@@ -64,6 +65,26 @@ export default async function EmployeePage({
   ]);
   const { data: positions } = await supabase
     .from("employee_positions").select("id, effective_from, position").eq("counterparty_id", id).order("effective_from", { ascending: false });
+  // Оценки этого сотрудника (модуль «Оценка»)
+  const { data: assessRows } = await supabase
+    .from("assessments")
+    .select("id, status, created_at, completed_at")
+    .eq("team_id", team.id)
+    .eq("counterparty_id", id)
+    .order("created_at", { ascending: false });
+  const assessList = (assessRows ?? []) as { id: string; status: string; created_at: string; completed_at: string | null }[];
+  const { data: assessScoreRows } = assessList.length
+    ? await supabase.from("assessment_scores").select("assessment_id, score").in("assessment_id", assessList.map((a) => a.id))
+    : { data: [] as { assessment_id: string; score: number }[] };
+  const assessAgg = new Map<string, { sum: number; n: number }>();
+  for (const s of (assessScoreRows ?? []) as { assessment_id: string; score: number }[]) {
+    const acc = assessAgg.get(s.assessment_id) ?? { sum: 0, n: 0 };
+    acc.sum += Number(s.score); acc.n += 1; assessAgg.set(s.assessment_id, acc);
+  }
+  const assessments = assessList.map((a) => {
+    const acc = assessAgg.get(a.id);
+    return { ...a, overall: acc && acc.n ? Math.round(acc.sum / acc.n) : null };
+  });
   // Проекты в работе, где сотрудник — ответственный (аналитик)
   const { data: activeProjects } = await supabase
     .from("projects")
@@ -357,6 +378,50 @@ export default async function EmployeePage({
                 })}
               </tbody>
             </table>
+          </div>
+        </section>
+      )}
+
+      {/* Оценка персонала */}
+      {assessments.length > 0 && (
+        <section className="mb-6">
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">
+            Оценка Soft Skills
+          </h2>
+          <div className="surface overflow-hidden divide-y divide-slate-100 dark:divide-white/[0.05]">
+            {assessments.map((a) => {
+              const done = a.status === "done" && a.overall != null;
+              const col = a.overall != null ? levelColor(a.overall, DEFAULT_BAND) : "#8b8f84";
+              const inner = (
+                <div className="flex items-center gap-4 px-5 py-3.5">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium text-slate-800 dark:text-neutral-200">
+                      {done ? "Оценка пройдена" : "Тест отправлен · ожидает прохождения"}
+                    </div>
+                    <div className="mt-0.5 text-xs text-slate-400 dark:text-neutral-500">
+                      {formatDate(a.completed_at ?? a.created_at)}
+                    </div>
+                  </div>
+                  {done ? (
+                    <div className="shrink-0 text-right">
+                      <div className="font-mono text-xl font-semibold leading-none" style={{ color: col }}>{a.overall}</div>
+                      <div className="mt-0.5 text-[11px] font-medium" style={{ color: col }}>{levelName(a.overall!, DEFAULT_BAND)}</div>
+                    </div>
+                  ) : (
+                    <span className="shrink-0 rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-400">
+                      Ожидает
+                    </span>
+                  )}
+                </div>
+              );
+              return done ? (
+                <Link key={a.id} href={`/assess/${a.id}`} className="block transition hover:bg-slate-50 dark:hover:bg-white/[0.03]">
+                  {inner}
+                </Link>
+              ) : (
+                <div key={a.id}>{inner}</div>
+              );
+            })}
           </div>
         </section>
       )}
