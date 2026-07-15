@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo } from "react";
 import { levelColor, levelName, initials, DEFAULT_BAND, LEVEL_COLORS } from "@/lib/assess";
+import { interpret } from "@/lib/assessInterpretations";
 
 export type ReportBlock = {
   key: string;
@@ -45,7 +46,14 @@ export default function AssessReport({
   const strengths = sorted.slice(0, 5);
   const growth = sorted.slice(-5).reverse();
 
-  const methodLabel = method === "self" ? "самооценка" : "тестирование";
+  const methodLabel = method === "self" ? "самооценка" : method === "manager" ? "оценка руководителя" : "тестирование";
+
+  // Достоверность самооценки: очень ровный и высокий профиль — частый признак
+  // завышенной самооценки (низкая самокритичность / ответы «как надо»).
+  const sd = allItems.length
+    ? Math.round(Math.sqrt(allItems.reduce((s, it) => s + (it.score - overall) ** 2, 0) / allItems.length))
+    : 0;
+  const inflated = method === "self" && overall >= 80 && sd < 15;
 
   // Категории: сводная (Soft Skills) + по блокам.
   const chips = [
@@ -100,6 +108,21 @@ export default function AssessReport({
           Шкала: 5 уровней
         </div>
       </div>
+
+      {/* Достоверность самооценки */}
+      {inflated && (
+        <div className="mt-4 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-500/25 dark:bg-amber-500/10">
+          <span className="mt-0.5 text-lg leading-none">⚠️</span>
+          <div>
+            <div className="text-sm font-semibold text-amber-800 dark:text-amber-300">Похоже на завышенную самооценку</div>
+            <p className="mt-1 text-xs leading-relaxed text-amber-700/90 dark:text-amber-300/80">
+              Профиль очень ровный и высокий (средний балл {overall}, разброс ±{sd}). Это частый признак низкой
+              самокритичности или ответов «как надо», а не реального уровня. Для объективной картины сравните
+              с оценкой руководителя и объективными тестами способностей.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Категории */}
       <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
@@ -216,6 +239,38 @@ export default function AssessReport({
             ))}
           </ul>
         </div>
+      </div>
+
+      {/* Подробная интерпретация по параметрам */}
+      <div className="mt-4 flex flex-col gap-4">
+        <h2 className="text-sm font-bold text-slate-900 dark:text-white">Подробная интерпретация</h2>
+        {blocks.map((b) => (
+          <section key={b.key} className="surface p-5 sm:p-6">
+            <div className="mb-4 flex items-baseline justify-between gap-3 border-b border-slate-100 pb-2.5 dark:border-white/[0.07]">
+              <h3 className="text-base font-bold text-slate-900 dark:text-white">{b.name}</h3>
+              <span className="font-mono text-xs text-slate-400 dark:text-neutral-500">блок · {b.score}/100</span>
+            </div>
+            <div className="flex flex-col gap-4">
+              {b.items.map((it) => {
+                const col = levelColor(it.score, b.band);
+                const text = interpret(it.name, it.score, b.band);
+                return (
+                  <div key={it.name}>
+                    <span
+                      className="inline-block rounded-full px-3.5 py-1 text-xs font-semibold text-white"
+                      style={{ background: col }}
+                    >
+                      {it.name} · {it.score}/100
+                    </span>
+                    {text && (
+                      <p className="mt-2 text-[13.5px] leading-relaxed text-slate-600 dark:text-neutral-300">{text}</p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        ))}
       </div>
     </div>
   );
