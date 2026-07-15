@@ -42,5 +42,40 @@
     "no_pipeline": "Pipeline not selected",
     "no_managers": "Manager list is empty",
     "server_error": "Server error: {message}"
+  },
+  "monitoring": {
+    "title": "Boss's Eye — Monitoring",
+    "tab_name": "Manager Monitoring",
+    "violations_title": "Violations",
+    "no_violations": "No violations found",
+    "violation_type_delay_response": "Delayed customer response",
+    "violation_type_client_waiting": "Client waiting for answer",
+    "violation_type_delay_kp": "Delayed commercial proposal",
+    "violation_status_new": "New",
+    "violation_status_sent_to_telegram": "Sent to Telegram",
+    "violation_status_resolved": "Resolved",
+    "violation_resolved_action_forgive": "Forgiven",
+    "violation_resolved_action_punish": "Punished",
+    "table_headers": {
+      "manager": "Manager",
+      "type": "Violation Type",
+      "lead": "Deal",
+      "message": "Description",
+      "created": "Detected",
+      "status": "Status",
+      "actions": "Actions"
+    },
+    "buttons": {
+      "forgive": "✓ Forgive",
+      "punish": "✗ Punish",
+      "view": "🔍 View",
+      "send_to_telegram": "📱 Send to Telegram",
+      "refresh": "⟳ Refresh"
+    },
+    "filters": {
+      "all_statuses": "All statuses",
+      "all_managers": "All managers",
+      "all_types": "All types"
+    }
   }
 }

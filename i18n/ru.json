@@ -42,5 +42,40 @@
     "no_pipeline": "Воронка не выбрана",
     "no_managers": "Список менеджеров пуст",
     "server_error": "Ошибка сервера: {message}"
+  },
+  "monitoring": {
+    "title": "Глаз босса — Мониторинг",
+    "tab_name": "Мониторинг менеджеров",
+    "violations_title": "Нарушения",
+    "no_violations": "Нарушений не найдено",
+    "violation_type_delay_response": "Задержка ответа клиенту",
+    "violation_type_client_waiting": "Клиент ждёт ответа",
+    "violation_type_delay_kp": "Задержка с КП",
+    "violation_status_new": "Новое",
+    "violation_status_sent_to_telegram": "Отправлено в ТГ",
+    "violation_status_resolved": "Разрешено",
+    "violation_resolved_action_forgive": "Помилован",
+    "violation_resolved_action_punish": "Наказан",
+    "table_headers": {
+      "manager": "Менеджер",
+      "type": "Тип нарушения",
+      "lead": "Сделка",
+      "message": "Описание",
+      "created": "Время обнаружения",
+      "status": "Статус",
+      "actions": "Действия"
+    },
+    "buttons": {
+      "forgive": "✓ Помиловать",
+      "punish": "✗ Казнить",
+      "view": "🔍 Посмотреть",
+      "send_to_telegram": "📱 Отправить в ТГ",
+      "refresh": "⟳ Обновить"
+    },
+    "filters": {
+      "all_statuses": "Все статусы",
+      "all_managers": "Все менеджеры",
+      "all_types": "Все типы"
+    }
   }
 }

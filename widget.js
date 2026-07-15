@@ -440,6 +440,7 @@ define(['jquery', 'underscore'], function($, _) {
                 '    <button type="button" class="dist-tab dist-tab--active" data-tab="rules">Правила</button>',
                 '    <button type="button" class="dist-tab" data-tab="schedules">Расписания</button>',
                 '    <button type="button" class="dist-tab" data-tab="log">История</button>',
+                '    <button type="button" class="dist-tab" data-tab="monitoring">👁️ Мониторинг</button>',
                 '  </div>',
 
                 // ── Tab: Rules ──────────────────────────────────────────────
@@ -497,6 +498,11 @@ define(['jquery', 'underscore'], function($, _) {
                 '    </div>',
                 '  </div>',
 
+                // ── Tab: Monitoring ─────────────────────────────────────────
+                '  <div class="dist-tab-panel" data-panel="monitoring" style="display:none;">',
+                '    <div class="js-monitoring-panel"></div>',
+                '  </div>',
+
                 '</div>'
             ].join(''));
 
@@ -508,8 +514,9 @@ define(['jquery', 'underscore'], function($, _) {
                 $container.find('.dist-tab-panel').hide();
                 $container.find('[data-panel="' + tab + '"]').show();
 
-                if (tab === 'schedules') renderSchedulesTab($container);
-                if (tab === 'log')       renderLogTab($container);
+                if (tab === 'schedules')   renderSchedulesTab($container);
+                if (tab === 'log')         renderLogTab($container);
+                if (tab === 'monitoring')  renderMonitoringTab($container, settings);
             });
 
             bindSettingsEvents($container, settings);
@@ -731,6 +738,210 @@ define(['jquery', 'underscore'], function($, _) {
                 ].join(''));
             }).fail(function() {
                 $body.html('<p class="dist-hint">Ошибка загрузки истории.</p>');
+            });
+        }
+
+        // ─── Monitoring tab ───────────────────────────────────────────────────
+
+        function renderMonitoringTab($container, settings) {
+            var $panel = $container.find('[data-panel="monitoring"]');
+            var $monitorPanel = $panel.find('.js-monitoring-panel');
+
+            // Render monitoring UI
+            var html = [
+                '<div class="monitor-section">',
+                '  <div class="monitor-toolbar">',
+                '    <div class="monitor-filters">',
+                '      <select class="js-filter-status monitor-select" style="width: auto;">',
+                '        <option value="">Все статусы</option>',
+                '        <option value="new">Новое</option>',
+                '        <option value="sent_to_telegram">Отправлено в ТГ</option>',
+                '        <option value="resolved">Разрешено</option>',
+                '      </select>',
+                '      <select class="js-filter-manager monitor-select" style="width: auto;">',
+                '        <option value="">Все менеджеры</option>',
+                '      </select>',
+                '    </div>',
+                '    <div class="monitor-actions">',
+                '      <button type="button" class="js-monitor-refresh monitor-btn">⟳ Обновить</button>',
+                '    </div>',
+                '  </div>',
+                '  <table class="monitor-table">',
+                '    <thead>',
+                '      <tr>',
+                '        <th>Менеджер</th>',
+                '        <th>Тип нарушения</th>',
+                '        <th>Сделка</th>',
+                '        <th>Описание</th>',
+                '        <th>Время</th>',
+                '        <th>Статус</th>',
+                '        <th>Действия</th>',
+                '      </tr>',
+                '    </thead>',
+                '    <tbody class="js-violations-list">',
+                '      <tr><td colspan="7" style="text-align:center; padding: 20px;">Загрузка...</td></tr>',
+                '    </tbody>',
+                '  </table>',
+                '</div>'
+            ].join('');
+
+            $monitorPanel.html(html);
+
+            // Bind events
+            $monitorPanel.off('click.monitor').on('click.monitor', '.js-monitor-refresh', function() {
+                loadMonitoringData($monitorPanel, settings);
+            });
+
+            $monitorPanel.on('change.monitor', '.js-filter-status, .js-filter-manager', function() {
+                renderViolationsTable($monitorPanel);
+            });
+
+            $monitorPanel.on('click.monitor', '.js-action-forgive', function() {
+                var violationId = $(this).data('violation-id');
+                resolveViolation(violationId, 'forgive', $monitorPanel, settings, function() {
+                    loadMonitoringData($monitorPanel, settings);
+                });
+            });
+
+            $monitorPanel.on('click.monitor', '.js-action-punish', function() {
+                var violationId = $(this).data('violation-id');
+                resolveViolation(violationId, 'punish', $monitorPanel, settings, function() {
+                    loadMonitoringData($monitorPanel, settings);
+                });
+            });
+
+            $monitorPanel.on('click.monitor', '.js-action-view', function() {
+                var leadId = $(this).data('lead-id');
+                if (window.AMOCRM && AMOCRM.data && AMOCRM.data.account) {
+                    var accountId = AMOCRM.data.account.id;
+                    window.open('https://' + accountId + '.amocrm.ru/leads/detail/' + leadId, '_blank');
+                }
+            });
+
+            loadMonitoringData($monitorPanel, settings);
+        }
+
+        var violationsCache = [];
+
+        function loadMonitoringData($panel, settings) {
+            var serverUrl = $.trim(settings.server_url).replace(/\/$/, '');
+            if (!serverUrl) {
+                $panel.find('.js-violations-list').html(
+                    '<tr><td colspan="7" style="text-align:center; color: #999; padding: 20px;">URL сервера не настроен. Откройте настройки.</td></tr>'
+                );
+                return;
+            }
+
+            apiRequest('/api/violations', null, 'GET').done(function(response) {
+                if (response.status === 'ok' && response.violations) {
+                    violationsCache = response.violations;
+                    populateManagerFilters($panel);
+                    renderViolationsTable($panel);
+                }
+            }).fail(function() {
+                $panel.find('.js-violations-list').html(
+                    '<tr><td colspan="7" style="text-align:center; color: #999; padding: 20px;">Ошибка загрузки нарушений</td></tr>'
+                );
+            });
+        }
+
+        function populateManagerFilters($panel) {
+            var managers = {};
+            _.each(violationsCache, function(v) {
+                if (v.manager_id && v.manager_name) {
+                    managers[v.manager_id] = v.manager_name;
+                }
+            });
+
+            var $select = $panel.find('.js-filter-manager');
+            var currentValue = $select.val();
+
+            $select.find('option:not(:first)').remove();
+            _.each(managers, function(name, id) {
+                $select.append('<option value="' + id + '">' + _.escape(name) + '</option>');
+            });
+
+            if (currentValue) {
+                $select.val(currentValue);
+            }
+        }
+
+        function renderViolationsTable($panel) {
+            var statusFilter = $panel.find('.js-filter-status').val();
+            var managerFilter = $panel.find('.js-filter-manager').val();
+
+            var filtered = _.filter(violationsCache, function(v) {
+                if (statusFilter && v.status !== statusFilter) return false;
+                if (managerFilter && String(v.manager_id) !== managerFilter) return false;
+                return true;
+            });
+
+            var $tbody = $panel.find('.js-violations-list');
+
+            if (filtered.length === 0) {
+                $tbody.html(
+                    '<tr><td colspan="7" style="text-align:center; padding: 20px;">Нарушений не найдено</td></tr>'
+                );
+                return;
+            }
+
+            var rows = _.map(filtered, function(v) {
+                var typeLabel = getViolationTypeLabel(v.type);
+                var statusLabel = getStatusLabel(v.status);
+                var createdDate = v.created_at ? new Date(v.created_at).toLocaleString('ru-RU') : '—';
+
+                var actionsHtml = '<div style="display: flex; gap: 5px; flex-wrap: wrap;">';
+
+                if (v.status === 'new' || v.status === 'sent_to_telegram') {
+                    actionsHtml += '<button class="js-action-forgive monitor-btn monitor-btn--sm" data-violation-id="' + v.id + '">✓</button>';
+                    actionsHtml += '<button class="js-action-punish monitor-btn monitor-btn--sm monitor-btn--danger" data-violation-id="' + v.id + '">✗</button>';
+                }
+
+                actionsHtml += '<button class="js-action-view monitor-btn monitor-btn--sm" data-lead-id="' + v.lead_id + '">🔍</button>';
+                actionsHtml += '</div>';
+
+                return [
+                    '<tr>',
+                    '<td>' + _.escape(v.manager_name) + '</td>',
+                    '<td>' + typeLabel + '</td>',
+                    '<td><a href="javascript:void(0)" data-lead-id="' + v.lead_id + '" class="js-action-view" style="cursor: pointer; color: #0066cc;">#' + v.lead_id + ' ' + _.escape(v.lead_title) + '</a></td>',
+                    '<td>' + _.escape(v.message) + '</td>',
+                    '<td><small>' + createdDate + '</small></td>',
+                    '<td><span class="monitor-status monitor-status--' + v.status + '">' + statusLabel + '</span></td>',
+                    '<td>' + actionsHtml + '</td>',
+                    '</tr>'
+                ].join('');
+            });
+
+            $tbody.html(rows.join(''));
+        }
+
+        function getViolationTypeLabel(type) {
+            var labels = {
+                'delay_response': 'Задержка ответа',
+                'client_waiting': 'Клиент ждёт',
+                'delay_kp': 'Задержка КП'
+            };
+            return labels[type] || type;
+        }
+
+        function getStatusLabel(status) {
+            var labels = {
+                'new': 'Новое',
+                'sent_to_telegram': 'В ТГ',
+                'resolved': 'Разрешено'
+            };
+            return labels[status] || status;
+        }
+
+        function resolveViolation(violationId, action, $panel, settings, callback) {
+            apiRequest('/api/violations/' + violationId, { action: action }, 'PUT').done(function(response) {
+                if (response.status === 'ok') {
+                    notify('Нарушение обработано', 'success');
+                    if (callback) callback();
+                }
+            }).fail(function() {
+                notify('Ошибка обработки нарушения', 'error');
             });
         }
 
