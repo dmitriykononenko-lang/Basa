@@ -11,7 +11,7 @@ import type {
 
 export const dynamic = "force-dynamic";
 
-export type EmployeeOption = { id: string; name: string };
+export type EmployeeOption = { id: string; name: string; email: string | null };
 
 export default async function AssessPage() {
   const current = await getCurrentTeam();
@@ -43,7 +43,7 @@ export default async function AssessPage() {
     supabase.from("assess_blocks").select("id, key, name, sort, band").eq("team_id", team.id).order("sort", { ascending: true }),
     supabase.from("assess_competencies").select("id, block_id, name, definition, sort").eq("team_id", team.id).order("sort", { ascending: true }),
     supabase.from("assess_items").select("id, competency_id, text, sort").eq("team_id", team.id).order("sort", { ascending: true }),
-    supabase.from("counterparties").select("id, name, kind, kinds").eq("team_id", team.id).eq("archived", false).order("name", { ascending: true }),
+    supabase.from("counterparties").select("id, name, kind, kinds, email").eq("team_id", team.id).eq("archived", false).order("name", { ascending: true }),
     supabase.from("assessments").select("id, counterparty_id, respondent_name, method, status, created_at, completed_at, share_token").eq("team_id", team.id).order("created_at", { ascending: false }),
     supabase.from("assessment_scores").select("assessment_id, competency_id, score").eq("team_id", team.id),
   ]);
@@ -55,9 +55,9 @@ export default async function AssessPage() {
   const scores = (scoresRaw ?? []) as ScoreRow[];
 
   // Сотрудники = контрагенты с kind='employee' (или в массиве kinds).
-  const employees: EmployeeOption[] = ((cpsRaw ?? []) as { id: string; name: string; kind: string | null; kinds: string[] | null }[])
+  const employees: EmployeeOption[] = ((cpsRaw ?? []) as { id: string; name: string; kind: string | null; kinds: string[] | null; email: string | null }[])
     .filter((c) => c.kind === "employee" || (c.kinds ?? []).includes("employee"))
-    .map((c) => ({ id: c.id, name: c.name }));
+    .map((c) => ({ id: c.id, name: c.name, email: c.email }));
 
   // Средний балл по каждой завершённой оценке (для карточки в списке).
   const sumById = new Map<string, { sum: number; n: number }>();
