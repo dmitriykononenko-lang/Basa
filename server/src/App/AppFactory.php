@@ -15,9 +15,12 @@ use DealDist\Http\Controller\SettingsController;
 use DealDist\Http\Controller\WebhookController;
 use DealDist\Http\Controller\MonitorController;
 use DealDist\Http\Controller\TelegramController;
+use DealDist\Http\Controller\ActivityController;
 use DealDist\Monitor\ViolationStorage;
 use DealDist\Monitor\TelegramNotificationService;
 use DealDist\Monitor\ViolationMonitor;
+use DealDist\Monitor\ActivityLogger;
+use DealDist\Http\Controller\WebhookEventController;
 use DI\ContainerBuilder;
 use Monolog\Handler\StreamHandler;
 use Monolog\Level;
@@ -70,8 +73,18 @@ class AppFactory
         $app->get('/api/violations',                    MonitorController::class    . ':listViolations');
         $app->put('/api/violations/{id}',               MonitorController::class    . ':resolveViolation');
 
+        // Activities (Phase 2)
+        $app->get('/api/activities',                    ActivityController::class   . ':listActivities');
+        $app->get('/api/activities/lead/{lead_id:[0-9]+}', ActivityController::class . ':getLeadHistory');
+        $app->get('/api/activities/manager/{manager_id:[0-9]+}/stats', ActivityController::class . ':getManagerStats');
+
         // Telegram webhook
         $app->post('/webhook/telegram',                 TelegramController::class   . ':handleWebhook');
+
+        // AmoCRM event webhooks (Phase 2)
+        $app->post('/webhook/events/leads',             WebhookEventController::class . ':handleLeadsWebhook');
+        $app->post('/webhook/events/notes',             WebhookEventController::class . ':handleNotesWebhook');
+        $app->post('/webhook/events/tasks',             WebhookEventController::class . ':handleTasksWebhook');
 
         // AmoCRM webhook (alternative to Digital Pipeline)
         $app->post('/webhook/leads',                    WebhookController::class    . ':handle');
@@ -99,10 +112,16 @@ class AppFactory
                 $chatId = $_ENV['TELEGRAM_CHAT_ID'] ?? '';
                 return new TelegramNotificationService($botToken, $chatId, $logger);
             },
-            ViolationMonitor::class => static function (Logger $logger) {
+            ActivityLogger::class => static function () {
+                $storagePath = $_ENV['STORAGE_PATH'] ?? '/tmp/deal-dist-storage';
+                return new ActivityLogger($storagePath);
+            },
+            ViolationMonitor::class => static function (Logger $logger, ActivityLogger $activityLogger) {
+                $storagePath = $_ENV['STORAGE_PATH'] ?? '/tmp/deal-dist-storage';
                 return new ViolationMonitor(
                     new \DealDist\AmoCRM\ApiClient(),
-                    new ViolationStorage($_ENV['STORAGE_PATH'] ?? '/tmp/deal-dist-storage'),
+                    new ViolationStorage($storagePath),
+                    $activityLogger,
                     $logger
                 );
             },
