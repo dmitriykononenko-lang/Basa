@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import Combobox, { type ComboOption } from "@/components/Combobox";
 import LikertTest from "@/components/assess/LikertTest";
+import CompanyProfile, { type CompanyData } from "@/components/assess/CompanyProfile";
 import {
   levelColor,
   levelName,
@@ -42,6 +43,7 @@ function takeUrl(token: string) {
 export default function AssessView({
   teamId,
   uid,
+  company,
   blocks,
   competencies,
   items,
@@ -50,6 +52,7 @@ export default function AssessView({
 }: {
   teamId: string;
   uid: string | null;
+  company: CompanyData | null;
   blocks: AssessBlock[];
   competencies: AssessCompetency[];
   items: AssessItem[];
@@ -216,6 +219,13 @@ export default function AssessView({
             </p>
           </div>
         </div>
+
+        {/* Профиль компании */}
+        {company && (
+          <div className="mt-6">
+            <CompanyProfile company={company} />
+          </div>
+        )}
 
         {/* Запуск новой оценки */}
         <div className="surface mt-6 p-5 sm:p-6">

@@ -75,10 +75,50 @@ export default async function AssessPage() {
 
   const cpName = new Map(employees.map((e) => [e.id, e.name]));
 
+  // Профиль компании: средний балл по каждой компетенции по всем завершённым оценкам.
+  const compAgg = new Map<string, { sum: number; n: number }>();
+  const doneAssessments = new Set<string>();
+  for (const s of scores) {
+    doneAssessments.add(s.assessment_id);
+    const acc = compAgg.get(s.competency_id) ?? { sum: 0, n: 0 };
+    acc.sum += Number(s.score); acc.n += 1; compAgg.set(s.competency_id, acc);
+  }
+  const blockName = new Map(blocks.map((b) => [b.id, b.name]));
+  const compCompany = competencies
+    .filter((c) => compAgg.has(c.id))
+    .map((c) => ({ name: c.name, block_id: c.block_id, block: blockName.get(c.block_id) ?? "", score: Math.round(compAgg.get(c.id)!.sum / compAgg.get(c.id)!.n) }));
+
+  let company = null as null | {
+    participants: number; overall: number;
+    blocks: { key: string; name: string; band: number[]; score: number }[];
+    strengths: { name: string; score: number; block: string }[];
+    gaps: { name: string; score: number; block: string }[];
+  };
+  if (compCompany.length > 0 && doneAssessments.size > 0) {
+    const companyBlocks = blocks
+      .map((b) => {
+        const inBlock = compCompany.filter((c) => c.block_id === b.id);
+        const score = inBlock.length ? Math.round(inBlock.reduce((s, c) => s + c.score, 0) / inBlock.length) : 0;
+        return { key: b.key, name: b.name, band: b.band, score, has: inBlock.length > 0 };
+      })
+      .filter((b) => b.has)
+      .map(({ key, name, band, score }) => ({ key, name, band, score }));
+    const overall = Math.round(compCompany.reduce((s, c) => s + c.score, 0) / compCompany.length);
+    const sorted = [...compCompany].sort((a, b) => b.score - a.score);
+    company = {
+      participants: doneAssessments.size,
+      overall,
+      blocks: companyBlocks,
+      strengths: sorted.slice(0, 5).map((c) => ({ name: c.name, score: c.score, block: c.block })),
+      gaps: sorted.slice(-5).reverse().map((c) => ({ name: c.name, score: c.score, block: c.block })),
+    };
+  }
+
   return (
     <AssessView
       teamId={team.id}
       uid={uid}
+      company={company}
       blocks={blocks}
       competencies={competencies}
       items={items}
