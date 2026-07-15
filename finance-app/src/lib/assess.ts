@@ -34,6 +34,7 @@ export type AssessmentRow = {
   status: string; // 'in_progress' | 'done'
   created_at: string;
   completed_at: string | null;
+  share_token?: string | null;
 };
 
 export type ScoreRow = { assessment_id: string; competency_id: string; score: number };

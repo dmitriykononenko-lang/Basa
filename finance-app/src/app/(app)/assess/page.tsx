@@ -44,7 +44,7 @@ export default async function AssessPage() {
     supabase.from("assess_competencies").select("id, block_id, name, definition, sort").eq("team_id", team.id).order("sort", { ascending: true }),
     supabase.from("assess_items").select("id, competency_id, text, sort").eq("team_id", team.id).order("sort", { ascending: true }),
     supabase.from("counterparties").select("id, name, kind, kinds").eq("team_id", team.id).eq("archived", false).order("name", { ascending: true }),
-    supabase.from("assessments").select("id, counterparty_id, respondent_name, method, status, created_at, completed_at").eq("team_id", team.id).order("created_at", { ascending: false }),
+    supabase.from("assessments").select("id, counterparty_id, respondent_name, method, status, created_at, completed_at, share_token").eq("team_id", team.id).order("created_at", { ascending: false }),
     supabase.from("assessment_scores").select("assessment_id, competency_id, score").eq("team_id", team.id),
   ]);
 

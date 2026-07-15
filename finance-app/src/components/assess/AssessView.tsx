@@ -5,8 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import Combobox, { type ComboOption } from "@/components/Combobox";
+import LikertTest from "@/components/assess/LikertTest";
 import {
-  LIKERT,
   levelColor,
   levelName,
   initials,
@@ -24,6 +24,7 @@ type AssessmentCard = {
   status: string;
   created_at: string;
   completed_at: string | null;
+  share_token?: string | null;
   subjectName: string | null | undefined;
   overall: number | null;
 };
@@ -31,6 +32,11 @@ type AssessmentCard = {
 function fmtDate(iso: string) {
   const d = new Date(iso);
   return d.toLocaleDateString("ru-RU", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function takeUrl(token: string) {
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  return `${origin}/t/${token}`;
 }
 
 export default function AssessView({
@@ -58,41 +64,34 @@ export default function AssessView({
   const [assessmentId, setAssessmentId] = useState<string | null>(null);
   const [answers, setAnswers] = useState<Record<string, number>>({});
   const [starting, setStarting] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [shared, setShared] = useState<{ name: string; url: string } | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const empOptions: ComboOption[] = employees.map((e) => ({ value: e.id, label: e.name }));
   const subjectName = employees.find((e) => e.id === subjectId)?.name ?? "";
-
-  // Пункты сгруппированы: блок → компетенция → пункты.
-  const compsByBlock = useMemo(() => {
-    const m = new Map<string, AssessCompetency[]>();
-    for (const c of competencies) {
-      const arr = m.get(c.block_id) ?? [];
-      arr.push(c);
-      m.set(c.block_id, arr);
-    }
-    return m;
-  }, [competencies]);
-
-  const itemsByComp = useMemo(() => {
-    const m = new Map<string, AssessItem[]>();
-    for (const it of items) {
-      const arr = m.get(it.competency_id) ?? [];
-      arr.push(it);
-      m.set(it.competency_id, arr);
-    }
-    return m;
-  }, [items]);
 
   const totalItems = items.length;
   const answeredCount = Object.keys(answers).length;
   const progress = totalItems ? Math.round((answeredCount / totalItems) * 100) : 0;
 
-  async function startTest() {
-    if (!subjectId) return;
-    setStarting(true);
-    setError(null);
+  function setAnswer(itemId: string, v: number) {
+    setAnswers((a) => ({ ...a, [itemId]: v }));
+  }
+
+  async function copy(url: string) {
+    try {
+      await navigator.clipboard.writeText(url);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // Создать оценку в БД (in_progress) и вернуть {id, token}.
+  async function createAssessment(): Promise<{ id: string; token: string } | null> {
     const { data, error } = await supabase
       .from("assessments")
       .insert({
@@ -103,17 +102,41 @@ export default function AssessView({
         status: "in_progress",
         created_by: uid,
       })
-      .select("id")
+      .select("id, share_token")
       .single();
-    setStarting(false);
     if (error || !data) {
       setError(error?.message ?? "Не удалось создать оценку");
-      return;
+      return null;
     }
-    setAssessmentId(data.id);
+    return { id: data.id, token: data.share_token as string };
+  }
+
+  async function startTest() {
+    if (!subjectId) return;
+    setStarting(true);
+    setError(null);
+    setShared(null);
+    const res = await createAssessment();
+    setStarting(false);
+    if (!res) return;
+    setAssessmentId(res.id);
     setAnswers({});
     setMode("test");
     window.scrollTo({ top: 0 });
+  }
+
+  async function createLink() {
+    if (!subjectId) return;
+    setSharing(true);
+    setError(null);
+    const res = await createAssessment();
+    setSharing(false);
+    if (!res) return;
+    const url = takeUrl(res.token);
+    await copy(url);
+    setShared({ name: subjectName, url });
+    setSubjectId("");
+    router.refresh();
   }
 
   async function submit() {
@@ -126,10 +149,7 @@ export default function AssessView({
     }
     setSaving(true);
     setError(null);
-    const { error } = await supabase.rpc("assess_submit", {
-      p_assessment: assessmentId,
-      p_answers: answers,
-    });
+    const { error } = await supabase.rpc("assess_submit", { p_assessment: assessmentId, p_answers: answers });
     setSaving(false);
     if (error) {
       setError(error.message);
@@ -144,6 +164,15 @@ export default function AssessView({
     setAnswers({});
     setSubjectId("");
     setError(null);
+  }
+
+  async function copyCard(a: AssessmentCard) {
+    if (!a.share_token) return;
+    const ok = await copy(takeUrl(a.share_token));
+    if (ok) {
+      setCopiedId(a.id);
+      setTimeout(() => setCopiedId((c) => (c === a.id ? null : c)), 2000);
+    }
   }
 
   // ------- Список оценок -------
@@ -163,7 +192,7 @@ export default function AssessView({
         <div className="surface mt-6 p-5 sm:p-6">
           <h2 className="text-sm font-bold text-slate-900 dark:text-white">Новая оценка</h2>
           <p className="mt-1 text-xs text-slate-500 dark:text-neutral-400">
-            Выберите сотрудника и пройдите опросник — отчёт сформируется автоматически.
+            Выберите сотрудника, затем отправьте ему ссылку на тест или пройдите опросник сами.
           </p>
           <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
             <Combobox
@@ -173,9 +202,14 @@ export default function AssessView({
               placeholder="— выберите сотрудника —"
               className="sm:max-w-sm sm:flex-1"
             />
-            <button type="button" className="btn-primary shrink-0" disabled={!subjectId || starting} onClick={startTest}>
-              {starting ? "Создаём…" : "Начать тест"}
-            </button>
+            <div className="flex gap-2">
+              <button type="button" className="btn-primary shrink-0" disabled={!subjectId || sharing || starting} onClick={createLink}>
+                {sharing ? "Создаём…" : "Ссылка для сотрудника"}
+              </button>
+              <button type="button" className="btn-ghost shrink-0" disabled={!subjectId || starting || sharing} onClick={startTest}>
+                {starting ? "…" : "Пройти самому"}
+              </button>
+            </div>
           </div>
           {employees.length === 0 && (
             <p className="mt-3 text-xs text-amber-600 dark:text-amber-400">
@@ -183,6 +217,23 @@ export default function AssessView({
             </p>
           )}
           {error && <p className="mt-3 text-xs text-rose-600 dark:text-rose-400">{error}</p>}
+
+          {shared && (
+            <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-500/25 dark:bg-emerald-500/10">
+              <div className="text-sm font-semibold text-emerald-800 dark:text-emerald-300">
+                Ссылка для «{shared.name}» скопирована
+              </div>
+              <p className="mt-1 text-xs text-emerald-700/80 dark:text-emerald-300/70">
+                Отправьте её сотруднику — он пройдёт тест без входа в Basa, отчёт появится здесь автоматически.
+              </p>
+              <div className="mt-2 flex items-center gap-2">
+                <input readOnly value={shared.url} onFocus={(e) => e.currentTarget.select()} className="input font-mono text-xs" />
+                <button type="button" className="btn-ghost shrink-0" onClick={() => copy(shared.url)}>
+                  Копировать
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* История оценок */}
@@ -195,7 +246,7 @@ export default function AssessView({
               const name = a.subjectName ?? "Без имени";
               const done = a.status === "done";
               const col = a.overall != null ? levelColor(a.overall, DEFAULT_BAND) : "#8b8f84";
-              const card = (
+              const inner = (
                 <div className="surface flex h-full items-center gap-4 p-4 transition hover:ring-brand/40">
                   <span
                     className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-sm font-bold text-white"
@@ -220,17 +271,28 @@ export default function AssessView({
                     </div>
                   ) : (
                     <span className="shrink-0 rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-400">
-                      Не завершён
+                      Ожидает
                     </span>
                   )}
                 </div>
               );
               return done ? (
                 <Link key={a.id} href={`/assess/${a.id}`} className="block">
-                  {card}
+                  {inner}
                 </Link>
               ) : (
-                <div key={a.id}>{card}</div>
+                <div key={a.id} className="flex flex-col gap-1">
+                  {inner}
+                  {a.share_token && (
+                    <button
+                      type="button"
+                      onClick={() => copyCard(a)}
+                      className="self-start px-1 text-xs font-medium text-brand hover:underline"
+                    >
+                      {copiedId === a.id ? "Ссылка скопирована ✓" : "Копировать ссылку на тест"}
+                    </button>
+                  )}
+                </div>
               );
             })}
           </div>
@@ -239,10 +301,9 @@ export default function AssessView({
     );
   }
 
-  // ------- Прохождение теста -------
+  // ------- Прохождение теста (внутри приложения) -------
   return (
     <div className="p-4 sm:p-6 lg:p-8">
-      {/* Шапка + прогресс (липкая) */}
       <div className="sticky top-0 z-10 -mx-4 mb-4 border-b border-slate-100 bg-slate-50/90 px-4 py-3 backdrop-blur dark:border-white/[0.07] dark:bg-neutral-950/70 sm:-mx-6 sm:px-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -276,57 +337,7 @@ export default function AssessView({
         </p>
       )}
 
-      <div className="flex flex-col gap-6">
-        {blocks.map((b) => {
-          const comps = compsByBlock.get(b.id) ?? [];
-          return (
-            <section key={b.id} className="surface overflow-hidden">
-              <header className="border-b border-slate-100 px-5 py-3.5 dark:border-white/[0.07]">
-                <h2 className="text-base font-bold text-slate-900 dark:text-white">{b.name}</h2>
-              </header>
-              <div className="divide-y divide-slate-100 dark:divide-white/[0.05]">
-                {comps.map((c) => {
-                  const its = itemsByComp.get(c.id) ?? [];
-                  return (
-                    <div key={c.id} className="px-5 py-4">
-                      <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-brand">{c.name}</div>
-                      <div className="flex flex-col gap-4">
-                        {its.map((it) => (
-                          <div key={it.id} id={`item-${it.id}`} className="scroll-mt-24">
-                            <div className="mb-2 text-sm text-slate-700 dark:text-neutral-200">{it.text}</div>
-                            <div className="flex flex-wrap gap-1.5">
-                              {LIKERT.map((label, idx) => {
-                                const v = idx + 1;
-                                const active = answers[it.id] === v;
-                                return (
-                                  <button
-                                    key={v}
-                                    type="button"
-                                    onClick={() => setAnswers((a) => ({ ...a, [it.id]: v }))}
-                                    title={label}
-                                    className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
-                                      active
-                                        ? "border-brand bg-brand text-white"
-                                        : "border-slate-200 text-slate-500 hover:border-brand/50 hover:text-slate-800 dark:border-white/10 dark:text-neutral-400 dark:hover:text-neutral-100"
-                                    }`}
-                                  >
-                                    <span className="sm:hidden">{v}</span>
-                                    <span className="hidden sm:inline">{label}</span>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          );
-        })}
-      </div>
+      <LikertTest blocks={blocks} competencies={competencies} items={items} answers={answers} onAnswer={setAnswer} />
 
       <div className="mt-6 flex justify-end gap-3">
         <button type="button" className="btn-ghost" onClick={cancel}>
