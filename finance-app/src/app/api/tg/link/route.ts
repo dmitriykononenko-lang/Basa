@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
+import { parseJson } from "@/lib/api-validation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { validateInitData, hashLinkCode, tgDisplayName } from "@/lib/telegram";
 
@@ -7,11 +9,16 @@ export const dynamic = "force-dynamic";
 // Привязка Telegram-аккаунта к учётке по email + одноразовому коду.
 // Код заранее сгенерирован в веб-профиле (telegram_link_codes).
 export async function POST(req: Request) {
-  const body = (await req.json().catch(() => ({}))) as { initData?: string; email?: string; code?: string };
+  const p = await parseJson(
+    req,
+    z.object({ initData: z.string(), email: z.string().min(1), code: z.string().min(1) }),
+  );
+  if (!p.ok) return p.res;
+  const body = p.data;
   const admin = createAdminClient();
   if (!admin) return NextResponse.json({ error: "service_unavailable" }, { status: 503 });
 
-  const v = validateInitData(body.initData ?? "");
+  const v = validateInitData(body.initData);
   if (!v.ok) {
     const status = v.error === "bot_not_configured" ? 503 : 401;
     return NextResponse.json({ error: v.error }, { status });

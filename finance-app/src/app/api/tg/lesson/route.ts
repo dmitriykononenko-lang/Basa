@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
+import { parseJson } from "@/lib/api-validation";
 import { resolveTg } from "@/lib/tg-session";
 import { sanitizeRichHtml } from "@/lib/sanitize";
 import { loomEmbedUrl, type Timecode } from "@/lib/kb-video";
@@ -8,12 +10,13 @@ export const dynamic = "force-dynamic";
 // Содержимое одного урока (kb_article) для Mini App. Доступ — только если урок
 // входит в назначенный пользователю курс (есть прогресс по этому элементу).
 export async function POST(req: Request) {
-  const { initData, articleId } = (await req.json().catch(() => ({}))) as { initData?: string; articleId?: string };
-  const r = await resolveTg(initData ?? "");
+  const p = await parseJson(req, z.object({ initData: z.string(), articleId: z.string().uuid() }));
+  if (!p.ok) return p.res;
+  const { initData, articleId } = p.data;
+  const r = await resolveTg(initData);
   if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });
   const { admin, link } = r.ctx;
   if (!link) return NextResponse.json({ error: "not_linked" }, { status: 403 });
-  if (!articleId) return NextResponse.json({ error: "missing_article" }, { status: 400 });
 
   const uid = link.user_id;
   // Элементы курсов, по которым у пользователя есть прогресс.

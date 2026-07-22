@@ -1,18 +1,21 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
+import { parseJson } from "@/lib/api-validation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function POST(request: Request) {
-  let body: { teamId?: string; email?: string; role?: string; counterpartyId?: string };
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Некорректный запрос" }, { status: 400 });
-  }
-  const { teamId, email, role, counterpartyId } = body;
-  if (!teamId || !email) {
-    return NextResponse.json({ error: "Укажите email" }, { status: 400 });
-  }
+  const p = await parseJson(
+    request,
+    z.object({
+      teamId: z.string().uuid(),
+      email: z.string().email(),
+      role: z.enum(["admin", "manager", "employee", "viewer"]).optional(),
+      counterpartyId: z.string().uuid().optional(),
+    }),
+  );
+  if (!p.ok) return p.res;
+  const { teamId, email, role, counterpartyId } = p.data;
 
   const supabase = await createClient();
   const {

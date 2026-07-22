@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
+import { parseJson } from "@/lib/api-validation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import { encryptSecret, vaultKeyConfigured } from "@/lib/vault-crypto";
@@ -10,8 +12,19 @@ export async function POST(request: Request) {
   if (!current) return NextResponse.json({ error: "Нет команды" }, { status: 400 });
   if (!canEditFinance(current.role)) return NextResponse.json({ error: "Недостаточно прав" }, { status: 403 });
 
-  let body: { id?: string; title?: string; login?: string; url?: string; note?: string; secret?: string };
-  try { body = await request.json(); } catch { return NextResponse.json({ error: "Некорректный запрос" }, { status: 400 }); }
+  const p = await parseJson(
+    request,
+    z.object({
+      id: z.string().uuid().optional(),
+      title: z.string().optional(),
+      login: z.string().optional(),
+      url: z.string().optional(),
+      note: z.string().optional(),
+      secret: z.string().optional(),
+    }),
+  );
+  if (!p.ok) return p.res;
+  const body = p.data;
 
   const title = (body.title ?? "").trim();
   if (!title) return NextResponse.json({ error: "Укажите название" }, { status: 400 });
