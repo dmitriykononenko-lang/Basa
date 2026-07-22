@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
+import { parseJson } from "@/lib/api-validation";
 import { resolveTg } from "@/lib/tg-session";
 import { courseProgressPercent } from "@/lib/academy";
 
@@ -7,12 +9,13 @@ export const dynamic = "force-dynamic";
 // Содержимое курса для Mini App: список уроков с отметкой пройденного.
 // Доступ только к курсам, на которые пользователь назначен (есть прогресс).
 export async function POST(req: Request) {
-  const { initData, courseId } = (await req.json().catch(() => ({}))) as { initData?: string; courseId?: string };
-  const r = await resolveTg(initData ?? "");
+  const p = await parseJson(req, z.object({ initData: z.string(), courseId: z.string().uuid() }));
+  if (!p.ok) return p.res;
+  const { initData, courseId } = p.data;
+  const r = await resolveTg(initData);
   if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });
   const { admin, link } = r.ctx;
   if (!link) return NextResponse.json({ error: "not_linked" }, { status: 403 });
-  if (!courseId) return NextResponse.json({ error: "missing_course" }, { status: 400 });
 
   const uid = link.user_id;
   // Прогресс пользователя по этому курсу = доказательство назначения.

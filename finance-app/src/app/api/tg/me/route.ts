@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
+import { parseJson } from "@/lib/api-validation";
 import { resolveTg, tgUserTeam } from "@/lib/tg-session";
 import { courseProgressPercent, unitAncestors } from "@/lib/academy";
 import { tgDisplayName } from "@/lib/telegram";
@@ -8,8 +10,9 @@ export const dynamic = "force-dynamic";
 // Сводка обучения для Mini App. Если Telegram-аккаунт ещё не привязан —
 // возвращаем { linked: false } и имя из Telegram для экрана привязки.
 export async function POST(req: Request) {
-  const { initData } = (await req.json().catch(() => ({}))) as { initData?: string };
-  const r = await resolveTg(initData ?? "");
+  const p = await parseJson(req, z.object({ initData: z.string() }));
+  if (!p.ok) return p.res;
+  const r = await resolveTg(p.data.initData);
   if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });
 
   const { admin, tgUser, link } = r.ctx;
