@@ -233,6 +233,14 @@ export default async function CounterpartyPage({
                 agent_id: cp.agent_id ?? "",
                 contract_number: cp.contract_number ?? "",
                 contract_date: cp.contract_date ?? "",
+                payment_method: cp.payment_method ?? "bank",
+                legal_status: cp.legal_status ?? "",
+                payee_name: cp.payee_name ?? "",
+                bank_account: cp.bank_account ?? "",
+                bank_name: cp.bank_name ?? "",
+                bik: cp.bik ?? "",
+                wallet_address: cp.wallet_address ?? "",
+                wallet_network: cp.wallet_network ?? "TRC20",
               }}
             />
           )}

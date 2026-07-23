@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { COUNTERPARTY_KINDS } from "@/lib/constants";
 import DeleteCounterpartyButton from "@/components/DeleteCounterpartyButton";
+import PaymentFields, { type PaymentData } from "@/components/PaymentFields";
 
 export type CounterpartyEdit = {
   id: string;
@@ -22,6 +23,15 @@ export type CounterpartyEdit = {
   agent_id: string;
   contract_number: string;
   contract_date: string;
+  // Платёжные реквизиты (₽-банк / крипто)
+  payment_method: string;
+  legal_status: string;
+  payee_name: string;
+  bank_account: string;
+  bank_name: string;
+  bik: string;
+  wallet_address: string;
+  wallet_network: string;
 };
 
 type Agent = { id: string; name: string };
@@ -57,6 +67,32 @@ export default function EditCounterpartyForm({
   function upd(k: keyof CounterpartyEdit, v: string) {
     setC((p) => ({ ...p, [k]: v }));
   }
+  // Платёжные реквизиты — общий компонент PaymentFields (ИНН — та же колонка, что выше).
+  const pay: PaymentData = {
+    payment_method: c.payment_method || "bank",
+    legal_status: c.legal_status,
+    payee_name: c.payee_name,
+    inn: c.inn,
+    bank_account: c.bank_account,
+    bank_name: c.bank_name,
+    bik: c.bik,
+    wallet_address: c.wallet_address,
+    wallet_network: c.wallet_network || "TRC20",
+  };
+  function setPay(v: PaymentData) {
+    setC((p) => ({
+      ...p,
+      payment_method: v.payment_method,
+      legal_status: v.legal_status,
+      payee_name: v.payee_name,
+      inn: v.inn,
+      bank_account: v.bank_account,
+      bank_name: v.bank_name,
+      bik: v.bik,
+      wallet_address: v.wallet_address,
+      wallet_network: v.wallet_network,
+    }));
+  }
   function toggleKind(k: string) {
     setKinds((prev) => (prev.includes(k) ? prev.filter((x) => x !== k) : [...prev, k]));
   }
@@ -90,6 +126,14 @@ export default function EditCounterpartyForm({
         agent_id: kinds.includes("agent") ? null : (c.agent_id || null),
         contract_number: c.contract_number || null,
         contract_date: c.contract_date || null,
+        payment_method: c.payment_method || "bank",
+        legal_status: c.legal_status || null,
+        payee_name: c.payee_name || null,
+        bank_account: c.bank_account || null,
+        bank_name: c.bank_name || null,
+        bik: c.bik || null,
+        wallet_address: c.wallet_address || null,
+        wallet_network: c.wallet_network || null,
       })
       .eq("id", c.id);
     if (error) {
@@ -161,6 +205,10 @@ export default function EditCounterpartyForm({
           </>
         )}
         <div className="sm:col-span-2"><F label="Заметка"><input value={c.note} onChange={(e) => upd("note", e.target.value)} className="input" /></F></div>
+        <div className="sm:col-span-2 mt-1 border-t border-slate-200 pt-3 dark:border-white/[0.08]">
+          <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">Платёжные реквизиты</label>
+          <PaymentFields value={pay} onChange={setPay} />
+        </div>
         <div className="sm:col-span-2">
           <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Внешние ID (для автопривязки платежей)</label>
           <div className="space-y-2">
