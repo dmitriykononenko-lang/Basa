@@ -7,6 +7,7 @@ import { buildRateMap, toBase } from "@/lib/fx";
 import EditProjectForm from "@/components/EditProjectForm";
 import DeleteProjectButton from "@/components/DeleteProjectButton";
 import ProjectOpsTable from "@/components/ProjectOpsTable";
+import SupportPeriods from "@/components/SupportPeriods";
 import { effectiveDue, businessDaysBetween, workdaysLabel } from "@/lib/workdays";
 
 export default async function ProjectPage({
@@ -24,10 +25,11 @@ export default async function ProjectPage({
 
   const { data: project } = await supabase
     .from("projects")
-    .select("id, name, status, responsible_counterparty_id, manager_counterparty_id, start_date, plan_work_days, due_date, completed_on, bonus_amount, bonus_currency")
+    .select("id, name, status, type, responsible_counterparty_id, manager_counterparty_id, start_date, plan_work_days, due_date, completed_on, bonus_amount, bonus_currency")
     .eq("id", id)
     .maybeSingle();
   if (!project) notFound();
+  const isSupport = project.type === "support";
 
   const [{ data: employees }, { data: tiers }] = await Promise.all([
     supabase
@@ -167,6 +169,58 @@ export default async function ProjectPage({
   const bonusPct = pickPct(overrunWd);
   const computedBonus = Math.round((project.bonus_amount * bonusPct) / 100);
 
+  // ---- Поддержка: помесячные периоды + финансы по месяцам ----
+  const monthLabel = (iso: string) => {
+    const d = new Date(iso + "T00:00:00");
+    return d.toLocaleDateString("ru-RU", { month: "long", year: "numeric" }).replace(/^./, (c) => c.toUpperCase());
+  };
+  let supportPeriods: { id: string; month: string; monthLabel: string; revenue: string | null; costs: string | null; profit: string | null; margin: string | null; bonus: string }[] = [];
+  let nextMonth = "";
+  let nextMonthLabel = "";
+  if (isSupport) {
+    const { data: periodsRaw } = await supabase
+      .from("project_periods")
+      .select("id, period_month, bonus_amount, bonus_currency")
+      .eq("project_id", id)
+      .order("period_month", { ascending: false });
+    const periods = (periodsRaw ?? []) as { id: string; period_month: string; bonus_amount: number; bonus_currency: string }[];
+
+    // Финансы по месяцам из операций проекта (по дате операции).
+    const byMonth = new Map<string, { rev: number; cost: number }>();
+    for (const t of rows) {
+      const ym = (t.occurred_on ?? "").slice(0, 7);
+      if (!ym) continue;
+      const acc = byMonth.get(ym) ?? { rev: 0, cost: 0 };
+      const v = toBase(t.amount, t.currency, rates);
+      if (t.type === "income") acc.rev += v;
+      else if (t.type === "expense") acc.cost += v;
+      byMonth.set(ym, acc);
+    }
+    supportPeriods = periods.map((p) => {
+      const ym = p.period_month.slice(0, 7);
+      const fin = byMonth.get(ym);
+      const rev = fin?.rev ?? 0, cost = fin?.cost ?? 0, prof = rev - cost;
+      return {
+        id: p.id,
+        month: p.period_month,
+        monthLabel: monthLabel(p.period_month),
+        revenue: showFinance ? formatMoney(rev, base) : null,
+        costs: showFinance ? formatMoney(cost, base) : null,
+        profit: showFinance ? formatMoney(prof, base) : null,
+        margin: showFinance ? `${rev > 0 ? ((prof / rev) * 100).toFixed(0) : 0}%` : null,
+        bonus: formatMoney(p.bonus_amount, p.bonus_currency),
+      };
+    });
+    // Следующий месяц для продления: после последнего периода, иначе месяц старта.
+    const base0 = periods.length
+      ? new Date(periods[0].period_month + "T00:00:00")
+      : new Date((project.start_date ?? today) + "T00:00:00");
+    if (periods.length) base0.setMonth(base0.getMonth() + 1);
+    const nm = new Date(base0.getFullYear(), base0.getMonth(), 1);
+    nextMonth = `${nm.getFullYear()}-${String(nm.getMonth() + 1).padStart(2, "0")}-01`;
+    nextMonthLabel = monthLabel(nextMonth);
+  }
+
   return (
     <div className="p-6 sm:p-8">
       <Link href="/projects" className="text-sm text-slate-400 hover:text-brand">
@@ -188,6 +242,7 @@ export default async function ProjectPage({
             projectId={project.id}
             name={project.name}
             status={project.status}
+            type={project.type ?? "implementation"}
             responsibleId={project.responsible_counterparty_id}
             managerId={project.manager_counterparty_id}
             employees={employees ?? []}
@@ -224,7 +279,21 @@ export default async function ProjectPage({
         </div>
       )}
 
-      {/* Сроки и бонус аналитику */}
+      {/* Поддержка: помесячные периоды + бонус аналитику за ведение */}
+      {isSupport && (
+        <SupportPeriods
+          projectId={project.id}
+          periods={supportPeriods}
+          nextMonth={nextMonth}
+          nextMonthLabel={nextMonthLabel}
+          bonusPerMonth={project.bonus_amount > 0 ? formatMoney(project.bonus_amount, project.bonus_currency) : "—"}
+          canManage={manage}
+          showFinance={showFinance}
+        />
+      )}
+
+      {/* Сроки и бонус аналитику (только для проектов внедрения) */}
+      {!isSupport && (
       <section className="mt-6 rounded-3xl bg-white p-6 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
         <h2 className="mb-4 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">
           Сроки и бонус
@@ -263,6 +332,7 @@ export default async function ProjectPage({
           днях и снижает бонус по ступеням мотивации (настраиваются в «Настройках»).
         </p>
       </section>
+      )}
 
       {showFinance && (
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">

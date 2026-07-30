@@ -20,6 +20,7 @@ export default function EditProjectForm({
   projectId,
   name: initialName,
   status: initialStatus,
+  type: initialType = "implementation",
   responsibleId,
   managerId,
   employees,
@@ -33,6 +34,7 @@ export default function EditProjectForm({
   projectId: string;
   name: string;
   status: string;
+  type?: string;
   responsibleId: string | null;
   managerId: string | null;
   employees: { id: string; name: string }[];
@@ -48,6 +50,8 @@ export default function EditProjectForm({
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(initialName);
   const [status, setStatus] = useState(initialStatus);
+  const [type, setType] = useState(initialType);
+  const isSupport = type === "support";
   const [responsible, setResponsible] = useState(responsibleId ?? "");
   const [manager, setManager] = useState(managerId ?? "");
   const [startDate, setStartDate] = useState(initialStart ?? today);
@@ -75,9 +79,10 @@ export default function EditProjectForm({
         status,
         responsible_counterparty_id: responsible || null,
         manager_counterparty_id: manager || null,
+        type,
         start_date: startDate,
-        plan_work_days: mode === "days" ? planNum : null,
-        due_date: mode === "date" ? dueDate || null : null,
+        plan_work_days: isSupport ? null : (mode === "days" ? planNum : null),
+        due_date: isSupport ? null : (mode === "date" ? dueDate || null : null),
         completed_on: status === "done" ? completed || null : null,
         bonus_amount: bonus.trim() ? parseMoney(bonus) : 0,
         bonus_currency: bonusCur,
@@ -100,6 +105,10 @@ export default function EditProjectForm({
         <input autoFocus required value={name} onChange={(e) => setName(e.target.value)} className="input w-full" />
       </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div>
+          <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Тип проекта</label>
+          <Select value={type} onChange={setType} options={[{ value: "implementation", label: "Внедрение (разовый)" }, { value: "support", label: "Поддержка (помесячно)" }]} />
+        </div>
         <div>
           <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Статус</label>
           <Select value={status} onChange={setStatus} options={STATUSES.map((s) => ({ value: s.value, label: s.label }))} />
@@ -126,7 +135,7 @@ export default function EditProjectForm({
             <input type="date" value={completed} onChange={(e) => setCompleted(e.target.value)} placeholder="сегодня" className="input w-full" />
           </div>
         )}
-        <div className="sm:col-span-2">
+        <div className={`sm:col-span-2 ${isSupport ? "hidden" : ""}`}>
           <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Срок сдачи</label>
           <div className="flex flex-wrap items-center gap-2">
             <Select className="w-auto" value={mode} onChange={(v) => setMode(v as "days" | "date")} options={[{ value: "days", label: "Рабочих дней" }, { value: "date", label: "Дата" }]} />
@@ -139,7 +148,9 @@ export default function EditProjectForm({
           </div>
         </div>
         <div className="sm:col-span-2">
-          <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Бонус аналитику за сдачу</label>
+          <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">
+            {isSupport ? "Бонус аналитику в месяц" : "Бонус аналитику за сдачу"}
+          </label>
           <div className="flex gap-2">
             <input value={bonus} onChange={(e) => setBonus(e.target.value)} inputMode="decimal" placeholder="0,00" className="input w-40" />
             <Select className="w-24" value={bonusCur} onChange={setBonusCur} options={CURRENCIES.map((c) => ({ value: c, label: c }))} />
@@ -147,7 +158,9 @@ export default function EditProjectForm({
         </div>
       </div>
       <p className="text-[11px] text-slate-400 dark:text-neutral-600">
-        При статусе «Сдан» аналитику автоматически начисляется бонус за сдачу (с учётом просрочки по ступеням мотивации).
+        {isSupport
+          ? "Поддержка ведётся помесячно. За каждый продлённый месяц аналитику начисляется этот бонус за ведение (на странице проекта — кнопка «Продлить на месяц»)."
+          : "При статусе «Сдан» аналитику автоматически начисляется бонус за сдачу (с учётом просрочки по ступеням мотивации)."}
       </p>
       <div className="flex items-center gap-2">
         <button type="submit" disabled={loading} className="btn-primary">{loading ? "…" : "Сохранить"}</button>
