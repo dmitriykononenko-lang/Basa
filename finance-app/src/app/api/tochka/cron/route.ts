@@ -18,6 +18,14 @@ export async function GET(request: Request) {
   // зададите CRON_SECRET только там — дубль-проект без секрета будет вхолостую.
   const secret = process.env.CRON_SECRET;
   if (!secret) {
+    // Логируем «выключено» — чтобы в базе было видно, почему импорта нет.
+    try {
+      const admin = createAdminClient();
+      if (admin) await admin.from("tochka_sync_log").insert({
+        ok: false, status: "skipped_no_secret",
+        detail: { reason: "CRON_SECRET не задан в этом проекте Vercel" },
+      });
+    } catch { /* журнал не критичен */ }
     return NextResponse.json({ ok: true, skipped: "CRON_SECRET не задан — автоимпорт в этом проекте выключен" });
   }
   // Vercel автоматически шлёт Authorization: Bearer <CRON_SECRET> при наличии env CRON_SECRET.
@@ -91,5 +99,17 @@ export async function GET(request: Request) {
     }
   }
 
-  return NextResponse.json({ ok: true, from, to, teams: summary.length, summary });
+  const totalImported = summary.reduce((s, r) => s + (typeof r.imported === "number" ? r.imported : 0), 0);
+  const anyError = summary.some((r) => r.error);
+  // Журнал запуска: видно, сколько подтянуто и были ли ошибки (напр. протухший токен).
+  try {
+    await supabase.from("tochka_sync_log").insert({
+      ok: !anyError,
+      imported: totalImported,
+      status: anyError ? "error" : "imported",
+      detail: { from, to, teams: summary.length, summary },
+    });
+  } catch { /* журнал не критичен */ }
+
+  return NextResponse.json({ ok: true, from, to, teams: summary.length, imported: totalImported, summary });
 }
