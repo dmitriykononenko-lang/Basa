@@ -226,6 +226,14 @@ button:focus-visible, a:focus-visible {
 .kb-content th, .kb-content td { border: 1px solid rgba(100,116,139,0.35); padding: 0.4rem 0.6rem; text-align: left; }
 .kb-content th { background: rgba(100,116,139,0.08); font-weight: 600; }
 .kb-content .kb-raw { margin: 0.6rem 0; overflow-x: auto; }
+/* Вставленный HTML: не даём вылезать за контейнер, картинки/видео адаптивны */
+.kb-content .kb-raw, .kb-content .kb-raw * { max-width: 100%; box-sizing: border-box; }
+.kb-content .kb-raw img, .kb-content .kb-raw video { height: auto; }
+/* Адаптив: многоколоночные сетки/флексы сворачиваем в один столбец на узких экранах */
+@media (max-width: 640px) {
+  .kb-content .kb-raw [style*="grid-template-columns"] { grid-template-columns: 1fr !important; }
+  .kb-content .kb-raw [style*="display:flex"], .kb-content .kb-raw [style*="display: flex"] { flex-wrap: wrap; }
+}
 .kb-editor { max-height: 60vh; overflow-y: auto; }
 
 /* Сертификат о прохождении курса */

@@ -43,28 +43,34 @@ const OPTIONS: sanitizeHtml.IOptions = {
     // Скрипты, on*-обработчики и опасные схемы остаются запрещёнными (их нет в allowlist).
     "*": ["style", "class", "id", "align"],
   },
-  // Ограничиваем CSS в style безопасными свойствами (без url()/expression и т.п.).
+  // Разрешаем полный набор свойств вёрстки/типографики, чтобы вставленный HTML
+  // выглядел как задумано (цвета, фоны, градиенты, сетки, тени, отступы, шрифты).
+  // Значение не может содержать скрипт: sanitize-html парсит CSS и отбрасывает
+  // невалидное/опасное (expression, поведение и т.п.), а schemes ограничены ниже.
   allowedStyles: {
-    "*": {
-      color: [/.*/],
-      "background-color": [/.*/],
-      background: [/.*/],
-      "text-align": [/.*/],
-      "font-size": [/.*/],
-      "font-weight": [/.*/],
-      "font-style": [/.*/],
-      "text-decoration": [/.*/],
-      width: [/.*/],
-      height: [/.*/],
-      "max-width": [/.*/],
-      margin: [/.*/],
-      padding: [/.*/],
-      border: [/.*/],
-      "border-radius": [/.*/],
-      "border-collapse": [/.*/],
-      "vertical-align": [/.*/],
-      display: [/.*/],
-    },
+    "*": Object.fromEntries(
+      [
+        "color", "background", "background-color", "background-image", "background-position",
+        "background-size", "background-repeat", "background-clip", "-webkit-background-clip",
+        "-webkit-text-fill-color", "opacity", "box-shadow", "filter", "backdrop-filter",
+        "border", "border-top", "border-right", "border-bottom", "border-left",
+        "border-color", "border-width", "border-style", "border-radius", "border-collapse", "border-spacing",
+        "margin", "margin-top", "margin-right", "margin-bottom", "margin-left",
+        "padding", "padding-top", "padding-right", "padding-bottom", "padding-left",
+        "width", "height", "min-width", "min-height", "max-width", "max-height",
+        "display", "flex", "flex-direction", "flex-wrap", "flex-grow", "flex-shrink", "flex-basis",
+        "align-items", "align-content", "align-self", "justify-content", "justify-items", "justify-self",
+        "gap", "row-gap", "column-gap", "order",
+        "grid", "grid-template", "grid-template-columns", "grid-template-rows",
+        "grid-column", "grid-row", "grid-gap", "grid-auto-flow",
+        "position", "top", "right", "bottom", "left", "z-index", "float", "clear",
+        "overflow", "overflow-x", "overflow-y", "object-fit", "aspect-ratio",
+        "text-align", "text-transform", "text-decoration", "text-indent", "text-shadow",
+        "letter-spacing", "line-height", "white-space", "word-break", "overflow-wrap", "word-wrap",
+        "font", "font-size", "font-weight", "font-style", "font-family", "font-variant",
+        "list-style", "list-style-type", "vertical-align", "cursor", "table-layout",
+      ].map((p) => [p, [/.*/]]),
+    ),
   },
   allowedSchemes: ["http", "https", "mailto"],
   allowedSchemesByTag: { img: ["http", "https", "data"] },
