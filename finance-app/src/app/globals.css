@@ -221,6 +221,11 @@ button:focus-visible, a:focus-visible {
 .kb-content ol { list-style: decimal; padding-left: 1.25rem; margin: 0.4rem 0; }
 .kb-content p { margin: 0.4rem 0; }
 .kb-content a { color: #2f6df6; text-decoration: underline; }
+/* Таблицы и произвольный HTML-блок (kb-raw) */
+.kb-content table { border-collapse: collapse; margin: 0.6rem 0; max-width: 100%; }
+.kb-content th, .kb-content td { border: 1px solid rgba(100,116,139,0.35); padding: 0.4rem 0.6rem; text-align: left; }
+.kb-content th { background: rgba(100,116,139,0.08); font-weight: 600; }
+.kb-content .kb-raw { margin: 0.6rem 0; overflow-x: auto; }
 .kb-editor { max-height: 60vh; overflow-y: auto; }
 
 /* Сертификат о прохождении курса */

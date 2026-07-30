@@ -65,6 +65,36 @@ const Embed = Node.create({
   },
 });
 
+// --- произвольный HTML-блок: хранит и рендерит HTML как есть (таблицы, разметка) ---
+const RawHtml = Node.create({
+  name: "rawHtml",
+  group: "block",
+  atom: true,
+  draggable: true,
+  addAttributes() {
+    return { html: { default: "" } };
+  },
+  parseHTML() {
+    return [{ tag: "div.kb-raw", getAttrs: (el) => ({ html: (el as HTMLElement).innerHTML }) }];
+  },
+  renderHTML({ node }) {
+    if (typeof document === "undefined") return ["div", { class: "kb-raw" }];
+    const dom = document.createElement("div");
+    dom.className = "kb-raw";
+    dom.innerHTML = (node.attrs.html as string) || "";
+    return dom;
+  },
+});
+
+// Базовая очистка вставляемого HTML: убираем скрипты и inline-обработчики.
+function sanitizeHtml(html: string): string {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/\son\w+\s*=\s*"[^"]*"/gi, "")
+    .replace(/\son\w+\s*=\s*'[^']*'/gi, "")
+    .replace(/javascript:/gi, "");
+}
+
 // Нормализуем ссылку на видео в embed-URL (Loom / YouTube / Vimeo).
 function toEmbedUrl(raw: string): string | null {
   try {
@@ -109,6 +139,8 @@ export default function RichEditor({
   placeholder?: string;
 }) {
   const [uploading, setUploading] = useState(false);
+  const [htmlOpen, setHtmlOpen] = useState(false);
+  const [htmlDraft, setHtmlDraft] = useState("");
   const imgInput = useRef<HTMLInputElement>(null);
   const vidInput = useRef<HTMLInputElement>(null);
 
@@ -120,6 +152,7 @@ export default function RichEditor({
       Link.configure({ openOnClick: false, autolink: true }),
       Video,
       Embed,
+      RawHtml,
     ],
     content: value || "",
     editorProps: {
@@ -189,6 +222,13 @@ export default function RichEditor({
     editor!.chain().focus().insertContent({ type: "embed", attrs: { src } }).run();
   }
 
+  function insertHtml() {
+    const clean = sanitizeHtml(htmlDraft).trim();
+    if (clean) editor!.chain().focus().insertContent({ type: "rawHtml", attrs: { html: clean } }).run();
+    setHtmlOpen(false);
+    setHtmlDraft("");
+  }
+
   function addLink() {
     const url = window.prompt("URL ссылки:");
     if (url === null) return;
@@ -233,6 +273,12 @@ export default function RichEditor({
           <IconEmbed className="h-4 w-4" />
           <span className="hidden text-xs sm:inline">Видео по ссылке</span>
         </Btn>
+        {!compact && (
+          <Btn title="Вставить HTML-код" on={() => setHtmlOpen(true)}>
+            <span className="font-mono text-xs">&lt;/&gt;</span>
+            <span className="hidden text-xs sm:inline">HTML</span>
+          </Btn>
+        )}
         {uploading && <span className="ml-2 text-xs text-slate-400">загрузка…</span>}
         <input ref={imgInput} type="file" accept="image/*" hidden onChange={onPickImage} />
         <input ref={vidInput} type="file" accept="video/*" hidden onChange={onPickVideo} />
@@ -240,6 +286,28 @@ export default function RichEditor({
       <EditorContent editor={editor} className="px-3 py-2" />
       {placeholder && editor.isEmpty && (
         <div className="pointer-events-none -mt-9 px-3 text-sm text-slate-400">{placeholder}</div>
+      )}
+
+      {htmlOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setHtmlOpen(false)}>
+          <div className="w-full max-w-2xl rounded-2xl bg-white p-5 shadow-xl dark:bg-[#15171c]" onClick={(e) => e.stopPropagation()}>
+            <h3 className="mb-1 text-sm font-bold text-slate-900 dark:text-white">Вставить HTML-код</h3>
+            <p className="mb-3 text-xs text-slate-500 dark:text-neutral-400">
+              Блок отобразится как есть (таблицы, разметка, iframe). Скрипты и обработчики удаляются автоматически.
+            </p>
+            <textarea
+              autoFocus
+              value={htmlDraft}
+              onChange={(e) => setHtmlDraft(e.target.value)}
+              placeholder="<table>…</table>  ·  <div style=…>…</div>  ·  <iframe …></iframe>"
+              className="input min-h-[220px] w-full font-mono text-xs"
+            />
+            <div className="mt-3 flex justify-end gap-2">
+              <button type="button" className="btn-ghost" onClick={() => { setHtmlOpen(false); setHtmlDraft(""); }}>Отмена</button>
+              <button type="button" className="btn-primary" disabled={!htmlDraft.trim()} onClick={insertHtml}>Вставить</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
