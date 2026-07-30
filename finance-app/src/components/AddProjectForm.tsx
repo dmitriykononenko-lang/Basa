@@ -24,6 +24,8 @@ export default function AddProjectForm({
   const today = new Date().toISOString().slice(0, 10);
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
+  const [type, setType] = useState("implementation");
+  const isSupport = type === "support";
   const [responsibleId, setResponsibleId] = useState("");
   const [managerId, setManagerId] = useState("");
   const [startDate, setStartDate] = useState(today);
@@ -47,11 +49,12 @@ export default function AddProjectForm({
     const { error } = await supabase.from("projects").insert({
       team_id: teamId,
       name,
+      type,
       responsible_counterparty_id: responsibleId || null,
       manager_counterparty_id: managerId || null,
       start_date: startDate,
-      plan_work_days: mode === "days" ? planNum : null,
-      due_date: mode === "date" ? dueDate || null : null,
+      plan_work_days: isSupport ? null : (mode === "days" ? planNum : null),
+      due_date: isSupport ? null : (mode === "date" ? dueDate || null : null),
       bonus_amount: bonus.trim() ? parseMoney(bonus) : 0,
       bonus_currency: bonusCur,
     });
@@ -84,6 +87,9 @@ export default function AddProjectForm({
         <F label="Название проекта" wide>
           <input required autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Например, Внедрение CRM для X" className="input" />
         </F>
+        <F label="Тип проекта">
+          <Select value={type} onChange={setType} options={[{ value: "implementation", label: "Внедрение (разовый)" }, { value: "support", label: "Поддержка (помесячно)" }]} />
+        </F>
         <F label="Ответственный (аналитик)">
           <Combobox value={responsibleId} onChange={setResponsibleId} placeholder="— не выбран —" emptyLabel="— не выбран —"
             options={employees.map((e) => ({ value: e.id, label: e.name }))} />
@@ -95,7 +101,7 @@ export default function AddProjectForm({
         <F label="Дата старта">
           <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="input" />
         </F>
-        <div className="lg:col-span-2">
+        <div className={`lg:col-span-2 ${isSupport ? "hidden" : ""}`}>
           <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Срок сдачи</label>
           <div className="flex flex-wrap items-center gap-2">
             <Select className="w-auto" value={mode} onChange={(v) => setMode(v as "days" | "date")} options={[{ value: "days", label: "Рабочих дней" }, { value: "date", label: "Дата" }]} />
@@ -107,7 +113,7 @@ export default function AddProjectForm({
             {computedDue && <span className="text-xs text-slate-400">→ срок {new Date(computedDue).toLocaleDateString("ru-RU")}</span>}
           </div>
         </div>
-        <F label="Бонус аналитику за сдачу">
+        <F label={isSupport ? "Бонус аналитику в месяц" : "Бонус аналитику за сдачу"}>
           <div className="flex gap-2">
             <input value={bonus} onChange={(e) => setBonus(e.target.value)} inputMode="decimal" placeholder="0,00" className="input" />
             <Select className="w-24" value={bonusCur} onChange={setBonusCur} options={CURRENCIES.map((c) => ({ value: c, label: c }))} />
