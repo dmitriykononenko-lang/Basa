@@ -234,6 +234,19 @@ button:focus-visible, a:focus-visible {
   .kb-content .kb-raw [style*="grid-template-columns"] { grid-template-columns: 1fr !important; }
   .kb-content .kb-raw [style*="display:flex"], .kb-content .kb-raw [style*="display: flex"] { flex-wrap: wrap; }
 }
+/* Тёмная тема: вставленный (обычно светлый) HTML автоматически «темнеет».
+   invert + hue-rotate(180) переворачивает светлоту, сохраняя оттенки (бренд-цвета
+   остаются собой). Картинки/видео/iframe инвертируем обратно — чтобы не портились.
+   Блок с атрибутом data-kb-keeplight остаётся светлым (если так и задумано). */
+.dark .kb-content .kb-raw:not([data-kb-keeplight]) {
+  filter: invert(1) hue-rotate(180deg);
+}
+.dark .kb-content .kb-raw:not([data-kb-keeplight]) img,
+.dark .kb-content .kb-raw:not([data-kb-keeplight]) video,
+.dark .kb-content .kb-raw:not([data-kb-keeplight]) iframe,
+.dark .kb-content .kb-raw:not([data-kb-keeplight]) svg {
+  filter: invert(1) hue-rotate(180deg);
+}
 .kb-editor { max-height: 60vh; overflow-y: auto; }
 
 /* Сертификат о прохождении курса */
