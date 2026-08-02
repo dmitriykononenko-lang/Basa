@@ -169,41 +169,37 @@ export default async function ProjectPage({
   const bonusPct = pickPct(overrunWd);
   const computedBonus = Math.round((project.bonus_amount * bonusPct) / 100);
 
-  // ---- Поддержка: помесячные периоды + финансы по месяцам ----
-  const monthLabel = (iso: string) => {
-    const d = new Date(iso + "T00:00:00");
-    return d.toLocaleDateString("ru-RU", { month: "long", year: "numeric" }).replace(/^./, (c) => c.toUpperCase());
-  };
+  // ---- Поддержка: циклы от даты старта + финансы по циклу ----
+  const dm = (iso: string) => { const d = new Date(iso + "T00:00:00"); return `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}`; };
+  const yr = (iso: string) => new Date(iso + "T00:00:00").getFullYear();
+  const cycleLabel = (start: string, end: string) => `${dm(start)}–${dm(end)}.${yr(end)}`;
+  const addMonthsISO = (iso: string, m: number) => { const d = new Date(iso + "T00:00:00"); d.setMonth(d.getMonth() + m); return d.toISOString().slice(0, 10); };
+  const addDaysISO = (iso: string, days: number) => { const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() + days); return d.toISOString().slice(0, 10); };
+
   let supportPeriods: { id: string; month: string; monthLabel: string; revenue: string | null; costs: string | null; profit: string | null; margin: string | null; bonus: string }[] = [];
-  let nextMonth = "";
-  let nextMonthLabel = "";
+  let nextCycleLabel = "";
   if (isSupport) {
     const { data: periodsRaw } = await supabase
       .from("project_periods")
-      .select("id, period_month, bonus_amount, bonus_currency")
+      .select("id, period_start, period_end, bonus_amount, bonus_currency")
       .eq("project_id", id)
-      .order("period_month", { ascending: false });
-    const periods = (periodsRaw ?? []) as { id: string; period_month: string; bonus_amount: number; bonus_currency: string }[];
+      .order("period_start", { ascending: false });
+    const periods = (periodsRaw ?? []) as { id: string; period_start: string; period_end: string; bonus_amount: number; bonus_currency: string }[];
 
-    // Финансы по месяцам из операций проекта (по дате операции).
-    const byMonth = new Map<string, { rev: number; cost: number }>();
-    for (const t of rows) {
-      const ym = (t.occurred_on ?? "").slice(0, 7);
-      if (!ym) continue;
-      const acc = byMonth.get(ym) ?? { rev: 0, cost: 0 };
-      const v = toBase(t.amount, t.currency, rates);
-      if (t.type === "income") acc.rev += v;
-      else if (t.type === "expense") acc.cost += v;
-      byMonth.set(ym, acc);
-    }
+    // Финансы по циклу: операции, попавшие в [period_start; period_end].
+    const inRange = (d: string, a: string, b: string) => d >= a && d <= b;
     supportPeriods = periods.map((p) => {
-      const ym = p.period_month.slice(0, 7);
-      const fin = byMonth.get(ym);
-      const rev = fin?.rev ?? 0, cost = fin?.cost ?? 0, prof = rev - cost;
+      let rev = 0, cost = 0;
+      for (const t of rows) {
+        if (!t.occurred_on || !inRange(t.occurred_on, p.period_start, p.period_end)) continue;
+        const v = toBase(t.amount, t.currency, rates);
+        if (t.type === "income") rev += v; else if (t.type === "expense") cost += v;
+      }
+      const prof = rev - cost;
       return {
         id: p.id,
-        month: p.period_month,
-        monthLabel: monthLabel(p.period_month),
+        month: p.period_start,
+        monthLabel: cycleLabel(p.period_start, p.period_end),
         revenue: showFinance ? formatMoney(rev, base) : null,
         costs: showFinance ? formatMoney(cost, base) : null,
         profit: showFinance ? formatMoney(prof, base) : null,
@@ -211,14 +207,10 @@ export default async function ProjectPage({
         bonus: formatMoney(p.bonus_amount, p.bonus_currency),
       };
     });
-    // Следующий месяц для продления: после последнего периода, иначе месяц старта.
-    const base0 = periods.length
-      ? new Date(periods[0].period_month + "T00:00:00")
-      : new Date((project.start_date ?? today) + "T00:00:00");
-    if (periods.length) base0.setMonth(base0.getMonth() + 1);
-    const nm = new Date(base0.getFullYear(), base0.getMonth(), 1);
-    nextMonth = `${nm.getFullYear()}-${String(nm.getMonth() + 1).padStart(2, "0")}-01`;
-    nextMonthLabel = monthLabel(nextMonth);
+    // Следующий цикл: сразу после последнего, иначе от даты старта. Длина — 1 месяц.
+    const nextStart = periods.length ? addDaysISO(periods[0].period_end, 1) : (project.start_date ?? today);
+    const nextEnd = addDaysISO(addMonthsISO(nextStart, 1), -1);
+    nextCycleLabel = cycleLabel(nextStart, nextEnd);
   }
 
   return (
@@ -284,11 +276,11 @@ export default async function ProjectPage({
         <SupportPeriods
           projectId={project.id}
           periods={supportPeriods}
-          nextMonth={nextMonth}
-          nextMonthLabel={nextMonthLabel}
+          nextCycleLabel={nextCycleLabel}
           bonusPerMonth={project.bonus_amount > 0 ? formatMoney(project.bonus_amount, project.bonus_currency) : "—"}
           canManage={manage}
           showFinance={showFinance}
+          accounts={(accountsRef ?? []) as { id: string; name: string; currency: string }[]}
         />
       )}
 
