@@ -71,7 +71,7 @@ export default async function ProjectPage({
         .eq("project_id", id)
         .eq("status", "actual")
         .order("occurred_on", { ascending: false })
-        .limit(100)
+        .limit(1000)
     : { data: [] as unknown[] };
 
   // Справочники для карточки операции (открывается из списка операций проекта)
@@ -195,6 +195,8 @@ export default async function ProjectPage({
         const v = toBase(t.amount, t.currency, rates);
         if (t.type === "income") rev += v; else if (t.type === "expense") cost += v;
       }
+      // Затраты цикла включают бонус аналитику за ведение (начисление, а не операцию).
+      cost += toBase(p.bonus_amount, p.bonus_currency, rates);
       const prof = rev - cost;
       return {
         id: p.id,
