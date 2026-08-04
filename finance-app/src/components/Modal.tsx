@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 
 const SIZES: Record<string, string> = {
   md: "max-w-lg",
@@ -20,6 +21,11 @@ export default function Modal({
   wide?: boolean;
   size?: "md" | "lg" | "xl" | "wide" | "xwide";
 }) {
+  // Портал в body: иначе вложенная модалка (карточка операции внутри drilldown)
+  // считает position:fixed относительно родителя с transform/backdrop-filter и обрезается.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -29,9 +35,9 @@ export default function Modal({
     return () => { document.removeEventListener("keydown", onKey); document.body.style.overflow = prev; };
   }, [open, onClose]);
 
-  if (!open) return null;
+  if (!open || !mounted) return null;
 
-  return (
+  return createPortal(
     <div className="modal-backdrop" onClick={onClose} role="dialog" aria-modal="true">
       <div
         className={`animate-scale-in flex max-h-[90vh] w-full flex-col ${SIZES[size ?? (wide ? "wide" : "md")]} rounded-3xl bg-slate-50 shadow-2xl ring-1 ring-black/5 dark:bg-[#101116] dark:ring-white/10`}
@@ -53,6 +59,7 @@ export default function Modal({
           {children}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
