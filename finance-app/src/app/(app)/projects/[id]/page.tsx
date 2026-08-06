@@ -176,15 +176,17 @@ export default async function ProjectPage({
   const addMonthsISO = (iso: string, m: number) => { const d = new Date(iso + "T00:00:00"); d.setMonth(d.getMonth() + m); return d.toISOString().slice(0, 10); };
   const addDaysISO = (iso: string, days: number) => { const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() + days); return d.toISOString().slice(0, 10); };
 
-  let supportPeriods: { id: string; month: string; monthLabel: string; revenue: string | null; costs: string | null; profit: string | null; margin: string | null; bonus: string }[] = [];
+  let supportPeriods: { id: string; month: string; monthLabel: string; revenue: string | null; costs: string | null; profit: string | null; margin: string | null; bonus: string; payment: string | null }[] = [];
   let nextCycleLabel = "";
+  let payCandidates: { id: string; label: string }[] = [];
   if (isSupport) {
     const { data: periodsRaw } = await supabase
       .from("project_periods")
-      .select("id, period_start, period_end, bonus_amount, bonus_currency")
+      .select("id, period_start, period_end, bonus_amount, bonus_currency, income_transaction_id")
       .eq("project_id", id)
       .order("period_start", { ascending: false });
-    const periods = (periodsRaw ?? []) as { id: string; period_start: string; period_end: string; bonus_amount: number; bonus_currency: string }[];
+    const periods = (periodsRaw ?? []) as { id: string; period_start: string; period_end: string; bonus_amount: number; bonus_currency: string; income_transaction_id: string | null }[];
+    const txById = new Map(rows.map((t) => [t.id, t]));
 
     // Финансы по циклу: операции, попавшие в [period_start; period_end].
     const inRange = (d: string, a: string, b: string) => d >= a && d <= b;
@@ -198,6 +200,7 @@ export default async function ProjectPage({
       // Затраты цикла включают бонус аналитику за ведение (начисление, а не операцию).
       cost += toBase(p.bonus_amount, p.bonus_currency, rates);
       const prof = rev - cost;
+      const payTx = p.income_transaction_id ? txById.get(p.income_transaction_id) : null;
       return {
         id: p.id,
         month: p.period_start,
@@ -207,12 +210,19 @@ export default async function ProjectPage({
         profit: showFinance ? formatMoney(prof, base) : null,
         margin: showFinance ? `${rev > 0 ? ((prof / rev) * 100).toFixed(0) : 0}%` : null,
         bonus: formatMoney(p.bonus_amount, p.bonus_currency),
+        payment: payTx ? `${formatMoney(payTx.amount, payTx.currency)} · ${formatDate(payTx.occurred_on)}` : null,
       };
     });
     // Следующий цикл: сразу после последнего, иначе от даты старта. Длина — 1 месяц.
     const nextStart = periods.length ? addDaysISO(periods[0].period_end, 1) : (project.start_date ?? today);
     const nextEnd = addDaysISO(addMonthsISO(nextStart, 1), -1);
     nextCycleLabel = cycleLabel(nextStart, nextEnd);
+    // Кандидаты на привязку: приходы проекта, ещё не привязанные к циклу.
+    const linked = new Set(periods.map((p) => p.income_transaction_id).filter(Boolean) as string[]);
+    payCandidates = rows
+      .filter((t) => t.type === "income" && !linked.has(t.id))
+      .slice(0, 50)
+      .map((t) => ({ id: t.id, label: `${formatMoney(t.amount, t.currency)} · ${formatDate(t.occurred_on)}${t.note ? " · " + t.note.slice(0, 40) : ""}` }));
   }
 
   return (
@@ -283,6 +293,7 @@ export default async function ProjectPage({
           canManage={manage}
           showFinance={showFinance}
           accounts={(accountsRef ?? []) as { id: string; name: string; currency: string }[]}
+          payCandidates={payCandidates}
         />
       )}
 
