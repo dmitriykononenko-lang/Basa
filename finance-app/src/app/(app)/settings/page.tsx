@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { IconAccounts, IconTag, IconTeam, IconSettings, IconRepeat } from "@/components/icons";
+import { IconAccounts, IconTag, IconTeam, IconSettings, IconRepeat, IconBook } from "@/components/icons";
 
 type Card = {
   href: string;
@@ -54,6 +54,13 @@ const GROUPS: { title: string; items: Card[] }[] = [
         desc: "Импорт операций из Точки по API",
         Icon: IconAccounts,
         color: "bg-sky-600 text-white",
+      },
+      {
+        href: "/settings/obsidian",
+        title: "База знаний · Obsidian",
+        desc: "Двусторонняя синхронизация статей (markdown)",
+        Icon: IconBook,
+        color: "bg-violet-700 text-white",
       },
     ],
   },
