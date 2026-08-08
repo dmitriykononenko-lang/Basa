@@ -160,6 +160,18 @@ export const STATE_LABELS: Record<MetricStateKey, string> = {
   empty: "Нет данных",
 };
 
+// % изменения к предыдущему периоду (по модулю базы). null, если нет базы.
+export function pctChange(prev: number | null, cur: number | null): number | null {
+  if (prev == null || cur == null || prev === 0) return null;
+  return ((cur - prev) / Math.abs(prev)) * 100;
+}
+
+// Цвет тренда (движение в «хорошую»/«плохую» сторону): рост-хорошо → зелёный,
+// ухудшение → янтарный, без изменений/нет данных → серый.
+export function trendColor(trend: MetricTrend): string {
+  return trend === "up" ? "#10b981" : trend === "down" ? "#f59e0b" : "#94a3b8";
+}
+
 // Цвет состояния — для точки/бейджа/линии графика.
 export function stateColor(state: MetricStateKey): string {
   return state === "growing"

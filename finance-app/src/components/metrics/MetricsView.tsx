@@ -16,6 +16,8 @@ import {
   metricStatus,
   STATE_LABELS,
   stateColor,
+  trendColor,
+  pctChange,
   type Metric,
   type MetricPeriod,
   type MetricStatus,
@@ -139,6 +141,7 @@ export default function MetricsView({
           <p className="text-sm text-slate-500 dark:text-neutral-400">Метрики и статистика: план/факт по периодам</p>
         </div>
         <div className="flex items-center gap-2">
+          <Link href="/metrics/dynamics" className="btn-ghost">Динамика</Link>
           {items.length > 0 && (
             <ExportButton
               filename="metrics.csv"
@@ -299,6 +302,13 @@ function MetricCard({
       <div className="mt-3 flex items-end justify-between gap-2">
         <div>
           <div className={`text-[32px] font-bold leading-none tabular-nums ${valueColor}`}>{formatMetric(m.current, m.unit)}</div>
+          {status.prev != null && status.last != null && status.trend !== "flat" && (
+            <div className="mt-1 text-xs font-medium tabular-nums" style={{ color: trendColor(status.trend) }}>
+              {status.last > status.prev ? "▲" : "▼"} {status.last - status.prev > 0 ? "+" : "−"}{formatMetric(Math.abs(status.last - status.prev), m.unit)}
+              {(() => { const p = pctChange(status.prev, status.last); return p != null ? ` (${p > 0 ? "+" : ""}${Math.round(p)}%)` : ""; })()}
+              <span className="ml-1 font-normal text-slate-400 dark:text-neutral-500">к пред.</span>
+            </div>
+          )}
           {m.plan != null && (
             <div className="mt-1 text-xs text-slate-400 dark:text-neutral-500">
               план {formatMetric(m.plan, m.unit)}
