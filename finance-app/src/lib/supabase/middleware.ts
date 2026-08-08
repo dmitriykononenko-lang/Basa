@@ -38,9 +38,11 @@ export async function updateSession(request: NextRequest) {
   // Публичное прохождение оценки по ссылке-токену: сотрудник без входа в Basa.
   // Авторизация — по неугадываемому токену внутри RPC (assess_public_*).
   const isPublicAssess = path === "/t" || path.startsWith("/t/");
+  // Obsidian sync API — авторизуется своим Bearer-токеном, не сессией.
+  const isObsidianApi = path.startsWith("/api/obsidian/pull") || path.startsWith("/api/obsidian/push");
 
   // Неавторизованных уводим на /login, сохраняя адрес назначения в ?next
-  if (!user && !isAuthRoute && !isTelegram && !isPublicAssess) {
+  if (!user && !isAuthRoute && !isTelegram && !isPublicAssess && !isObsidianApi) {
     const nextPath = request.nextUrl.pathname + request.nextUrl.search;
     const url = request.nextUrl.clone();
     url.pathname = "/login";
