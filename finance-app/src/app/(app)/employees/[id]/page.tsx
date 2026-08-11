@@ -268,6 +268,7 @@ export default async function EmployeePage({
         <AccrualsTable
           rows={accrualRows}
           base={base}
+          rates={rates}
           manage={manage}
           userId={user?.id ?? null}
           teamId={team.id}
