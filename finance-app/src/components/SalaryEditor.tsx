@@ -12,7 +12,7 @@ export type SalaryRow = { id: string; effective_from: string; amount: number; cu
 export type PositionRow = { id: string; effective_from: string; position: string };
 
 export default function SalaryEditor({
-  teamId, userId, counterpartyId, defaultCurrency, salaries, positions, endDate, department, autoAccrue = false,
+  teamId, userId, counterpartyId, defaultCurrency, salaries, positions, endDate, department, autoAccrue = false, advanceAmount = 0,
 }: {
   teamId: string;
   userId: string;
@@ -23,6 +23,7 @@ export default function SalaryEditor({
   endDate: string | null;
   department: string | null;
   autoAccrue?: boolean;
+  advanceAmount?: number;
 }) {
   const router = useRouter();
   const [from, setFrom] = useState(new Date().toISOString().slice(0, 10));
@@ -32,6 +33,7 @@ export default function SalaryEditor({
   const [currency, setCurrency] = useState(defaultCurrency);
   const [end, setEnd] = useState(endDate ?? "");
   const [auto, setAuto] = useState(autoAccrue);
+  const [advance, setAdvance] = useState(advanceAmount ? (advanceAmount / 100).toFixed(2).replace(".", ",") : "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -98,7 +100,7 @@ export default function SalaryEditor({
     const supabase = createClient();
     const { error } = await supabase
       .from("counterparties")
-      .update({ end_date: end || null, auto_accrue: auto })
+      .update({ end_date: end || null, auto_accrue: auto, advance_amount: advance.trim() ? parseMoney(advance) : 0 })
       .eq("id", counterpartyId);
     if (error) { setBusy(false); setError(error.message); return; }
 
@@ -200,7 +202,11 @@ export default function SalaryEditor({
           <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Дата увольнения</label>
           <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} className="input w-40 py-1.5 text-sm" />
         </div>
-        <label className="flex items-center gap-2 pb-1.5 text-sm text-slate-600 dark:text-neutral-300" title="Каждый месяц автоматически начислять оклад по ставке">
+        <div>
+          <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400" title="Аванс — фиксированная часть оклада, срок 25-е число месяца; остаток — 15-е следующего">Аванс / мес</label>
+          <input value={advance} onChange={(e) => setAdvance(e.target.value)} inputMode="decimal" placeholder="0,00" className="input w-32 py-1.5 text-sm" />
+        </div>
+        <label className="flex items-center gap-2 pb-1.5 text-sm text-slate-600 dark:text-neutral-300" title="Каждый месяц автоматически начислять оклад по ставке (аванс 25-го + остаток 15-го следующего)">
           <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} className="h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand" />
           Авто-начисление каждый месяц
         </label>
