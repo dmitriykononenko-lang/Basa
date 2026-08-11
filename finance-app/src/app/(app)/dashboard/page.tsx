@@ -17,6 +17,7 @@ import AcademyWidget from "@/components/academy/AcademyWidget";
 import MetricsWidget from "@/components/metrics/MetricsWidget";
 import CashflowHero from "@/components/CashflowHero";
 import PlannedReview from "@/components/PlannedReview";
+import { loadUnallocatedPayments } from "@/lib/unallocated";
 
 const MONTHS_SHORT = [
   "Янв", "Фев", "Мар", "Апр", "Май", "Июн",
@@ -150,6 +151,11 @@ export default async function DashboardPage() {
   );
   // Курс USD по ЦБ для подписи-сверки (USDT котируется как USD)
   const cbrUsd = cbr.rates.USD;
+
+  // Нераспределённые выплаты (операции контрагентам с открытым долгом, не разнесённые)
+  const unallocatedPayments = await loadUnallocatedPayments(supabase, team.id, rates);
+  const unallocatedCount = unallocatedPayments.length;
+  const unallocatedAmount = unallocatedPayments.reduce((s, u) => s + u.remainingBase, 0);
 
   let income = 0;
   let expense = 0;
@@ -437,6 +443,20 @@ export default async function DashboardPage() {
           </span>
           <span className="text-sm font-medium text-amber-700 dark:text-amber-300">
             Открыть долги →
+          </span>
+        </Link>
+      )}
+      {unallocatedCount > 0 && (
+        <Link
+          href="/debts#unallocated"
+          className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-3xl bg-amber-50 px-5 py-4 ring-1 ring-amber-200 transition hover:ring-amber-300 dark:bg-amber-950/30 dark:ring-amber-900/40"
+        >
+          <span className="text-sm text-amber-800 dark:text-amber-200">
+            🧾 Нераспределённые выплаты: <b>{unallocatedCount}</b> на сумму{" "}
+            <b>{formatMoney(unallocatedAmount, team.base_currency)}</b> — привяжите к обязательствам
+          </span>
+          <span className="text-sm font-medium text-amber-700 dark:text-amber-300">
+            Разнести →
           </span>
         </Link>
       )}

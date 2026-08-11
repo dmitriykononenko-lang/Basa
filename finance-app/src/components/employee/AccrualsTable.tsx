@@ -3,6 +3,7 @@
 import { Fragment, useState } from "react";
 import Link from "next/link";
 import { formatMoney } from "@/lib/format";
+import type { RateMap } from "@/lib/fx";
 import EditObligationForm from "@/components/EditObligationForm";
 import PlanObligationButton from "@/components/PlanObligationButton";
 import LinkPaymentButton from "@/components/LinkPaymentButton";
@@ -41,10 +42,11 @@ type Proj = { id: string; name: string };
 type Acc = { id: string; name: string; currency: string };
 
 export default function AccrualsTable({
-  rows, base, manage, userId, teamId, counterpartyId, categories, projects, accounts, projectRollup,
+  rows, base, rates, manage, userId, teamId, counterpartyId, categories, projects, accounts, projectRollup,
 }: {
   rows: AccrualRow[];
   base: string;
+  rates: RateMap;
   manage: boolean;
   userId: string | null;
   teamId: string;
@@ -131,7 +133,7 @@ export default function AccrualsTable({
                     </td>
                   </tr>
                   {g.items.map((o) => (
-                    <AccrualLine key={o.id} o={o} base={base} manage={manage} userId={userId} teamId={teamId}
+                    <AccrualLine key={o.id} o={o} base={base} rates={rates} manage={manage} userId={userId} teamId={teamId}
                       counterpartyId={counterpartyId} categories={categories} projects={projects} accounts={accounts} />
                   ))}
                 </Fragment>
@@ -158,10 +160,11 @@ function StatusDot({ paid, amount, base }: { paid: number; amount: number; base:
 }
 
 function AccrualLine({
-  o, base, manage, userId, teamId, counterpartyId, categories, projects, accounts,
+  o, base, rates, manage, userId, teamId, counterpartyId, categories, projects, accounts,
 }: {
   o: AccrualRow;
   base: string;
+  rates: RateMap;
   manage: boolean;
   userId: string | null;
   teamId: string;
@@ -193,7 +196,7 @@ function AccrualLine({
         <td className="px-6 py-4 text-right">
           {userId && (
             <div className="flex items-center justify-end gap-1">
-              <LinkPaymentButton obligationId={o.id} oblType="payable" counterpartyId={counterpartyId} currency={o.currency} outstanding={o.outstanding} teamId={teamId} userId={userId} />
+              <LinkPaymentButton obligationId={o.id} oblType="payable" counterpartyId={counterpartyId} currency={o.currency} outstanding={o.outstanding} teamId={teamId} userId={userId} rates={rates} baseCurrency={base} />
               <PayObligationButton obligationId={o.id} userId={userId} outstanding={o.outstanding} currency={o.currency} teamId={teamId} counterpartyId={counterpartyId} accounts={accounts} />
               {moreOpen && (
                 <>

@@ -103,16 +103,27 @@ export default async function ProjectPage({
     projectName: null as string | null,
   }));
 
+  // Финансы проекта с учётом частей операций (split): эффективные строки,
+  // относящиеся к этому проекту (части + целые операции без разбивки).
+  const catNameById = new Map(((categoriesRef ?? []) as { id: string; name: string }[]).map((c) => [c.id, c.name]));
   let revenue = 0;
   let costs = 0;
   const costByCat = new Map<string, number>();
-  for (const t of rows) {
-    const v = toBase(t.amount, t.currency, rates);
-    if (t.type === "income") revenue += v;
-    else if (t.type === "expense") {
-      costs += v;
-      const c = t.categoryName ?? "Без статьи";
-      costByCat.set(c, (costByCat.get(c) ?? 0) + v);
+  if (showFinance) {
+    const { data: lineRows } = await supabase
+      .from("transaction_lines")
+      .select("type, amount, currency, category_id")
+      .eq("team_id", team.id)
+      .eq("project_id", id)
+      .eq("status", "actual");
+    for (const l of (lineRows ?? []) as { type: string; amount: number; currency: string; category_id: string | null }[]) {
+      const v = toBase(l.amount, l.currency, rates);
+      if (l.type === "income") revenue += v;
+      else if (l.type === "expense") {
+        costs += v;
+        const c = (l.category_id ? catNameById.get(l.category_id) : null) ?? "Без статьи";
+        costByCat.set(c, (costByCat.get(c) ?? 0) + v);
+      }
     }
   }
   const profit = revenue - costs;

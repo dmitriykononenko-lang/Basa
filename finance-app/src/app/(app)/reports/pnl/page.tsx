@@ -106,6 +106,24 @@ export default async function PnlPage({
   );
   const settledTx = new Set((payRows ?? []).map((p) => p.transaction_id as string));
 
+  // Внутренние части операций (split): если у операции есть части — считаем по ним.
+  const splitRows = await fetchAllRows<{ transaction_id: string; amount: number; category_id: string | null; project_id: string | null; counterparty_id: string | null }>((from, to) =>
+    supabase.from("transaction_splits").select("transaction_id, amount, category_id, project_id, counterparty_id").eq("team_id", team.id).order("transaction_id", { ascending: true }).range(from, to)
+  );
+  const [{ data: catRows }, { data: prRows }, { data: cpRows }] = await Promise.all([
+    supabase.from("categories").select("id, name, cf_activity, pnl_treatment").eq("team_id", team.id),
+    supabase.from("projects").select("id, name").eq("team_id", team.id),
+    supabase.from("counterparties").select("id, name").eq("team_id", team.id),
+  ]);
+  const catMap = new Map((((catRows ?? []) as { id: string; name: string; cf_activity: string; pnl_treatment: string }[])).map((c) => [c.id, c]));
+  const prMap = new Map(((prRows ?? []) as { id: string; name: string }[]).map((p) => [p.id, p.name]));
+  const cpMap = new Map(((cpRows ?? []) as { id: string; name: string }[]).map((c) => [c.id, c.name]));
+  const splitsByTx = new Map<string, typeof splitRows>();
+  for (const s of splitRows ?? []) {
+    const a = splitsByTx.get(s.transaction_id) ?? [];
+    a.push(s); splitsByTx.set(s.transaction_id, a);
+  }
+
   const rates = buildRateMap(fxRows ?? [], base);
   const rows = (txs ?? []) as unknown as Tx[];
 
@@ -140,27 +158,42 @@ export default async function PnlPage({
     const eff = t.accrual_date ?? t.occurred_on;
     if (eff < start) continue;
     if (end && eff > end) continue;
-    const cat = t.category;
-    const treatment = cat?.pnl_treatment ?? "auto";
-    const activity = cat?.cf_activity ?? "operating";
-    if (treatment === "excluded") continue;
-    if (activity !== "operating") continue; // капвложения и финансовые потоки не входят в ОПиУ
-    const v = toBase(t.amount, t.currency, rates);
-    const articleName = cat?.name ?? (t.type === "income" ? "Прочая выручка" : "Прочие расходы");
-    const k = keyFor({ cpId: t.counterparty_id, cpName: t.counterparty?.name ?? null, prId: t.project_id, prName: t.project?.name ?? null, catId: cat?.id ?? null, catName: articleName });
 
-    if (t.type === "income") {
-      revenue += v;
-      add(revenueByCat, k.id, k.name, v);
-    } else {
-      const bucket =
-        treatment === "direct" ? "direct"
-        : treatment === "indirect" ? "indirect"
-        : treatment === "other" ? "other"
-        : t.project_id ? "direct" : "indirect"; // auto
-      if (bucket === "direct") { direct += v; add(directByCat, k.id, k.name, v); }
-      else if (bucket === "indirect") { indirect += v; add(indirectByCat, k.id, k.name, v); }
-      else { other += v; add(otherByCat, k.id, k.name, v); }
+    // Строки: части операции (split), иначе — сама операция целиком.
+    const sp = splitsByTx.get(t.id);
+    const lines = sp && sp.length
+      ? sp.map((s) => {
+          const c = s.category_id ? catMap.get(s.category_id) : undefined;
+          return { amount: s.amount, catId: c?.id ?? null, catName: c?.name ?? null,
+            treatment: c?.pnl_treatment ?? "auto", activity: c?.cf_activity ?? "operating",
+            prId: s.project_id, prName: s.project_id ? prMap.get(s.project_id) ?? null : null,
+            cpId: s.counterparty_id, cpName: s.counterparty_id ? cpMap.get(s.counterparty_id) ?? null : null };
+        })
+      : [{ amount: t.amount, catId: t.category?.id ?? null, catName: t.category?.name ?? null,
+          treatment: t.category?.pnl_treatment ?? "auto", activity: t.category?.cf_activity ?? "operating",
+          prId: t.project_id, prName: t.project?.name ?? null,
+          cpId: t.counterparty_id, cpName: t.counterparty?.name ?? null }];
+
+    for (const ln of lines) {
+      if (ln.treatment === "excluded") continue;
+      if (ln.activity !== "operating") continue; // капвложения и финансовые потоки не входят в ОПиУ
+      const v = toBase(ln.amount, t.currency, rates);
+      const articleName = ln.catName ?? (t.type === "income" ? "Прочая выручка" : "Прочие расходы");
+      const k = keyFor({ cpId: ln.cpId, cpName: ln.cpName, prId: ln.prId, prName: ln.prName, catId: ln.catId, catName: articleName });
+
+      if (t.type === "income") {
+        revenue += v;
+        add(revenueByCat, k.id, k.name, v);
+      } else {
+        const bucket =
+          ln.treatment === "direct" ? "direct"
+          : ln.treatment === "indirect" ? "indirect"
+          : ln.treatment === "other" ? "other"
+          : ln.prId ? "direct" : "indirect"; // auto
+        if (bucket === "direct") { direct += v; add(directByCat, k.id, k.name, v); }
+        else if (bucket === "indirect") { indirect += v; add(indirectByCat, k.id, k.name, v); }
+        else { other += v; add(otherByCat, k.id, k.name, v); }
+      }
     }
   }
   // Начисленные обязательства (в т.ч. неоплаченные) — по периоду начисления

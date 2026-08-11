@@ -49,6 +49,7 @@ export default function SupportPeriods({
   const [pay, setPay] = useState<string>(payCandidates[0]?.id ?? "none");
   const [prepay, setPrepay] = useState("");
   const [accountId, setAccountId] = useState(accounts[0]?.id ?? "");
+  const [attachFor, setAttachFor] = useState<string | null>(null); // id цикла, которому привязываем оплату
 
   const accCur = accounts.find((a) => a.id === accountId)?.currency ?? "";
 
@@ -75,6 +76,27 @@ export default function SupportPeriods({
     setBusy(true);
     setError(null);
     const { error } = await supabase.from("projects").update({ status: "done", completed_on: new Date().toISOString().slice(0, 10) }).eq("id", projectId);
+    setBusy(false);
+    if (error) { setError(error.message); return; }
+    router.refresh();
+  }
+
+  // Привязать существующий приход к УЖЕ открытому циклу (без дубля выручки).
+  async function attachPayment(periodId: string, txId: string) {
+    setBusy(true);
+    setError(null);
+    const { error } = await supabase.from("project_periods").update({ income_transaction_id: txId }).eq("id", periodId);
+    setBusy(false);
+    if (error) { setError(error.message); return; }
+    setAttachFor(null);
+    router.refresh();
+  }
+
+  // Отвязать оплату от цикла (сам приход остаётся операцией).
+  async function unlinkPayment(periodId: string) {
+    setBusy(true);
+    setError(null);
+    const { error } = await supabase.from("project_periods").update({ income_transaction_id: null }).eq("id", periodId);
     setBusy(false);
     if (error) { setError(error.message); return; }
     router.refresh();
@@ -179,9 +201,38 @@ export default function SupportPeriods({
                 <tr key={p.id} className="border-b border-slate-50 last:border-0 dark:border-white/[0.05]">
                   <td className="py-2.5 pr-4 font-medium text-slate-800 dark:text-neutral-200">{p.monthLabel}</td>
                   <td className="py-2.5 pr-4">
-                    {p.payment
-                      ? <span className="text-slate-600 dark:text-neutral-300">{p.payment}</span>
-                      : <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-400">нет оплаты</span>}
+                    {p.payment ? (
+                      <span className="inline-flex items-center gap-1">
+                        <span className="text-slate-600 dark:text-neutral-300">{p.payment}</span>
+                        {canManage && (
+                          <button type="button" onClick={() => unlinkPayment(p.id)} disabled={busy}
+                            className="text-slate-300 hover:text-red-500 disabled:opacity-50" title="Отвязать оплату">✕</button>
+                        )}
+                      </span>
+                    ) : canManage && payCandidates.length > 0 ? (
+                      <div className="relative inline-block text-left">
+                        <button type="button" onClick={() => setAttachFor(attachFor === p.id ? null : p.id)} disabled={busy}
+                          className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700 transition hover:bg-amber-200 disabled:opacity-50 dark:bg-amber-500/15 dark:text-amber-400 dark:hover:bg-amber-500/25">
+                          нет оплаты · привязать
+                        </button>
+                        {attachFor === p.id && (
+                          <>
+                            <div className="fixed inset-0 z-20" onClick={() => setAttachFor(null)} />
+                            <div className="absolute left-0 z-30 mt-1 max-h-64 w-80 overflow-auto rounded-xl border border-slate-200 bg-white p-1 text-left shadow-xl dark:border-white/10 dark:bg-[#1b1d22]">
+                              <div className="px-2 py-1.5 text-xs text-slate-400">Приход этого проекта (без дубля выручки)</div>
+                              {payCandidates.map((c) => (
+                                <button key={c.id} type="button" onClick={() => attachPayment(p.id, c.id)} disabled={busy}
+                                  className="block w-full truncate rounded-lg px-2.5 py-1.5 text-left text-sm text-slate-600 hover:bg-slate-100 disabled:opacity-50 dark:text-neutral-300 dark:hover:bg-white/[0.06]">
+                                  {c.label}
+                                </button>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-400">нет оплаты</span>
+                    )}
                   </td>
                   {showFinance && <td className="py-2.5 pr-4 text-right text-emerald-600 dark:text-emerald-400">{p.revenue ?? "—"}</td>}
                   {showFinance && <td className="py-2.5 pr-4 text-right text-red-600 dark:text-red-400">{p.costs ?? "—"}</td>}

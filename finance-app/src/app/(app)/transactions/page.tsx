@@ -152,6 +152,13 @@ export default async function TransactionsPage({
     attByTx.set(a.transaction_id, arr);
   }
 
+  // Число частей операции (внутренний split) — для индикатора в списке
+  const { data: splitCnt } = txIds.length
+    ? await supabase.from("transaction_splits").select("transaction_id").in("transaction_id", txIds)
+    : { data: [] };
+  const splitByTx = new Map<string, number>();
+  for (const s of (splitCnt ?? []) as { transaction_id: string }[]) splitByTx.set(s.transaction_id, (splitByTx.get(s.transaction_id) ?? 0) + 1);
+
   const exportRows = rows.map((t) => [
     t.occurred_on,
     t.type === "income" ? "Приход" : t.type === "expense" ? "Расход" : "Перевод",
@@ -229,6 +236,7 @@ export default async function TransactionsPage({
               accountName: t.account?.name ?? null, toAccountName: t.to_account?.name ?? null,
               categoryName: t.category?.name ?? null, counterpartyName: t.counterparty?.name ?? null,
               projectName: t.project?.name ?? null,
+              splitCount: splitByTx.get(t.id) ?? 0,
             },
           }))}
           accounts={accounts ?? []}

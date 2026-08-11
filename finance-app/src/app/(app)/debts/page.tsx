@@ -1,13 +1,15 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canEditFinance } from "@/lib/team";
-import { formatMoney } from "@/lib/format";
+import { formatMoney, formatDate } from "@/lib/format";
 import { buildRateMap, toBase } from "@/lib/fx";
 import AddObligationForm from "@/components/AddObligationForm";
 import PayObligationButton from "@/components/PayObligationButton";
 import PlanObligationButton from "@/components/PlanObligationButton";
 import LinkPaymentButton from "@/components/LinkPaymentButton";
+import AllocatePaymentButton from "@/components/AllocatePaymentButton";
 import EditObligationForm from "@/components/EditObligationForm";
+import { loadUnallocatedPayments } from "@/lib/unallocated";
 
 type Row = {
   id: string;
@@ -110,6 +112,10 @@ export default async function DebtsPage({
   const rows = (obligations ?? []) as unknown as Row[];
   const openRows = rows.filter((o) => o.outstanding > 0); // показываем только непогашенные
   const rates = buildRateMap(fxRows ?? [], cur);
+
+  // Нераспределённые выплаты — операции контрагентам с открытым долгом, не привязанные к обязательствам
+  const unallocated = await loadUnallocatedPayments(supabase, team.id, rates);
+  const unallocatedTotal = unallocated.reduce((s, u) => s + u.remainingBase, 0);
 
   let receivable = 0;
   let payable = 0;
@@ -283,6 +289,58 @@ export default async function DebtsPage({
         </section>
       )}
 
+      {/* Нераспределённые выплаты */}
+      {unallocated.length > 0 && (
+        <section id="unallocated" className="mt-6 scroll-mt-6">
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">
+            Нераспределённые выплаты · {formatMoney(unallocatedTotal, cur)}
+          </h2>
+          <div className="overflow-hidden rounded-3xl bg-white ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wider text-slate-400 dark:border-white/[0.07] dark:text-neutral-500">
+                  <th className="px-5 py-3 font-medium">Контрагент</th>
+                  <th className="px-5 py-3 font-medium">Операция</th>
+                  <th className="px-5 py-3 text-right font-medium">Не разнесено</th>
+                  <th className="px-5 py-3 text-right font-medium"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {unallocated.map((u) => (
+                  <tr key={u.id} className="border-b border-slate-50 last:border-0 dark:border-white/[0.05]">
+                    <td className="px-5 py-3 font-medium text-slate-800 dark:text-neutral-200">{u.counterpartyName}</td>
+                    <td className="px-5 py-3 text-slate-500 dark:text-neutral-400">
+                      {formatDate(u.occurred_on)}
+                      {u.note ? ` · ${u.note}` : ""}
+                      {u.currency !== cur && <span className="ml-1 text-xs text-slate-400">· {formatMoney(u.amount, u.currency)}</span>}
+                    </td>
+                    <td className="px-5 py-3 text-right font-semibold text-amber-600 dark:text-amber-400">
+                      {formatMoney(u.remainingBase, cur)}
+                      {u.allocatedBase > 0 && (
+                        <span className="ml-1 text-xs font-normal text-slate-400">из {formatMoney(u.paidBase, cur)}</span>
+                      )}
+                    </td>
+                    <td className="px-5 py-3 text-right">
+                      {canEditFinance(role) && user ? (
+                        <AllocatePaymentButton
+                          paymentId={u.id}
+                          occurredOn={u.occurred_on}
+                          remainingBase={u.remainingBase}
+                          baseCurrency={cur}
+                          counterpartyId={u.counterparty_id}
+                          oblType={u.oblType}
+                          userId={user.id}
+                        />
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
       {/* Список обязательств (только непогашенные) */}
       {openRows.length > 0 && (
         <section className="mt-6">
@@ -374,6 +432,8 @@ export default async function DebtsPage({
                             outstanding={o.outstanding}
                             teamId={team.id}
                             userId={user.id}
+                            rates={rates}
+                            baseCurrency={cur}
                           />
                           <PayObligationButton
                             obligationId={o.id}
