@@ -10,6 +10,7 @@ import Combobox, { type ComboOption } from "@/components/Combobox";
 import Attachments, { type Attachment } from "@/components/Attachments";
 import OperationHistory from "@/components/OperationHistory";
 import SplitTransactionModal from "@/components/SplitTransactionModal";
+import TransactionPartsModal from "@/components/TransactionPartsModal";
 import type { TxData } from "@/components/EditableTransactionRow";
 
 type Account = { id: string; name: string; currency: string };
@@ -90,6 +91,7 @@ export default function OperationCard({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [splitting, setSplitting] = useState(false);
+  const [parting, setParting] = useState(false);
 
   const imported = !!tx.import_batch_id;
   const acc = accounts.find((a) => a.id === accountId);
@@ -307,10 +309,17 @@ export default function OperationCard({
           </button>
           <button onClick={onClose} className="btn-ghost">Отмена</button>
           {!isTransfer && (
-            <button onClick={() => setSplitting(true)} disabled={busy}
-              title="Разбить операцию на части по статьям и проектам"
+            <button onClick={() => setParting(true)} disabled={busy}
+              title="Разбить сумму на части по статьям/проектам — операция останется одной записью"
               className="rounded-full px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-100 disabled:opacity-50 dark:text-neutral-300 dark:hover:bg-white/[0.06]">
-              Разбить
+              Части операции
+            </button>
+          )}
+          {!isTransfer && (
+            <button onClick={() => setSplitting(true)} disabled={busy}
+              title="Разделить на несколько отдельных операций (исходная заменится)"
+              className="rounded-full px-4 py-2.5 text-sm font-medium text-slate-500 transition hover:bg-slate-100 disabled:opacity-50 dark:text-neutral-400 dark:hover:bg-white/[0.06]">
+              На операции
             </button>
           )}
           <button onClick={remove} disabled={busy}
@@ -320,6 +329,17 @@ export default function OperationCard({
         </div>
       )}
     </Modal>
+    {parting && (
+      <TransactionPartsModal
+        open={parting}
+        onClose={() => setParting(false)}
+        tx={tx}
+        categories={categories}
+        counterparties={counterparties}
+        projects={projects}
+        teamId={teamId}
+      />
+    )}
     {splitting && (
       <SplitTransactionModal
         open={splitting}
