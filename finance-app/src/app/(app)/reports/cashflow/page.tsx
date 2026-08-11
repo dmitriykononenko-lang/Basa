@@ -97,7 +97,7 @@ export default async function CashflowPage({
   for (let offset = 0; ; offset += PAGE) {
     const { data, error } = await supabase
       .from("transactions")
-      .select("type, amount, currency, occurred_on, account_id, counterparty_id, project_id, category:categories(id, name, cf_activity), account:accounts!transactions_account_id_fkey(name), counterparty:counterparties(name), project:projects(name)")
+      .select("id, type, amount, currency, occurred_on, account_id, counterparty_id, project_id, category:categories(id, name, cf_activity), account:accounts!transactions_account_id_fkey(name), counterparty:counterparties(name), project:projects(name)")
       .eq("team_id", team.id)
       .eq("status", "actual")
       .gte("occurred_on", startDate)
@@ -109,6 +109,41 @@ export default async function CashflowPage({
   }
 
   const rates = buildRateMap(fxRows ?? [], base);
+
+  // Внутренние части операций (split): месячные ИТОГО считаем по полной сумме,
+  // а разбивку по измерению (статья/проект/контрагент/вид) — по частям.
+  const splitAll: { transaction_id: string; amount: number; category_id: string | null; project_id: string | null; counterparty_id: string | null }[] = [];
+  for (let off = 0; ; off += PAGE) {
+    const { data, error } = await supabase.from("transaction_splits")
+      .select("transaction_id, amount, category_id, project_id, counterparty_id").eq("team_id", team.id).range(off, off + PAGE - 1);
+    if (error || !data?.length) break;
+    splitAll.push(...(data as typeof splitAll));
+    if (data.length < PAGE) break;
+  }
+  const [{ data: catRows2 }, { data: prRows2 }, { data: cpRows2 }] = await Promise.all([
+    supabase.from("categories").select("id, name, cf_activity").eq("team_id", team.id),
+    supabase.from("projects").select("id, name").eq("team_id", team.id),
+    supabase.from("counterparties").select("id, name").eq("team_id", team.id),
+  ]);
+  const catMap = new Map(((catRows2 ?? []) as { id: string; name: string; cf_activity: string }[]).map((c) => [c.id, c]));
+  const prMap = new Map(((prRows2 ?? []) as { id: string; name: string }[]).map((p) => [p.id, p.name]));
+  const cpMap = new Map(((cpRows2 ?? []) as { id: string; name: string }[]).map((c) => [c.id, c.name]));
+  const splitsByTx = new Map<string, typeof splitAll>();
+  for (const s of splitAll) { const a = splitsByTx.get(s.transaction_id) ?? []; a.push(s); splitsByTx.set(s.transaction_id, a); }
+
+  type Line = { amount: number; catId: string | null; catName: string | null; cfActivity: string | null; prId: string | null; prName: string | null; cpId: string | null; cpName: string | null };
+  function linesOf(t: Tx): Line[] {
+    const sp = splitsByTx.get((t as unknown as { id: string }).id);
+    if (sp && sp.length) return sp.map((s) => {
+      const c = s.category_id ? catMap.get(s.category_id) : undefined;
+      return { amount: s.amount, catId: c?.id ?? null, catName: c?.name ?? null, cfActivity: c?.cf_activity ?? null,
+        prId: s.project_id, prName: s.project_id ? prMap.get(s.project_id) ?? null : null,
+        cpId: s.counterparty_id, cpName: s.counterparty_id ? cpMap.get(s.counterparty_id) ?? null : null };
+    });
+    return [{ amount: t.amount, catId: t.category?.id ?? null, catName: t.category?.name ?? null, cfActivity: t.category?.cf_activity ?? null,
+      prId: t.project_id, prName: t.project?.name ?? null, cpId: t.counterparty_id, cpName: t.counterparty?.name ?? null }];
+  }
+
   const months = Array.from({ length: monthsCount }, (_, i) => i); // индексы 0..
 
   const incomeM = new Array(monthsCount).fill(0);
@@ -125,21 +160,21 @@ export default async function CashflowPage({
     row.values[mi] += v;
   }
 
-  // Ключ группировки строки по выбранному измерению.
-  function keyOf(t: Tx): { id: string | null; name: string } {
+  // Ключ группировки строки по выбранному измерению (учёт частей операции).
+  function keyOf(t: Tx, ln: Line): { id: string | null; name: string } {
     switch (group) {
       case "account":
         return { id: t.account_id, name: t.account?.name ?? "Без счёта" };
       case "counterparty":
-        return { id: t.counterparty_id, name: t.counterparty?.name ?? "Без контрагента" };
+        return { id: ln.cpId, name: ln.cpName ?? "Без контрагента" };
       case "project":
-        return { id: t.project_id, name: t.project?.name ?? "Без проекта" };
+        return { id: ln.prId, name: ln.prName ?? "Без проекта" };
       case "activity": {
-        const a = t.category?.cf_activity ?? null;
+        const a = ln.cfActivity ?? null;
         return { id: a, name: a ? (ACTIVITY_LABEL[a] ?? a) : "Без вида деятельности" };
       }
       default:
-        return { id: t.category?.id ?? null, name: t.category?.name ?? "Нераспределённые" };
+        return { id: ln.catId, name: ln.catName ?? "Нераспределённые" };
     }
   }
 
@@ -155,12 +190,10 @@ export default async function CashflowPage({
     if (mi === undefined) continue; // вне отображаемого диапазона (учтено в остатке на начало)
     if (t.type === "income") {
       incomeM[mi] += v;
-      const k = keyOf(t);
-      bump(incomeCat, k.id, k.name, mi, v);
+      for (const ln of linesOf(t)) { const k = keyOf(t, ln); bump(incomeCat, k.id, k.name, mi, toBase(ln.amount, t.currency, rates)); }
     } else if (t.type === "expense") {
       expenseM[mi] += v;
-      const k = keyOf(t);
-      bump(expenseCat, k.id, k.name, mi, v);
+      for (const ln of linesOf(t)) { const k = keyOf(t, ln); bump(expenseCat, k.id, k.name, mi, toBase(ln.amount, t.currency, rates)); }
     } else if (t.type === "transfer") {
       transferM[mi] += v;
     }
