@@ -34,6 +34,7 @@ export type TxData = {
   categoryName: string | null;
   counterpartyName: string | null;
   projectName: string | null;
+  splitCount?: number; // число частей операции (внутренний split), если разбита
 };
 
 export default function EditableTransactionRow({
@@ -132,8 +133,11 @@ export default function EditableTransactionRow({
         )}
       </td>
       <td className="px-5 py-3">
-        <div className="font-medium text-slate-800 dark:text-neutral-200">
-          {isTransfer ? "Перевод" : tx.categoryName ?? "Без статьи"}
+        <div className="flex items-center gap-1.5 font-medium text-slate-800 dark:text-neutral-200">
+          {isTransfer ? "Перевод" : (tx.splitCount && tx.splitCount >= 2 ? `${tx.splitCount} части` : (tx.categoryName ?? "Без статьи"))}
+          {!isTransfer && tx.splitCount && tx.splitCount >= 2 && (
+            <span className="rounded-full bg-brand/10 px-1.5 py-0.5 text-[10px] font-medium text-brand">split</span>
+          )}
         </div>
         {(tx.note || attachments.length > 0) && (
           <div className="max-w-xs truncate text-xs text-slate-400 dark:text-neutral-500">
