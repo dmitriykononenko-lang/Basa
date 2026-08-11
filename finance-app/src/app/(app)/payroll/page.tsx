@@ -52,8 +52,12 @@ export default async function PayrollPage({
   const { data: { user } } = await supabase.auth.getUser();
   const manage = canEditFinance(role);
 
-  // Ленивое авто-начисление зарплаты для сотрудников с включённым авто-режимом
-  if (manage) await supabase.rpc("materialize_auto_accruals", { p_team: team.id });
+  // Ленивое авто-начисление: зарплата (авто-режим сотрудника) и бонусы аналитику
+  // по ТП — открываем следующий цикл поддержки, когда его месяц закончился.
+  if (manage) {
+    await supabase.rpc("materialize_auto_accruals", { p_team: team.id });
+    await supabase.rpc("materialize_support_cycles", { p_team: team.id });
+  }
 
   const start = periodStartMonth(period);
   const startStr = `${start.y}-${String(start.m + 1).padStart(2, "0")}-01`;
