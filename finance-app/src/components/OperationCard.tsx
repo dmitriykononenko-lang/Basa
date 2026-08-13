@@ -113,6 +113,8 @@ export default function OperationCard({
     if (!accountId) return setError(isTransfer ? "Укажите счёт списания" : "Укажите счёт");
     if (isTransfer && !toAccountId) return setError("Укажите счёт зачисления");
     if (isTransfer && toAccountId === accountId) return setError("Счета списания и зачисления совпадают");
+    if (isTransfer && (tx.splitCount ?? 0) >= 2)
+      return setError("Операция разбита на части — сначала уберите части, перевод нельзя делить.");
     const account = accounts.find((a) => a.id === accountId);
 
     // Приход: при разных валютах — введённая сумма зачисления; при одной валюте — равен списанию (null).
@@ -141,6 +143,8 @@ export default function OperationCard({
         accrual_date: isTransfer || !showAccrual ? null : accrualDate || null,
         note: note || null,
         status: planned ? "planned" : "actual",
+        // Перевод не может гасить обязательство — очищаем привязку при конвертации.
+        ...(isTransfer ? { obligation_id: null } : {}),
       })
       .eq("id", tx.id);
     setBusy(false);
