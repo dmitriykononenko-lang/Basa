@@ -92,6 +92,7 @@ export default function OperationCard({
   const [showAccrual, setShowAccrual] = useState(!!tx.accrual_date);
   const [note, setNote] = useState(tx.note ?? "");
   const [planned, setPlanned] = useState(tx.status === "planned");
+  const [repeatMonthly, setRepeatMonthly] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [splitting, setSplitting] = useState(false);
@@ -149,6 +150,30 @@ export default function OperationCard({
       .eq("id", tx.id);
     setBusy(false);
     if (error) return setError(error.message);
+
+    // «Повторять каждый месяц» — создаём правило в «Регулярных операциях».
+    if (repeatMonthly) {
+      const day = Number(date.slice(8, 10)) || new Date().getDate();
+      const { error: rErr } = await supabase.from("recurring_rules").insert({
+        team_id: teamId,
+        type: txType,
+        amount: minor,
+        currency: account?.currency ?? tx.currency,
+        account_id: accountId || null,
+        transfer_account_id: isTransfer ? toAccountId || null : null,
+        category_id: isTransfer ? null : categoryId || null,
+        counterparty_id: isTransfer ? null : counterpartyId || null,
+        project_id: projectId || null,
+        note: note || null,
+        frequency: "monthly",
+        day_of_month: day,
+        start_date: date,
+        created_by: userId,
+      });
+      if (rErr) toast.error("Операция сохранена, но правило не создано: " + rErr.message);
+      else toast.success(`Создано правило: ежемесячно ${day}-го числа`);
+    }
+
     toast.success("Изменения сохранены");
     onClose();
     router.refresh();
@@ -351,6 +376,15 @@ export default function OperationCard({
             )
           )}
         </div>
+      )}
+
+      {canEdit && (
+        <label className="mt-3 flex cursor-pointer items-center gap-2.5 text-sm text-slate-700 dark:text-neutral-200">
+          <input type="checkbox" checked={repeatMonthly} onChange={(e) => setRepeatMonthly(e.target.checked)}
+            className="h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand dark:border-white/20" />
+          Повторять операцию каждый месяц
+          <span className="text-xs text-slate-400 dark:text-neutral-500">— создаст правило в «Регулярных»</span>
+        </label>
       )}
 
       {/* Чеки и вложения — заголовок рисует сам Attachments */}
