@@ -82,6 +82,48 @@ export async function POST(request: Request) {
   return NextResponse.json({ ok: true, id: data.id });
 }
 
+// Массовое назначение группы и/или проекта выбранным записям.
+export async function PATCH(request: Request) {
+  const current = await getCurrentTeam();
+  if (!current) return NextResponse.json({ error: "Нет команды" }, { status: 400 });
+  if (!canEditFinance(current.role)) return NextResponse.json({ error: "Недостаточно прав" }, { status: 403 });
+
+  const p = await parseJson(
+    request,
+    z.object({
+      ids: z.array(z.string().uuid()).min(1),
+      group_name: z.string().optional(),
+      project_id: z.string().uuid().nullable().optional(),
+    }),
+  );
+  if (!p.ok) return p.res;
+  const { ids, group_name, project_id } = p.data;
+
+  const patch: Record<string, unknown> = {};
+  if (group_name !== undefined) patch.group_name = group_name.trim();
+  if (project_id !== undefined) {
+    if (project_id === null) {
+      patch.project_id = null;
+    } else {
+      const supabaseCheck = await createClient();
+      const { data: proj } = await supabaseCheck
+        .from("projects")
+        .select("id")
+        .eq("id", project_id)
+        .eq("team_id", current.team.id)
+        .maybeSingle();
+      if (!proj) return NextResponse.json({ error: "Проект не найден" }, { status: 400 });
+      patch.project_id = proj.id;
+    }
+  }
+  if (Object.keys(patch).length === 0) return NextResponse.json({ error: "Нечего менять" }, { status: 400 });
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("vault_entries").update(patch).in("id", ids);
+  if (error) return NextResponse.json({ error: error.message }, { status: 403 });
+  return NextResponse.json({ ok: true, updated: ids.length });
+}
+
 // Удалить запись.
 export async function DELETE(request: Request) {
   const current = await getCurrentTeam();

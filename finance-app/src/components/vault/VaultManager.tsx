@@ -58,6 +58,10 @@ export default function VaultManager({
   const [accessEntry, setAccessEntry] = useState<VaultEntry | null>(null);
   const [query, setQuery] = useState("");
   const [view, setView] = useState<ViewMode>("cards");
+  const [requested, setRequested] = useState<Set<string>>(new Set());
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulk, setBulk] = useState({ changeGroup: false, group: "", changeProject: false, project: "" });
 
   // Режим отображения запоминаем между сессиями.
   useEffect(() => {
@@ -169,6 +173,17 @@ export default function VaultManager({
     setRevealed({ id: e.id, secret: json.secret });
   }
 
+  async function requestAccess(e: VaultEntry) {
+    const res = await fetch(`/api/vault/${encodeURIComponent(e.id)}/request-access`, { method: "POST" });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      toast.error(json.error ?? "Не удалось отправить запрос");
+      return;
+    }
+    setRequested((prev) => new Set(prev).add(e.id));
+    toast.success((json.notified ?? 0) > 0 ? "Запрос отправлен владельцу/админу" : "Запрос отправлен");
+  }
+
   async function copy(text: string) {
     try {
       await navigator.clipboard.writeText(text);
@@ -176,6 +191,41 @@ export default function VaultManager({
     } catch {
       toast.error("Не удалось скопировать");
     }
+  }
+
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  async function applyBulk() {
+    if (!bulk.changeGroup && !bulk.changeProject) {
+      toast.error("Выберите, что изменить");
+      return;
+    }
+    const body: Record<string, unknown> = { ids: [...selected] };
+    if (bulk.changeGroup) body.group_name = bulk.group;
+    if (bulk.changeProject) body.project_id = bulk.project || null;
+    setBusy(true);
+    const res = await fetch("/api/vault", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    setBusy(false);
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      toast.error(json.error ?? "Не удалось применить");
+      return;
+    }
+    toast.success(`Обновлено записей: ${json.updated ?? selected.size}`);
+    setBulkOpen(false);
+    setBulk({ changeGroup: false, group: "", changeProject: false, project: "" });
+    setSelected(new Set());
+    router.refresh();
   }
 
   function accessSummary(e: VaultEntry): string {
@@ -191,6 +241,27 @@ export default function VaultManager({
 
   const shown = filtered.length;
   const total = entries.length;
+
+  function itemProps(e: VaultEntry): ItemProps {
+    return {
+      e,
+      revealedSecret: revealed?.id === e.id ? revealed!.secret : null,
+      requested: requested.has(e.id),
+      canManage,
+      canGrant,
+      selectable: canManage,
+      selected: selected.has(e.id),
+      accessLabel: accessSummary(e),
+      onReveal: () => reveal(e),
+      onHide: () => setRevealed(null),
+      onRequest: () => requestAccess(e),
+      onCopy: copy,
+      onEdit: () => openEdit(e),
+      onRemove: () => remove(e),
+      onAccess: () => setAccessEntry(e),
+      onToggleSelect: () => toggleSelect(e.id),
+    };
+  }
 
   return (
     <>
@@ -227,10 +298,18 @@ export default function VaultManager({
         </div>
       </div>
 
+      {canManage && selected.size > 0 && (
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-brand/30 bg-brand/5 px-4 py-2.5">
+          <span className="text-sm font-medium text-slate-700 dark:text-neutral-200">Выбрано: {selected.size}</span>
+          <button type="button" onClick={() => setBulkOpen(true)} className="btn-primary text-xs">Назначить группу / проект</button>
+          <button type="button" onClick={() => setSelected(new Set())} className="btn-ghost text-xs">Снять выбор</button>
+        </div>
+      )}
+
       {total === 0 ? (
         <EmptyState
           icon="🔑"
-          title={canManage ? "Паролей пока нет" : "Паролей пока нет"}
+          title="Паролей пока нет"
           description={canManage ? "Добавьте первый пароль, сгруппируйте записи и выдайте доступ сотрудникам, узлам или через привязку к проекту." : "Здесь появятся пароли команды. Те, к которым у вас нет доступа, будут показаны под замком."}
         />
       ) : shown === 0 ? (
@@ -247,47 +326,22 @@ export default function VaultManager({
 
               {view === "cards" ? (
                 <ul className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-                  {items.map((e) => (
-                    <VaultCard
-                      key={e.id}
-                      e={e}
-                      revealedSecret={revealed?.id === e.id ? revealed!.secret : null}
-                      canManage={canManage}
-                      canGrant={canGrant}
-                      accessLabel={accessSummary(e)}
-                      onReveal={() => reveal(e)}
-                      onHide={() => setRevealed(null)}
-                      onCopy={copy}
-                      onEdit={() => openEdit(e)}
-                      onRemove={() => remove(e)}
-                      onAccess={() => setAccessEntry(e)}
-                    />
-                  ))}
+                  {items.map((e) => <VaultCard key={e.id} {...itemProps(e)} />)}
                 </ul>
               ) : (
                 <ul className="surface divide-y divide-slate-100 overflow-hidden rounded-2xl dark:divide-white/5">
-                  {items.map((e) => (
-                    <VaultRow
-                      key={e.id}
-                      e={e}
-                      revealedSecret={revealed?.id === e.id ? revealed!.secret : null}
-                      canManage={canManage}
-                      canGrant={canGrant}
-                      accessLabel={accessSummary(e)}
-                      onReveal={() => reveal(e)}
-                      onHide={() => setRevealed(null)}
-                      onCopy={copy}
-                      onEdit={() => openEdit(e)}
-                      onRemove={() => remove(e)}
-                      onAccess={() => setAccessEntry(e)}
-                    />
-                  ))}
+                  {items.map((e) => <VaultRow key={e.id} {...itemProps(e)} />)}
                 </ul>
               )}
             </section>
           ))}
         </div>
       )}
+
+      {/* Список групп для автоподсказок (используется в обеих модалках) */}
+      <datalist id="vault-groups">
+        {groupSuggestions.map((g) => <option key={g} value={g} />)}
+      </datalist>
 
       {/* Добавление / редактирование записи */}
       <Modal open={editOpen} onClose={() => setEditOpen(false)} title={draft.id ? "Изменить пароль" : "Новый пароль"} size="md">
@@ -312,9 +366,6 @@ export default function VaultManager({
                 placeholder="Например, Почты"
                 list="vault-groups"
               />
-              <datalist id="vault-groups">
-                {groupSuggestions.map((g) => <option key={g} value={g} />)}
-              </datalist>
             </Field>
             <Field label="Проект (необяз.)">
               <select value={draft.project_id} onChange={(ev) => setDraft({ ...draft, project_id: ev.target.value })} className="input">
@@ -336,6 +387,40 @@ export default function VaultManager({
           <div className="flex justify-end gap-2">
             <button type="button" onClick={() => setEditOpen(false)} className="btn-ghost">Отмена</button>
             <button type="button" disabled={busy} onClick={save} className="btn-primary">{busy ? "…" : "Сохранить"}</button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Массовое назначение группы / проекта */}
+      <Modal open={bulkOpen} onClose={() => setBulkOpen(false)} title={`Массовое назначение · ${selected.size}`} size="md">
+        <div className="space-y-4">
+          <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-neutral-200">
+            <input type="checkbox" checked={bulk.changeGroup} onChange={(ev) => setBulk({ ...bulk, changeGroup: ev.target.checked })} />
+            Изменить группу
+          </label>
+          {bulk.changeGroup && (
+            <input
+              value={bulk.group}
+              onChange={(ev) => setBulk({ ...bulk, group: ev.target.value })}
+              className="input"
+              list="vault-groups"
+              placeholder="Название группы (пусто — убрать из группы)"
+            />
+          )}
+          <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-neutral-200">
+            <input type="checkbox" checked={bulk.changeProject} onChange={(ev) => setBulk({ ...bulk, changeProject: ev.target.checked })} />
+            Изменить проект
+          </label>
+          {bulk.changeProject && (
+            <select value={bulk.project} onChange={(ev) => setBulk({ ...bulk, project: ev.target.value })} className="input">
+              <option value="">— без проекта —</option>
+              {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          )}
+          <p className="text-xs text-slate-400">Изменения применятся к {selected.size} выбранным записям.</p>
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => setBulkOpen(false)} className="btn-ghost">Отмена</button>
+            <button type="button" disabled={busy} onClick={applyBulk} className="btn-primary">{busy ? "…" : "Применить"}</button>
           </div>
         </div>
       </Modal>
@@ -367,15 +452,20 @@ export default function VaultManager({
 type ItemProps = {
   e: VaultEntry;
   revealedSecret: string | null;
+  requested: boolean;
   canManage: boolean;
   canGrant: boolean;
+  selectable: boolean;
+  selected: boolean;
   accessLabel: string;
   onReveal: () => void;
   onHide: () => void;
+  onRequest: () => void;
   onCopy: (t: string) => void;
   onEdit: () => void;
   onRemove: () => void;
   onAccess: () => void;
+  onToggleSelect: () => void;
 };
 
 function ProjectBadge({ name }: { name: string }) {
@@ -386,12 +476,16 @@ function ProjectBadge({ name }: { name: string }) {
   );
 }
 
-function SecretBox({ e, revealedSecret, onReveal, onHide, onCopy }: Pick<ItemProps, "e" | "revealedSecret" | "onReveal" | "onHide" | "onCopy">) {
+function SecretBox({ e, revealedSecret, requested, onReveal, onHide, onRequest, onCopy }: Pick<ItemProps, "e" | "revealedSecret" | "requested" | "onReveal" | "onHide" | "onRequest" | "onCopy">) {
   if (!e.can_reveal) {
     return (
-      <div className="flex items-center gap-2 text-slate-400">
-        <span aria-hidden>🔒</span>
-        <span className="text-xs">Доступ закрыт</span>
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex items-center gap-1.5 text-xs text-slate-400"><span aria-hidden>🔒</span> Доступ закрыт</span>
+        {requested ? (
+          <span className="text-xs text-slate-400">Запрошено</span>
+        ) : (
+          <button type="button" onClick={onRequest} className="btn-ghost px-2 py-1 text-xs">Запросить доступ</button>
+        )}
       </div>
     );
   }
@@ -417,10 +511,13 @@ function SecretBox({ e, revealedSecret, onReveal, onHide, onCopy }: Pick<ItemPro
 }
 
 function VaultCard(p: ItemProps) {
-  const { e, canManage, canGrant, accessLabel } = p;
+  const { e, canManage, canGrant, selectable, selected, accessLabel } = p;
   return (
-    <li className={`surface flex h-full flex-col rounded-3xl p-5 ${e.can_reveal ? "" : "opacity-95"}`}>
+    <li className={`surface flex h-full flex-col rounded-3xl p-5 ${selected ? "ring-2 ring-brand" : ""}`}>
       <div className="flex items-start gap-3">
+        {selectable && (
+          <input type="checkbox" checked={selected} onChange={p.onToggleSelect} className="mt-1.5" aria-label="Выбрать запись" />
+        )}
         <span className={`mt-0.5 rounded-xl p-2 ${e.can_reveal ? "bg-brand/10 text-brand" : "bg-slate-100 text-slate-400 dark:bg-white/5"}`}>
           <IconKey className="h-4 w-4" />
         </span>
@@ -439,7 +536,7 @@ function VaultCard(p: ItemProps) {
       {e.note && <p className="mt-3 line-clamp-2 text-xs text-slate-500 dark:text-neutral-400">{e.note}</p>}
 
       <div className="mt-3 rounded-2xl bg-slate-50 px-3 py-2 dark:bg-white/[0.03]">
-        <SecretBox e={e} revealedSecret={p.revealedSecret} onReveal={p.onReveal} onHide={p.onHide} onCopy={p.onCopy} />
+        <SecretBox e={e} revealedSecret={p.revealedSecret} requested={p.requested} onReveal={p.onReveal} onHide={p.onHide} onRequest={p.onRequest} onCopy={p.onCopy} />
       </div>
 
       <div className="mt-auto flex items-center justify-between gap-2 pt-4">
@@ -462,9 +559,12 @@ function VaultCard(p: ItemProps) {
 }
 
 function VaultRow(p: ItemProps) {
-  const { e, canManage, canGrant } = p;
+  const { e, canManage, canGrant, selectable, selected } = p;
   return (
-    <li className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:gap-4">
+    <li className={`flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:gap-4 ${selected ? "bg-brand/5" : ""}`}>
+      {selectable && (
+        <input type="checkbox" checked={selected} onChange={p.onToggleSelect} className="shrink-0" aria-label="Выбрать запись" />
+      )}
       <span className={`hidden shrink-0 rounded-lg p-1.5 sm:block ${e.can_reveal ? "bg-brand/10 text-brand" : "bg-slate-100 text-slate-400 dark:bg-white/5"}`}>
         <IconKey className="h-4 w-4" />
       </span>
@@ -476,7 +576,7 @@ function VaultRow(p: ItemProps) {
         {e.login && <div className="truncate text-xs text-slate-500 dark:text-neutral-400">{e.login}</div>}
       </div>
       <div className="min-w-0 sm:w-64">
-        <SecretBox e={e} revealedSecret={p.revealedSecret} onReveal={p.onReveal} onHide={p.onHide} onCopy={p.onCopy} />
+        <SecretBox e={e} revealedSecret={p.revealedSecret} requested={p.requested} onReveal={p.onReveal} onHide={p.onHide} onRequest={p.onRequest} onCopy={p.onCopy} />
       </div>
       {(canGrant || canManage) && (
         <div className="flex shrink-0 items-center gap-1">
