@@ -19,7 +19,7 @@ export default function NextPaymentCard({ payment }: { payment: NextPayment }) {
   const diff = Math.round((d.getTime() - today.getTime()) / 86400000);
   const rel = diff < 0 ? "просрочен" : diff === 0 ? "сегодня" : diff === 1 ? "завтра" : null;
   const dm = d.toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
-  const overdue = diff <= 0;
+  const overdue = diff < 0;
 
   async function confirm() {
     setBusy(true);
