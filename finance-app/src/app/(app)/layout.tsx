@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import { loadRoleTemplates, loadMemberOverrides, hiddenHrefs } from "@/lib/visibility";
 import Sidebar from "@/components/Sidebar";
+import NextPaymentCard, { type NextPayment } from "@/components/NextPaymentCard";
 import MobileNav from "@/components/MobileNav";
 import SignOutButton from "@/components/SignOutButton";
 import Brand from "@/components/Brand";
@@ -59,6 +60,33 @@ export default async function AppLayout({
   // «ОС компании» — обзор для руководителей (owner/admin/manager).
   if (current && !canEditFinance(current.role)) hidden.push("/os");
 
+  // Ближайший плановый платёж (расход) — карточка внизу сайдбара.
+  let nextPayment: NextPayment | null = null;
+  if (current && canEditFinance(current.role)) {
+    const today = new Date().toISOString().slice(0, 10);
+    const { data: np } = await supabase
+      .from("transactions")
+      .select("id, amount, currency, occurred_on, note, category:categories(name)")
+      .eq("team_id", current.team.id)
+      .eq("status", "planned")
+      .eq("type", "expense")
+      .gte("occurred_on", today)
+      .order("occurred_on", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (np) {
+      const cat = np.category as { name: string } | { name: string }[] | null;
+      const catName = Array.isArray(cat) ? cat[0]?.name : cat?.name;
+      nextPayment = {
+        id: np.id as string,
+        title: catName || (np.note as string | null) || "Платёж",
+        amount: np.amount as number,
+        currency: np.currency as string,
+        date: np.occurred_on as string,
+      };
+    }
+  }
+
   return (
     <div className="min-h-screen p-2 sm:p-3">
       <div className="surface relative flex min-h-[calc(100vh-1rem)] flex-col overflow-hidden sm:min-h-[calc(100vh-1.5rem)]">
@@ -111,7 +139,8 @@ export default async function AppLayout({
         <div className="flex flex-1">
           <aside className="hidden w-60 shrink-0 flex-col py-4 md:flex">
             <Sidebar hidden={hidden} />
-            <div className="mt-auto px-3 pt-3">
+            <div className="mt-auto space-y-3 px-3 pt-3">
+              {nextPayment && <NextPaymentCard payment={nextPayment} />}
               <SignOutButton />
             </div>
           </aside>
