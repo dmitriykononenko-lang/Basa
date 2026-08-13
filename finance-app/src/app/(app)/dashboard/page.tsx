@@ -8,7 +8,6 @@ import { buildRateMap, toBase } from "@/lib/fx";
 import { fetchAllRows } from "@/lib/supabase/paginate";
 import { fetchCbrRates, type CbrRates } from "@/lib/cbr";
 import AcceptInviteButton from "@/components/AcceptInviteButton";
-import { IconTransactions, IconAccounts, IconReports } from "@/components/icons";
 import ProgressMetricCard from "@/components/ui/progress-metric-card";
 import TotalIncomeCard from "@/components/ui/total-income-card";
 import TotalIncomeRecharts from "@/components/ui/total-income-recharts-lazy";
@@ -55,6 +54,11 @@ export default async function DashboardPage() {
   }
 
   const { team, role } = current;
+  const base = team.base_currency;
+
+  // Имя для приветствия (первое слово из имени профиля / e-mail).
+  const { data: prof } = await supabase.from("profiles").select("full_name").eq("id", user?.id ?? "").maybeSingle();
+  const firstName = ((prof?.full_name ?? user?.email ?? "").trim().split(/[\s@]/)[0]) || "коллега";
 
   // ── Даты для запросов (сервер Vercel работает в UTC) ──
   const now = new Date();
@@ -473,13 +477,21 @@ export default async function DashboardPage() {
           </span>
         </Link>
       )}
-      <header className="mb-7">
-        <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
-          Дашборд
-        </h1>
-        <p className="mt-1 text-sm text-slate-500 dark:text-neutral-400">
-          {team.name} · ваша роль: {ROLE_LABELS[role]}
-        </p>
+      <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <p className="text-sm capitalize text-slate-400 dark:text-neutral-500">
+            {now.toLocaleDateString("ru-RU", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+          </p>
+          <h1 className="mt-0.5 text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+            С возвращением, {firstName}
+          </h1>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Link href="/transactions" className="inline-flex items-center gap-1.5 rounded-full bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-neutral-800 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200">↗ Приход</Link>
+          <Link href="/transactions" className="inline-flex items-center gap-1.5 rounded-full bg-white px-4 py-2 text-sm font-medium text-slate-700 ring-1 ring-slate-200 transition hover:ring-slate-300 dark:bg-white/[0.04] dark:text-neutral-200 dark:ring-white/10">↘ Расход</Link>
+          <Link href="/transactions" className="inline-flex items-center gap-1.5 rounded-full bg-white px-4 py-2 text-sm font-medium text-slate-700 ring-1 ring-slate-200 transition hover:ring-slate-300 dark:bg-white/[0.04] dark:text-neutral-200 dark:ring-white/10">⇄ Перевод</Link>
+          <Link href="/transactions/import" className="inline-flex items-center gap-1.5 rounded-full bg-white px-4 py-2 text-sm font-medium text-slate-700 ring-1 ring-slate-200 transition hover:ring-slate-300 dark:bg-white/[0.04] dark:text-neutral-200 dark:ring-white/10">↑ Импорт</Link>
+        </div>
       </header>
 
       {/* Широкий график денежных средств с прогнозом кассового разрыва */}
@@ -488,31 +500,6 @@ export default async function DashboardPage() {
           <CashflowHero points={heroPoints} gap={gap} today={today} base={team.base_currency} />
         </div>
       )}
-
-      {/* Быстрые действия */}
-      <div className="mb-7 grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <ActionCard
-          href="/transactions"
-          color="accent"
-          title="Добавить операцию"
-          subtitle="Доход, расход или перевод"
-          Icon={IconTransactions}
-        />
-        <ActionCard
-          href="/accounts"
-          color="blue"
-          title="Счета"
-          subtitle="Кассы и балансы"
-          Icon={IconAccounts}
-        />
-        <ActionCard
-          href="/reports"
-          color="rose"
-          title="Отчёты"
-          subtitle="Сводки и аналитика"
-          Icon={IconReports}
-        />
-      </div>
 
       {/* Сверка по курсу ЦБ */}
       {(cbrUsd || unconverted.length > 0) && (
@@ -695,47 +682,6 @@ function InvitesBlock({ invites }: { invites: InviteRow[] }) {
         </div>
       ))}
     </div>
-  );
-}
-
-const COLOR_MAP = {
-  accent: "bg-accent text-white",
-  blue: "bg-brand text-white",
-  rose: "bg-rose-500 text-white",
-};
-
-function ActionCard({
-  href,
-  color,
-  title,
-  subtitle,
-  Icon,
-}: {
-  href: string;
-  color: keyof typeof COLOR_MAP;
-  title: string;
-  subtitle: string;
-  Icon: (p: { className?: string }) => JSX.Element;
-}) {
-  return (
-    <Link
-      href={href}
-      className="group flex items-center gap-3 rounded-3xl bg-white p-4 ring-1 ring-slate-200/80 transition hover:ring-brand/40 dark:bg-[#15171c] dark:ring-white/[0.07] dark:hover:ring-brand/50"
-    >
-      <span
-        className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ${COLOR_MAP[color]}`}
-      >
-        <Icon className="h-5 w-5" />
-      </span>
-      <span>
-        <span className="block text-sm font-semibold text-slate-900 dark:text-white">
-          {title}
-        </span>
-        <span className="block text-xs text-slate-400 dark:text-neutral-500">
-          {subtitle}
-        </span>
-      </span>
-    </Link>
   );
 }
 
