@@ -32,6 +32,7 @@ export default function AddTransactionForm({
   const [type, setType] = useState<TxType>("expense");
   const [planned, setPlanned] = useState(false);
   const [amount, setAmount] = useState("");
+  const [toAmount, setToAmount] = useState("");
   const [accountId, setAccountId] = useState(accounts[0]?.id ?? "");
   const [transferAccountId, setTransferAccountId] = useState("");
   const [categoryId, setCategoryId] = useState("");
@@ -89,6 +90,8 @@ export default function AddTransactionForm({
   }
 
   const account = accounts.find((a) => a.id === accountId);
+  const toAccount = accounts.find((a) => a.id === transferAccountId);
+  const crossCurrency = type === "transfer" && !!account && !!toAccount && account.currency !== toAccount.currency;
   const filteredCategories = useMemo(
     () => categories.filter((c) => c.kind === type),
     [categories, type]
@@ -115,6 +118,14 @@ export default function AddTransactionForm({
       setError("Счета перевода должны отличаться");
       return;
     }
+    let creditMinor: number | null = null;
+    if (crossCurrency) {
+      creditMinor = parseMoney(toAmount);
+      if (creditMinor <= 0) {
+        setError("Укажите сумму зачисления");
+        return;
+      }
+    }
 
     setLoading(true);
     const supabase = createClient();
@@ -125,6 +136,8 @@ export default function AddTransactionForm({
       currency: account.currency,
       account_id: accountId,
       transfer_account_id: type === "transfer" ? transferAccountId : null,
+      transfer_amount: type === "transfer" ? creditMinor : null,
+      transfer_currency: type === "transfer" && creditMinor != null ? (toAccount?.currency ?? null) : null,
       category_id: type === "transfer" ? null : categoryId || null,
       counterparty_id: counterpartyId || null,
       project_id: projectId || null,
@@ -142,6 +155,7 @@ export default function AddTransactionForm({
     }
 
     setAmount("");
+    setToAmount("");
     setNote("");
     setAccrualDate("");
     setOpen(false);
@@ -210,7 +224,7 @@ export default function AddTransactionForm({
       </label>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <Field label="Сумма">
+        <Field label={type === "transfer" ? "Сумма списания" : "Сумма"}>
           <input
             type="text"
             inputMode="decimal"
@@ -230,6 +244,22 @@ export default function AddTransactionForm({
         {type === "transfer" && (
           <Field label="На счёт">
             <Combobox value={transferAccountId} onChange={setTransferAccountId} placeholder="— выберите —" emptyLabel="— выберите —" options={accounts.filter((a) => a.id !== accountId).map((a) => ({ value: a.id, label: `${a.name} (${a.currency})` }))} />
+          </Field>
+        )}
+
+        {crossCurrency && (
+          <Field label={`Сумма зачисления (${toAccount!.currency})`}>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={toAmount}
+              onChange={(e) => setToAmount(e.target.value)}
+              placeholder="0,00"
+              className="input"
+            />
+            <span className="mt-1 block text-[11px] text-slate-400 dark:text-neutral-500">
+              Валюты счетов разные — укажите фактически зачисленную сумму.
+            </span>
           </Field>
         )}
 

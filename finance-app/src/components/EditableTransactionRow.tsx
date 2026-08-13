@@ -25,6 +25,8 @@ export type TxData = {
   status: string;
   account_id: string | null;
   transfer_account_id: string | null;
+  transfer_amount: number | null;
+  transfer_currency: string | null;
   category_id: string | null;
   counterparty_id: string | null;
   project_id: string | null;
@@ -130,6 +132,11 @@ export default function EditableTransactionRow({
           </>
         ) : (
           formatMoney(tx.amount, tx.currency)
+        )}
+        {isTransfer && tx.transfer_amount != null && tx.transfer_currency && tx.transfer_currency !== tx.currency && (
+          <div className="text-[11px] font-normal text-emerald-600/90 dark:text-emerald-400/90" title="Сумма зачисления">
+            → {formatMoney(tx.transfer_amount, tx.transfer_currency)}
+          </div>
         )}
       </td>
       <td className="px-5 py-3">

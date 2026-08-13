@@ -76,7 +76,7 @@ export async function computeTeamAlerts(
     base === "RUB" ? fetchCbrRates() : Promise.resolve({ rates: {} as Record<string, number>, date: null }),
     admin.from("obligation_balances").select("outstanding, currency, due_date").eq("team_id", team.id).gt("outstanding", 0).lt("due_date", today),
     admin.from("budgets").select("amount, currency, period, period_start, category_id").eq("team_id", team.id),
-    admin.from("transactions").select("type, amount, currency, occurred_on, account_id, transfer_account_id").eq("team_id", team.id).eq("status", "planned"),
+    admin.from("transactions").select("type, amount, currency, occurred_on, account_id, transfer_account_id, transfer_amount, transfer_currency").eq("team_id", team.id).eq("status", "planned"),
     admin.from("obligation_balances").select("type, outstanding, currency, due_date").eq("team_id", team.id).gt("outstanding", 0).gte("due_date", today),
   ]);
 
@@ -183,7 +183,7 @@ export async function computeTeamAlerts(
   }
 
   // ── 4. Нехватка на счёте под план (per-account проекция min<0) ──
-  type PlanEv = { occurred_on: string; type: string; amount: number; currency: string; account_id: string | null; transfer_account_id: string | null };
+  type PlanEv = { occurred_on: string; type: string; amount: number; currency: string; account_id: string | null; transfer_account_id: string | null; transfer_amount: number | null; transfer_currency: string | null };
   const evByAcc = new Map<string, { date: string; delta: number }[]>();
   const pushEv = (accId: string | null, date: string, delta: number) => {
     if (!accId) return;
@@ -196,7 +196,12 @@ export async function computeTeamAlerts(
     const dt = t.occurred_on < today ? today : t.occurred_on;
     if (t.type === "income") pushEv(t.account_id, dt, v);
     else if (t.type === "expense") pushEv(t.account_id, dt, -v);
-    else if (t.type === "transfer") { pushEv(t.account_id, dt, -v); pushEv(t.transfer_account_id, dt, v); }
+    else if (t.type === "transfer") {
+      // Приход считаем в валюте счёта зачисления (кросс-валютный перевод), иначе — равен списанию.
+      const credit = t.transfer_amount != null ? toBase(t.transfer_amount, t.transfer_currency ?? t.currency, rates) : v;
+      pushEv(t.account_id, dt, -v);
+      pushEv(t.transfer_account_id, dt, credit);
+    }
   }
   for (const a of (accounts ?? []) as { id: string; name: string; currency: string }[]) {
     const startBal = toBase(balanceMap.get(a.id) ?? 0, a.currency, rates);
