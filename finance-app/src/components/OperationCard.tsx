@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { parseMoney } from "@/lib/format";
+import { parseMoney, formatDate } from "@/lib/format";
 import { toast } from "@/lib/toast";
 import Modal from "@/components/Modal";
 import Combobox, { type ComboOption } from "@/components/Combobox";
@@ -171,12 +171,19 @@ export default function OperationCard({
     <Modal
       open={open}
       onClose={onClose}
-      size="xl"
+      side="right"
       title={
-        <span className="flex items-center gap-2.5">
-          {TITLES[txType] ?? "Операция"}
-          <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${ts.pill}`}>{ts.label}</span>
-        </span>
+        <div className="flex items-center gap-3">
+          <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl text-base ring-1 ${ts.tint} ${ts.amount}`}>
+            {txType === "income" ? "↗" : txType === "expense" ? "↘" : "⇄"}
+          </span>
+          <div className="min-w-0">
+            <div className="truncate text-lg font-bold leading-tight text-slate-900 dark:text-white">{TITLES[txType] ?? "Операция"}</div>
+            <div className="truncate text-xs font-normal text-slate-400 dark:text-neutral-500">
+              {formatDate(date)}{acc?.name ? ` · ${acc.name}` : ""}
+            </div>
+          </div>
+        </div>
       }
     >
       {imported && (
