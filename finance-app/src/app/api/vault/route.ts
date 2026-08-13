@@ -21,6 +21,8 @@ export async function POST(request: Request) {
       url: z.string().optional(),
       note: z.string().optional(),
       secret: z.string().optional(),
+      group_name: z.string().optional(),
+      project_id: z.string().uuid().nullable().optional(),
     }),
   );
   if (!p.ok) return p.res;
@@ -33,11 +35,26 @@ export async function POST(request: Request) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
 
+  // Привязка к проекту — только к проекту своей команды.
+  let projectId: string | null = null;
+  if (body.project_id) {
+    const { data: proj } = await supabase
+      .from("projects")
+      .select("id")
+      .eq("id", body.project_id)
+      .eq("team_id", current.team.id)
+      .maybeSingle();
+    if (!proj) return NextResponse.json({ error: "Проект не найден" }, { status: 400 });
+    projectId = proj.id;
+  }
+
   const fields: Record<string, unknown> = {
     title,
     login: (body.login ?? "").trim(),
     url: (body.url ?? "").trim(),
     note: (body.note ?? "").trim(),
+    group_name: (body.group_name ?? "").trim(),
+    project_id: projectId,
   };
 
   // Секрет шифруем только если прислан (при правке метаданных можно не слать пароль заново).

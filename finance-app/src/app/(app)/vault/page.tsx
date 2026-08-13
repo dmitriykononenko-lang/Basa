@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canEditFinance, canManageTeam } from "@/lib/team";
 import { vaultKeyConfigured } from "@/lib/vault-crypto";
 import VaultManager from "@/components/vault/VaultManager";
-import type { VaultEntry, VaultGrant, VaultLogRow } from "@/lib/vault";
+import type { VaultEntry, VaultGrant, VaultLogRow, VaultProject } from "@/lib/vault";
 import { ensureVisible } from "@/lib/visibility-guard";
 
 export default async function VaultPage() {
@@ -52,12 +52,22 @@ export default async function VaultPage() {
   const canGrant = canManageTeam(role);
   const supabase = await createClient();
 
-  const { data: entriesRaw } = await supabase
-    .from("vault_entries")
-    .select("id, title, login, url, note, created_by, updated_at")
-    .eq("team_id", team.id)
-    .order("title");
+  // Общий справочник: все участники видят факт наличия записи; логин/ссылка/заметка —
+  // только при доступе. Секрет через справочник не отдаётся.
+  const { data: entriesRaw } = await supabase.rpc("vault_directory", { _team_id: team.id });
   const entries = (entriesRaw ?? []) as VaultEntry[];
+
+  // Проекты для привязки (нужны только тем, кто может редактировать записи).
+  let projects: VaultProject[] = [];
+  if (canManage) {
+    const { data: projRaw } = await supabase
+      .from("projects")
+      .select("id, name")
+      .eq("team_id", team.id)
+      .eq("archived", false)
+      .order("name");
+    projects = (projRaw ?? []) as VaultProject[];
+  }
 
   // Данные управления доступом — только владельцу/админу (RLS их и не отдаст иначе).
   let members: { id: string; name: string }[] = [];
@@ -118,15 +128,25 @@ export default async function VaultPage() {
         <div className="mt-3 space-y-3 text-sm text-slate-600 dark:text-neutral-400">
           <p>
             Пароли шифруются на сервере и в браузер в открытом виде не попадают — в базе хранится только шифртекст.
-            Каждый показ и изменение фиксируются в журнале.
+            Каждый показ и изменение фиксируются в журнале. Все участники команды видят, что запись существует
+            (название, группа, проект), но логин, ссылку и сам пароль получают только при наличии доступа —
+            остальные записи показаны под замком.
           </p>
           <div>
             <div className="font-medium text-slate-700 dark:text-neutral-300">Кто что может</div>
             <ul className="mt-1 list-disc space-y-0.5 pl-5">
               <li>Создавать и редактировать записи — менеджер, админ, владелец.</li>
               <li>Выдавать и снимать доступ — владелец и админ.</li>
-              <li>«Показать» (расшифровать) — только по доступу: владелец/админ, автор записи, тот, кому выдан прямой доступ, либо чей узел оргструктуры покрыт выданным доступом.</li>
+              <li>«Показать» (расшифровать) — только по доступу: владелец/админ, автор записи, тот, кому выдан прямой доступ, чей узел оргструктуры покрыт выданным доступом, либо ответственный/менеджер привязанного проекта.</li>
             </ul>
+          </div>
+          <div>
+            <div className="font-medium text-slate-700 dark:text-neutral-300">Группы и проекты</div>
+            <p className="mt-1">
+              Записи можно объединять в группы (папки) и привязывать к проекту. Пароль, привязанный к проекту,
+              автоматически открывается ответственному и менеджеру этого проекта — доступ выдаётся сам при их
+              назначении. Переключатель «Карточки / Список» и поиск — вверху раздела.
+            </p>
           </div>
           <div>
             <div className="font-medium text-slate-700 dark:text-neutral-300">Доступ «на узел»</div>
@@ -143,6 +163,7 @@ export default async function VaultPage() {
       <VaultManager
         teamId={team.id}
         entries={entries}
+        projects={projects}
         canManage={canManage}
         canGrant={canGrant}
         members={members}
