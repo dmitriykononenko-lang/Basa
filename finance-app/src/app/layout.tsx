@@ -1,10 +1,26 @@
 import type { Metadata } from "next";
+import localFont from "next/font/local";
 import { Manrope } from "next/font/google";
 import "./globals.css";
 
+// General Sans — self-hosted (шрифт из дизайн-макета), веса 300–700.
+// В нём нет кириллицы, поэтому это латиница/цифры/символы; кириллицу закрывает Manrope.
+const generalSans = localFont({
+  src: [
+    { path: "./fonts/general-sans-300.woff2", weight: "300", style: "normal" },
+    { path: "./fonts/general-sans-400.woff2", weight: "400", style: "normal" },
+    { path: "./fonts/general-sans-500.woff2", weight: "500", style: "normal" },
+    { path: "./fonts/general-sans-600.woff2", weight: "600", style: "normal" },
+    { path: "./fonts/general-sans-700.woff2", weight: "700", style: "normal" },
+  ],
+  variable: "--font-sans",
+  display: "swap",
+});
+
+// Manrope — покрывает кириллицу (браузер подставит его для глифов, которых нет в General Sans).
 const manrope = Manrope({
   subsets: ["latin", "cyrillic"],
-  variable: "--font-sans",
+  variable: "--font-sans-cyr",
   display: "swap",
 });
 
@@ -36,11 +52,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="ru" className={manrope.variable} suppressHydrationWarning>
+    <html lang="ru" className={`${generalSans.variable} ${manrope.variable}`} suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
-      <body className={manrope.className}>{children}</body>
+      <body className="font-sans">{children}</body>
     </html>
   );
 }
