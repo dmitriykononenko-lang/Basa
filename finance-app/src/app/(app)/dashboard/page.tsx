@@ -494,12 +494,74 @@ export default async function DashboardPage() {
         </div>
       </header>
 
-      {/* Широкий график денежных средств с прогнозом кассового разрыва */}
-      {showTrend && (
-        <div className="mb-7">
-          <CashflowHero points={heroPoints} gap={gap} today={today} base={team.base_currency} />
+      {/* Основная сетка: Обзор + Движение денег (слева), Счета (справа) */}
+      <div className="grid gap-5 lg:grid-cols-3">
+        <div className="space-y-5 lg:col-span-2">
+          {/* Обзор */}
+          <section className="rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
+            <h2 className="text-base font-bold text-slate-900 dark:text-white">Обзор</h2>
+            <div className="mt-2 text-xs text-slate-400 dark:text-neutral-500">Денежные средства на счетах</div>
+            <div className="mt-0.5 text-3xl font-extrabold tabular-nums text-slate-900 dark:text-white">{formatMoney(currentBalance, base)}</div>
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+              <span className="inline-flex items-center gap-1 font-semibold text-emerald-600 dark:text-emerald-400">↗ {formatMoney(income, base)}</span>
+              <span className="inline-flex items-center gap-1 font-semibold text-red-600 dark:text-red-400">↘ {formatMoney(expense, base)}</span>
+              <span className="text-slate-400 dark:text-neutral-500">чистый поток: <b className="text-slate-600 dark:text-neutral-300">{formatMoney(income - expense, base)}</b></span>
+            </div>
+            {showTrend && (
+              <div className="mt-4">
+                <CashflowHero points={heroPoints} gap={gap} today={today} base={base} />
+              </div>
+            )}
+          </section>
+
+          {/* Движение денег */}
+          <section className="rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-base font-bold text-slate-900 dark:text-white">Движение денег</h2>
+              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-500 dark:bg-white/[0.06] dark:text-neutral-400">{MONTHS_SHORT[curM]} {curY}</span>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <FlowCard kind="in" total={income} top={incomeSources[0]} base={base} />
+              <FlowCard kind="out" total={expense} top={expenseCats[0]} base={base} />
+            </div>
+          </section>
         </div>
-      )}
+
+        {/* Счета */}
+        <div className="space-y-5">
+          <section className="rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-base font-bold text-slate-900 dark:text-white">Счета</h2>
+              {totalByCurrency.size > 1 && <span className="text-xs text-slate-400 dark:text-neutral-500">≈ {formatMoney(currentBalance, base)}</span>}
+            </div>
+            {accounts && accounts.length > 0 ? (
+              <div className="space-y-1">
+                {accounts.map((a) => (
+                  <div key={a.id} className="flex items-center justify-between gap-3 rounded-2xl px-2.5 py-2 transition hover:bg-slate-50 dark:hover:bg-white/[0.03]">
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <span className={`h-8 w-8 shrink-0 rounded-lg ${acctColor(a.name)}`} />
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium text-slate-800 dark:text-neutral-200">{a.name}</div>
+                        <div className="text-[11px] text-slate-400 dark:text-neutral-500">{a.currency}</div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-sm font-bold tabular-nums text-slate-900 dark:text-white">{formatMoney(balanceMap.get(a.id) ?? 0, a.currency)}</div>
+                      {a.currency !== base && rates[a.currency] !== undefined && (
+                        <div className="text-[11px] text-slate-400 dark:text-neutral-500">≈ {formatMoney(toBase(balanceMap.get(a.id) ?? 0, a.currency, rates), base)}</div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                <Link href="/accounts" className="mt-2 block rounded-2xl bg-slate-50 py-2 text-center text-sm font-medium text-slate-600 transition hover:bg-slate-100 dark:bg-white/[0.03] dark:text-neutral-300 dark:hover:bg-white/[0.06]">Показать все счета</Link>
+              </div>
+            ) : (
+              <p className="text-sm text-slate-500 dark:text-neutral-400">Пока нет счетов. Добавьте их в разделе «Счета».</p>
+            )}
+          </section>
+        </div>
+      </div>
+
 
       {/* Сверка по курсу ЦБ */}
       {(cbrUsd || unconverted.length > 0) && (
@@ -518,38 +580,6 @@ export default async function DashboardPage() {
           )}
         </div>
       )}
-
-      {/* Метрики месяца */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <Metric
-          title="Доход за месяц"
-          accent="emerald"
-          compare={{ pct: momPct(income, prevIncome), prevLabel: formatMoney(prevIncome, team.base_currency), goodWhenUp: true }}
-          sub={plannedIncome > 0 ? `план: +${formatMoney(plannedIncome, team.base_currency)}` : undefined}
-        >
-          {formatMoney(income, team.base_currency)}
-        </Metric>
-        <Metric
-          title="Расход за месяц"
-          accent="red"
-          compare={{ pct: momPct(expense, prevExpense), prevLabel: formatMoney(prevExpense, team.base_currency), goodWhenUp: false }}
-          sub={plannedExpense > 0 ? `план: −${formatMoney(plannedExpense, team.base_currency)}` : undefined}
-        >
-          {formatMoney(expense, team.base_currency)}
-        </Metric>
-        <Metric
-          title="Денежный поток"
-          accent="brand"
-          compare={{ pct: momPct(income - expense, prevFlow), prevLabel: formatMoney(prevFlow, team.base_currency), goodWhenUp: true }}
-          sub={
-            plannedIncome > 0 || plannedExpense > 0
-              ? `с планом: ${formatMoney(income + plannedIncome - expense - plannedExpense, team.base_currency)}`
-              : undefined
-          }
-        >
-          {formatMoney(income - expense, team.base_currency)}
-        </Metric>
-      </div>
 
       {/* Карточки-метрики: доходы/расходы/прибыль по месяцам */}
       {showTrend && (
@@ -601,66 +631,6 @@ export default async function DashboardPage() {
         </section>
       )}
 
-      {/* Счета */}
-      <section className="mt-8">
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">
-          Деньги на счетах
-        </h2>
-        {accounts && accounts.length > 0 ? (
-          <>
-            <div className="mb-3 flex flex-wrap gap-3">
-              {totalByCurrency.size > 1 && (
-                <div className="rounded-2xl bg-brand/5 px-5 py-3 ring-1 ring-brand/20">
-                  <div className="text-xs text-brand/80">Итого в рублях (по ЦБ)</div>
-                  <div className="text-lg font-bold text-slate-900 dark:text-white">
-                    {formatMoney(currentBalance, team.base_currency)}
-                  </div>
-                </div>
-              )}
-              {[...totalByCurrency.entries()].map(([cur, total]) => (
-                <div
-                  key={cur}
-                  className="rounded-2xl bg-white px-5 py-3 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]"
-                >
-                  <div className="text-xs text-slate-400 dark:text-neutral-500">
-                    Итого {cur}
-                  </div>
-                  <div className="text-lg font-bold text-slate-900 dark:text-white">
-                    {formatMoney(total, cur)}
-                  </div>
-                  {cur !== team.base_currency && rates[cur] !== undefined && (
-                    <div className="text-xs text-slate-400 dark:text-neutral-500">
-                      ≈ {formatMoney(toBase(total, cur, rates), team.base_currency)}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {accounts.map((a) => (
-                <div
-                  key={a.id}
-                  className="rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]"
-                >
-                  <div className="text-sm font-medium text-slate-800 dark:text-neutral-200">
-                    {a.name}
-                  </div>
-                  <div className="text-xs text-slate-400 dark:text-neutral-500">
-                    {a.currency}
-                  </div>
-                  <div className="mt-2 text-xl font-bold text-slate-900 dark:text-white">
-                    {formatMoney(balanceMap.get(a.id) ?? 0, a.currency)}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </>
-        ) : (
-          <p className="rounded-3xl bg-white p-6 text-sm text-slate-500 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:text-neutral-400 dark:ring-white/[0.07]">
-            Пока нет счетов. Добавьте их в разделе «Счета», чтобы видеть балансы.
-          </p>
-        )}
-      </section>
     </div>
   );
 }
@@ -685,48 +655,39 @@ function InvitesBlock({ invites }: { invites: InviteRow[] }) {
   );
 }
 
-function Metric({
-  title,
-  children,
-  accent,
-  sub,
-  compare,
-}: {
-  title: string;
-  children: React.ReactNode;
-  accent: "emerald" | "red" | "brand";
-  sub?: string;
-  compare?: { pct: number | null; prevLabel: string; goodWhenUp: boolean };
+// Карточка притока/оттока в блоке «Движение денег».
+function FlowCard({ kind, total, top, base }: {
+  kind: "in" | "out";
+  total: number;
+  top?: { name: string; amount: number; share: number };
+  base: string;
 }) {
-  const accentMap = {
-    emerald: "text-emerald-600 dark:text-emerald-400",
-    red: "text-red-600 dark:text-red-400",
-    brand: "text-brand dark:text-brand",
-  };
-  const up = compare?.pct != null && compare.pct >= 0;
-  const good = compare?.pct != null && (up === compare.goodWhenUp);
-  const cmpColor = good ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400";
+  const isIn = kind === "in";
+  const share = Math.max(0, Math.min(1, top?.share ?? 0));
   return (
-    <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
-      <div className="text-sm text-slate-500 dark:text-neutral-400">{title}</div>
-      <div className={`mt-2 text-2xl font-bold ${accentMap[accent]}`}>
-        {children}
+    <div className="rounded-2xl bg-slate-50 p-4 dark:bg-white/[0.03]">
+      <div className="text-xs font-medium text-slate-500 dark:text-neutral-400">{isIn ? "Приход" : "Расход"}</div>
+      <div className={`mt-1 text-2xl font-bold tabular-nums ${isIn ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
+        {formatMoney(total, base)}
       </div>
-      {compare && (
-        <div className="mt-1.5 flex items-center gap-1.5 text-xs">
-          {compare.pct != null ? (
-            <>
-              <span className={`inline-flex items-center gap-0.5 font-semibold ${cmpColor}`}>
-                {up ? "▲" : "▼"} {Math.abs(compare.pct).toFixed(0)}%
-              </span>
-              <span className="text-slate-400 dark:text-neutral-500">к прошлому месяцу ({compare.prevLabel})</span>
-            </>
-          ) : (
-            <span className="text-slate-400 dark:text-neutral-500">в прошлом месяце — нет данных</span>
-          )}
+      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-200 dark:bg-white/10">
+        <div className={`h-full rounded-full ${isIn ? "bg-emerald-500" : "bg-red-500"}`} style={{ width: `${Math.round(share * 100)}%` }} />
+      </div>
+      {top && top.amount > 0 ? (
+        <div className="mt-2 text-xs text-slate-400 dark:text-neutral-500">
+          {isIn ? "Крупнейший доход" : "Крупнейший расход"} — <span className="font-medium text-slate-600 dark:text-neutral-300">{top.name}</span> · {(share * 100).toFixed(1)}%
         </div>
+      ) : (
+        <div className="mt-2 text-xs text-slate-400 dark:text-neutral-500">за месяц</div>
       )}
-      {sub && <div className="mt-1 text-xs font-medium text-violet-500 dark:text-violet-400">{sub}</div>}
     </div>
   );
+}
+
+// Стабильный цвет квадрата счёта.
+const ACCT_COLORS = ["bg-blue-500", "bg-emerald-500", "bg-amber-500", "bg-violet-500", "bg-rose-500", "bg-cyan-500", "bg-orange-500", "bg-teal-500"];
+function acctColor(name: string): string {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return ACCT_COLORS[h % ACCT_COLORS.length];
 }
