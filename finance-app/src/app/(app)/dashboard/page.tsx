@@ -3,7 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import CreateTeamForm from "@/components/CreateTeamForm";
 import { ROLE_LABELS, type AppRole } from "@/lib/types";
 import { formatMoney } from "@/lib/format";
-import { getCurrentTeam } from "@/lib/team";
+import { getCurrentTeam, canEditFinance } from "@/lib/team";
+import { paymentIndex, INVOICE_STATUS_LABELS, INVOICE_STATUS_TONE, type InvoiceStatus } from "@/lib/invoices";
 import { buildRateMap, toBase } from "@/lib/fx";
 import { fetchAllRows } from "@/lib/supabase/paginate";
 import { fetchCbrRates, type CbrRates } from "@/lib/cbr";
@@ -376,6 +377,23 @@ export default async function DashboardPage() {
     };
   });
 
+  // ── Инвойсы для блока на дашборде (индекс оплат + неоплаченные) ──
+  type InvRow = { id: string; number: string; buyer_name: string; amount: number; currency: string; status: InvoiceStatus; issue_date: string; payment_expiry_date: string | null; counterparty_name: string | null };
+  let invoices: InvRow[] = [];
+  let invIndex: number | null = null;
+  if (canEditFinance(role)) {
+    const { data: invRaw } = await supabase
+      .from("invoices")
+      .select("id, number, buyer_name, amount, currency, status, issue_date, payment_expiry_date, counterparty:counterparties(name)")
+      .eq("team_id", team.id)
+      .order("issue_date", { ascending: false })
+      .limit(50);
+    invoices = ((invRaw ?? []) as unknown as (InvRow & { counterparty: { name: string } | null })[]).map((r) => ({ ...r, counterparty_name: r.counterparty?.name ?? null }));
+    invIndex = paymentIndex(invoices);
+  }
+  const invUnpaid = invoices.filter((i) => i.status === "payment_waiting" || i.status === "payment_expired");
+  const invUnpaidSum = invUnpaid.reduce((s, i) => s + i.amount, 0);
+
   return (
     <div className="p-6 sm:p-8">
       <InvitesBlock invites={invites} />
@@ -559,6 +577,47 @@ export default async function DashboardPage() {
               <p className="text-sm text-slate-500 dark:text-neutral-400">Пока нет счетов. Добавьте их в разделе «Счета».</p>
             )}
           </section>
+
+          {canEditFinance(role) && (
+            <section className="rounded-3xl bg-white p-5 ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-base font-bold text-slate-900 dark:text-white">Инвойсы</h2>
+                <Link href="/invoices" className="text-xs font-medium text-brand hover:underline">Все →</Link>
+              </div>
+              {invoices.length === 0 ? (
+                <p className="text-sm text-slate-500 dark:text-neutral-400">Выставленных счетов пока нет. <Link href="/invoices" className="text-brand hover:underline">Создать</Link></p>
+              ) : (
+                <>
+                  <div className="mb-3 flex items-center justify-between rounded-2xl bg-slate-50 px-3 py-2.5 dark:bg-white/[0.03]">
+                    <div>
+                      <div className="text-xs text-slate-400 dark:text-neutral-500">Индекс оплат</div>
+                      <div className="text-xl font-bold text-slate-900 dark:text-white">{invIndex != null ? `${invIndex}` : "—"}</div>
+                    </div>
+                    {invUnpaid.length > 0 && (
+                      <div className="text-right">
+                        <div className="text-xs text-amber-600 dark:text-amber-400">Не оплачено · {invUnpaid.length}</div>
+                        <div className="text-sm font-bold text-slate-900 dark:text-white">{formatMoney(invUnpaidSum, team.base_currency)}</div>
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-y-1">
+                    {invoices.slice(0, 4).map((inv) => (
+                      <Link key={inv.id} href="/invoices" className="flex items-center justify-between gap-2 rounded-2xl px-2.5 py-2 transition hover:bg-slate-50 dark:hover:bg-white/[0.03]">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-medium text-slate-800 dark:text-neutral-200">{inv.counterparty_name ?? (inv.buyer_name || "Без плательщика")}</div>
+                          <div className="text-[11px] text-slate-400">{new Date(inv.issue_date).toLocaleDateString("ru-RU")}{inv.number ? ` · №${inv.number}` : ""}</div>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <span className="text-sm font-semibold tabular-nums text-slate-900 dark:text-white">{formatMoney(inv.amount, inv.currency)}</span>
+                          <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${INVOICE_STATUS_TONE[inv.status]}`}>{INVOICE_STATUS_LABELS[inv.status]}</span>
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                </>
+              )}
+            </section>
+          )}
         </div>
       </div>
 

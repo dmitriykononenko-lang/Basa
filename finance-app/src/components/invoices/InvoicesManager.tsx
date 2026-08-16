@@ -1,0 +1,360 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { toast } from "@/lib/toast";
+import Modal from "@/components/Modal";
+import Combobox, { type ComboOption } from "@/components/Combobox";
+import EmptyState from "@/components/EmptyState";
+import { formatMoney, parseMoney } from "@/lib/format";
+import {
+  type Invoice, type InvoiceStatus, type VatRate,
+  INVOICE_STATUS_LABELS, INVOICE_STATUS_TONE, VAT_LABELS,
+  itemAmount, itemVat, invoiceTotals, paymentIndex,
+} from "@/lib/invoices";
+
+type Cp = { id: string; name: string; inn: string | null };
+type Proj = { id: string; name: string };
+type ItemDraft = { name: string; quantity: string; unit: string; price: string; vat_rate: VatRate };
+type Draft = {
+  id?: string;
+  mode: "counterparty" | "manual";
+  counterparty_id: string;
+  buyer_name: string;
+  buyer_inn: string;
+  buyer_kpp: string;
+  project_id: string;
+  number: string;
+  purpose: string;
+  issue_date: string;
+  payment_expiry_date: string;
+  note: string;
+  items: ItemDraft[];
+};
+
+const emptyItem = (): ItemDraft => ({ name: "", quantity: "1", unit: "шт", price: "", vat_rate: "none" });
+const emptyDraft = (): Draft => ({
+  mode: "counterparty", counterparty_id: "", buyer_name: "", buyer_inn: "", buyer_kpp: "",
+  project_id: "", number: "", purpose: "", issue_date: new Date().toISOString().slice(0, 10),
+  payment_expiry_date: "", note: "", items: [emptyItem()],
+});
+
+const STATUS_FILTERS: { value: "all" | InvoiceStatus; label: string }[] = [
+  { value: "all", label: "Все" },
+  { value: "payment_waiting", label: "Ожидают" },
+  { value: "paid", label: "Оплачены" },
+  { value: "payment_expired", label: "Просрочены" },
+  { value: "draft", label: "Черновики" },
+];
+
+export default function InvoicesManager({
+  teamId, invoices, counterparties, projects,
+}: {
+  teamId: string;
+  invoices: Invoice[];
+  counterparties: Cp[];
+  projects: Proj[];
+}) {
+  void teamId;
+  const router = useRouter();
+  const [editOpen, setEditOpen] = useState(false);
+  const [draft, setDraft] = useState<Draft>(emptyDraft());
+  const [busy, setBusy] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<"all" | InvoiceStatus>("all");
+
+  const cpById = useMemo(() => new Map(counterparties.map((c) => [c.id, c])), [counterparties]);
+  const index = paymentIndex(invoices);
+  const unpaid = invoices.filter((i) => i.status === "payment_waiting" || i.status === "payment_expired");
+  const unpaidSum = unpaid.reduce((s, i) => s + i.amount, 0);
+
+  const shown = statusFilter === "all" ? invoices : invoices.filter((i) => i.status === statusFilter);
+
+  function openCreate() { setDraft(emptyDraft()); setEditOpen(true); }
+  async function openEdit(inv: Invoice) {
+    // Подтягиваем позиции инвойса.
+    const res = await fetch(`/api/invoices/${inv.id}/items`).catch(() => null);
+    let items: ItemDraft[] = [emptyItem()];
+    if (res && res.ok) {
+      const j = await res.json().catch(() => ({ items: [] }));
+      const rows = (j.items ?? []) as { name: string; quantity: number; unit: string; price: number; vat_rate: VatRate }[];
+      if (rows.length) items = rows.map((r) => ({ name: r.name, quantity: String(r.quantity), unit: r.unit, price: (r.price / 100).toFixed(2).replace(".", ","), vat_rate: r.vat_rate }));
+    }
+    setDraft({
+      id: inv.id,
+      mode: inv.counterparty_id ? "counterparty" : "manual",
+      counterparty_id: inv.counterparty_id ?? "",
+      buyer_name: inv.buyer_name, buyer_inn: inv.buyer_inn, buyer_kpp: inv.buyer_kpp,
+      project_id: inv.project_id ?? "", number: inv.number, purpose: inv.purpose,
+      issue_date: inv.issue_date, payment_expiry_date: inv.payment_expiry_date ?? "",
+      note: inv.note, items,
+    });
+    setEditOpen(true);
+  }
+
+  // Итоги черновика (для показа в форме).
+  const draftItemsCalc = draft.items.map((it) => {
+    const amount = itemAmount(Number(it.quantity.replace(",", ".")) || 0, parseMoney(it.price));
+    return { amount, vat_rate: it.vat_rate };
+  });
+  const draftTotals = invoiceTotals(draftItemsCalc);
+
+  function updItem(i: number, patch: Partial<ItemDraft>) {
+    setDraft((d) => ({ ...d, items: d.items.map((it, k) => (k === i ? { ...it, ...patch } : it)) }));
+  }
+  function addItem() { setDraft((d) => ({ ...d, items: [...d.items, emptyItem()] })); }
+  function delItem(i: number) { setDraft((d) => ({ ...d, items: d.items.length > 1 ? d.items.filter((_, k) => k !== i) : d.items })); }
+
+  async function save() {
+    if (draft.mode === "counterparty" && !draft.counterparty_id) return toast.error("Выберите контрагента-плательщика");
+    if (draft.mode === "manual" && !draft.buyer_name.trim()) return toast.error("Укажите название плательщика");
+    const items = draft.items
+      .map((it) => ({
+        name: it.name.trim(),
+        quantity: Number(it.quantity.replace(",", ".")) || 0,
+        unit: it.unit.trim() || "шт",
+        price: parseMoney(it.price),
+        vat_rate: it.vat_rate,
+      }))
+      .filter((it) => it.price > 0 && it.quantity > 0);
+    if (items.length === 0) return toast.error("Добавьте хотя бы одну позицию с ценой");
+
+    setBusy(true);
+    const res = await fetch("/api/invoices", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: draft.id,
+        number: draft.number,
+        counterparty_id: draft.mode === "counterparty" ? draft.counterparty_id || null : null,
+        buyer_name: draft.mode === "manual" ? draft.buyer_name : "",
+        buyer_inn: draft.mode === "manual" ? draft.buyer_inn : "",
+        buyer_kpp: draft.mode === "manual" ? draft.buyer_kpp : "",
+        project_id: draft.project_id || null,
+        purpose: draft.purpose,
+        issue_date: draft.issue_date,
+        payment_expiry_date: draft.payment_expiry_date || null,
+        note: draft.note,
+        items,
+      }),
+    });
+    setBusy(false);
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) return toast.error(j.error ?? "Не удалось сохранить");
+    toast.success("Инвойс сохранён");
+    setEditOpen(false);
+    router.refresh();
+  }
+
+  async function setStatus(inv: Invoice, status: InvoiceStatus) {
+    const res = await fetch("/api/invoices", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: inv.id, status }) });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) return toast.error(j.error ?? "Не удалось изменить статус");
+    toast.success("Статус обновлён");
+    router.refresh();
+  }
+
+  async function remove(inv: Invoice) {
+    if (!confirm(`Удалить инвойс${inv.number ? ` №${inv.number}` : ""}? Действие необратимо.`)) return;
+    const res = await fetch(`/api/invoices?id=${encodeURIComponent(inv.id)}`, { method: "DELETE" });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) return toast.error(j.error ?? "Не удалось удалить");
+    toast.success("Удалено");
+    router.refresh();
+  }
+
+  return (
+    <>
+      {/* Сводка */}
+      <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <SummaryCard label="Всего инвойсов" value={String(invoices.length)} />
+        <SummaryCard label="Не оплачено" value={formatMoney(unpaidSum, "RUB")} sub={`${unpaid.length} шт.`} tone="amber" />
+        <SummaryCard label="Индекс оплат" value={index != null ? `${index}` : "—"} sub={index != null ? "% оплаченных" : "нет выставленных"} tone={index != null && index >= 70 ? "emerald" : "slate"} />
+        <SummaryCard label="Оплачено" value={String(invoices.filter((i) => i.status === "paid").length)} tone="emerald" />
+      </div>
+
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap gap-1">
+          {STATUS_FILTERS.map((f) => (
+            <button
+              key={f.value}
+              type="button"
+              onClick={() => setStatusFilter(f.value)}
+              className={`rounded-full px-3 py-1.5 text-sm font-medium transition ${statusFilter === f.value ? "bg-brand/10 text-brand" : "text-slate-500 hover:bg-slate-100 dark:text-neutral-400 dark:hover:bg-white/[0.04]"}`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <button type="button" onClick={openCreate} className="btn-primary text-sm">+ Инвойс</button>
+      </div>
+
+      {invoices.length === 0 ? (
+        <EmptyState icon="🧾" title="Инвойсов пока нет" description="Выставьте первый счёт клиенту: кнопка «+ Инвойс». Статусы оплаты можно подтягивать из Точки." />
+      ) : shown.length === 0 ? (
+        <EmptyState icon="🔍" title="Ничего не найдено" description="Измените фильтр статуса." />
+      ) : (
+        <div className="overflow-x-auto rounded-3xl bg-white ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.07]">
+          <table className="w-full min-w-[820px] text-sm">
+            <thead>
+              <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wider text-slate-400 dark:border-white/[0.07] dark:text-neutral-500">
+                <th className="px-5 py-3 font-medium">Дата</th>
+                <th className="px-5 py-3 font-medium">Номер</th>
+                <th className="px-5 py-3 font-medium">Плательщик</th>
+                <th className="px-5 py-3 font-medium">Проект</th>
+                <th className="px-5 py-3 text-right font-medium">Сумма</th>
+                <th className="px-5 py-3 font-medium">Статус</th>
+                <th className="px-3 py-3" />
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((inv) => (
+                <tr key={inv.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/70 dark:border-white/[0.05] dark:hover:bg-white/[0.02]">
+                  <td className="whitespace-nowrap px-5 py-3 text-slate-500 dark:text-neutral-400">
+                    {new Date(inv.issue_date).toLocaleDateString("ru-RU")}
+                    {inv.payment_expiry_date && <div className="text-[11px] text-slate-400">до {new Date(inv.payment_expiry_date).toLocaleDateString("ru-RU")}</div>}
+                  </td>
+                  <td className="px-5 py-3 text-slate-500 dark:text-neutral-400">{inv.number || "—"}</td>
+                  <td className="px-5 py-3">
+                    <div className="font-medium text-slate-800 dark:text-neutral-100">{inv.counterparty_name ?? (inv.buyer_name || "—")}</div>
+                    {inv.buyer_inn && <div className="text-xs text-slate-400">ИНН {inv.buyer_inn}</div>}
+                  </td>
+                  <td className="px-5 py-3 text-slate-500 dark:text-neutral-400">{inv.project_name ?? "—"}</td>
+                  <td className="whitespace-nowrap px-5 py-3 text-right font-semibold text-slate-900 dark:text-white">
+                    {formatMoney(inv.amount, inv.currency)}
+                    {inv.vat_amount > 0 && <div className="text-[11px] font-normal text-slate-400">НДС {formatMoney(inv.vat_amount, inv.currency)}</div>}
+                  </td>
+                  <td className="px-5 py-3">
+                    <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${INVOICE_STATUS_TONE[inv.status]}`}>{INVOICE_STATUS_LABELS[inv.status]}</span>
+                  </td>
+                  <td className="px-3 py-3">
+                    <div className="flex justify-end gap-1">
+                      {inv.status !== "paid" && (
+                        <button type="button" onClick={() => setStatus(inv, "paid")} className="btn-ghost px-2 py-1 text-xs text-emerald-600 dark:text-emerald-400">Оплачен</button>
+                      )}
+                      <button type="button" onClick={() => openEdit(inv)} className="btn-ghost px-2 py-1 text-xs">Изменить</button>
+                      <button type="button" onClick={() => remove(inv)} className="btn-ghost px-2 py-1 text-xs text-red-500">Удалить</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Создание / редактирование */}
+      <Modal open={editOpen} onClose={() => setEditOpen(false)} title={draft.id ? "Изменить инвойс" : "Новый инвойс"} size="wide">
+        <div className="space-y-4">
+          {/* Плательщик */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label="Плательщик">
+              <div className="mb-2 flex gap-1 rounded-full bg-slate-100 p-0.5 text-xs dark:bg-neutral-800">
+                <button type="button" onClick={() => setDraft({ ...draft, mode: "counterparty" })} className={`flex-1 rounded-full px-2 py-1 font-medium ${draft.mode === "counterparty" ? "bg-white text-brand shadow-sm dark:bg-neutral-700 dark:text-white" : "text-slate-500 dark:text-neutral-400"}`}>Из контрагентов</button>
+                <button type="button" onClick={() => setDraft({ ...draft, mode: "manual" })} className={`flex-1 rounded-full px-2 py-1 font-medium ${draft.mode === "manual" ? "bg-white text-brand shadow-sm dark:bg-neutral-700 dark:text-white" : "text-slate-500 dark:text-neutral-400"}`}>Вручную</button>
+              </div>
+              {draft.mode === "counterparty" ? (
+                <Combobox value={draft.counterparty_id} onChange={(v) => setDraft({ ...draft, counterparty_id: v, buyer_inn: cpById.get(v)?.inn ?? "" })}
+                  placeholder="— выберите —" emptyLabel="— выберите —"
+                  options={counterparties.map((c): ComboOption => ({ value: c.id, label: c.name, search: `${c.name} ${c.inn ?? ""}` }))} />
+              ) : (
+                <div className="space-y-2">
+                  <input value={draft.buyer_name} onChange={(e) => setDraft({ ...draft, buyer_name: e.target.value })} className="input" placeholder="Название плательщика" />
+                  <div className="grid grid-cols-2 gap-2">
+                    <input value={draft.buyer_inn} onChange={(e) => setDraft({ ...draft, buyer_inn: e.target.value })} className="input" placeholder="ИНН" inputMode="numeric" />
+                    <input value={draft.buyer_kpp} onChange={(e) => setDraft({ ...draft, buyer_kpp: e.target.value })} className="input" placeholder="КПП (необяз.)" inputMode="numeric" />
+                  </div>
+                </div>
+              )}
+            </Field>
+            <Field label="Проект (необяз.)">
+              <Combobox value={draft.project_id} onChange={(v) => setDraft({ ...draft, project_id: v })} placeholder="— без проекта —" emptyLabel="— без проекта —"
+                options={projects.map((p): ComboOption => ({ value: p.id, label: p.name }))} />
+            </Field>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <Field label="Номер (необяз.)"><input value={draft.number} onChange={(e) => setDraft({ ...draft, number: e.target.value })} className="input" placeholder="напр. 2026-014" /></Field>
+            <Field label="Дата счёта"><input type="date" value={draft.issue_date} onChange={(e) => setDraft({ ...draft, issue_date: e.target.value })} className="input" /></Field>
+            <Field label="Оплатить до (необяз.)"><input type="date" value={draft.payment_expiry_date} onChange={(e) => setDraft({ ...draft, payment_expiry_date: e.target.value })} className="input" /></Field>
+          </div>
+
+          <Field label="Назначение платежа (необяз.)"><input value={draft.purpose} onChange={(e) => setDraft({ ...draft, purpose: e.target.value })} className="input" placeholder="Оплата услуг по договору…" /></Field>
+
+          {/* Позиции */}
+          <div>
+            <div className="mb-1.5 flex items-center justify-between">
+              <span className="text-xs font-medium text-slate-500 dark:text-neutral-400">Позиции</span>
+              <span className="text-xs text-slate-400">Итого: <b className="text-slate-700 dark:text-neutral-200">{formatMoney(draftTotals.amount, "RUB")}</b>{draftTotals.vat_amount > 0 ? ` · НДС ${formatMoney(draftTotals.vat_amount, "RUB")}` : ""}</span>
+            </div>
+            <div className="space-y-2">
+              {draft.items.map((it, i) => {
+                const amount = draftItemsCalc[i].amount;
+                return (
+                  <div key={i} className="grid grid-cols-1 gap-2 rounded-2xl bg-slate-50 p-3 dark:bg-white/[0.03] sm:grid-cols-12 sm:items-end">
+                    <div className="sm:col-span-4">
+                      <label className="mb-1 block text-[11px] text-slate-500 dark:text-neutral-400">Наименование</label>
+                      <input value={it.name} onChange={(e) => updItem(i, { name: e.target.value })} className="input py-1.5 text-sm" placeholder="Товар / услуга" />
+                    </div>
+                    <div className="sm:col-span-1">
+                      <label className="mb-1 block text-[11px] text-slate-500 dark:text-neutral-400">Кол-во</label>
+                      <input value={it.quantity} onChange={(e) => updItem(i, { quantity: e.target.value })} inputMode="decimal" className="input py-1.5 text-sm" />
+                    </div>
+                    <div className="sm:col-span-1">
+                      <label className="mb-1 block text-[11px] text-slate-500 dark:text-neutral-400">Ед.</label>
+                      <input value={it.unit} onChange={(e) => updItem(i, { unit: e.target.value })} className="input py-1.5 text-sm" />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="mb-1 block text-[11px] text-slate-500 dark:text-neutral-400">Цена, ₽</label>
+                      <input value={it.price} onChange={(e) => updItem(i, { price: e.target.value })} inputMode="decimal" placeholder="0,00" className="input py-1.5 text-sm" />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="mb-1 block text-[11px] text-slate-500 dark:text-neutral-400">НДС</label>
+                      <select value={it.vat_rate} onChange={(e) => updItem(i, { vat_rate: e.target.value as VatRate })} className="input py-1.5 text-sm">
+                        {(["none", "0", "10", "20"] as VatRate[]).map((r) => <option key={r} value={r}>{VAT_LABELS[r]}</option>)}
+                      </select>
+                    </div>
+                    <div className="flex items-center justify-between gap-2 sm:col-span-2 sm:justify-end sm:pb-1.5">
+                      <span className="text-sm font-semibold tabular-nums text-slate-800 dark:text-neutral-100">{formatMoney(amount, "RUB")}</span>
+                      <button type="button" onClick={() => delItem(i)} disabled={draft.items.length <= 1} className="text-sm text-slate-400 hover:text-red-500 disabled:opacity-30">✕</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <button type="button" onClick={addItem} className="mt-2 text-sm font-medium text-brand">+ Добавить позицию</button>
+          </div>
+
+          <Field label="Заметка (необяз.)"><input value={draft.note} onChange={(e) => setDraft({ ...draft, note: e.target.value })} className="input" placeholder="Внутренний комментарий" /></Field>
+
+          <p className="text-xs text-slate-400">Выставление счёта в Точке и подтяжка статуса оплаты подключаются отдельно (кнопка появится после привязки Точки).</p>
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => setEditOpen(false)} className="btn-ghost">Отмена</button>
+            <button type="button" disabled={busy} onClick={save} className="btn-primary">{busy ? "…" : "Сохранить"}</button>
+          </div>
+        </div>
+      </Modal>
+    </>
+  );
+}
+
+function SummaryCard({ label, value, sub, tone = "slate" }: { label: string; value: string; sub?: string; tone?: "slate" | "amber" | "emerald" }) {
+  const dot = { slate: "bg-slate-800 dark:bg-white", amber: "bg-amber-500", emerald: "bg-emerald-500" }[tone];
+  return (
+    <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200/70 dark:bg-[#15171c] dark:ring-white/[0.06]">
+      <div className="flex items-center gap-2 text-xs font-medium text-slate-500 dark:text-neutral-400">
+        <span className={`h-2 w-2 shrink-0 rounded-full ${dot}`} />{label}
+      </div>
+      <div className="mt-2 text-2xl font-bold tabular-nums text-slate-900 dark:text-white">{value}</div>
+      <div className="mt-1 min-h-[1rem] text-xs text-slate-400 dark:text-neutral-500">{sub}</div>
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">{label}</span>
+      {children}
+    </label>
+  );
+}
