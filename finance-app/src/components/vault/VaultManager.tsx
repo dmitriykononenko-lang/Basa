@@ -26,6 +26,7 @@ type Draft = {
 const EMPTY: Draft = { title: "", login: "", url: "", note: "", secret: "", group_name: "", project_id: "" };
 
 const NO_GROUP = "Без группы";
+const NO_PROJECT = "Без проекта";
 
 export default function VaultManager({
   teamId,
@@ -58,19 +59,26 @@ export default function VaultManager({
   const [accessEntry, setAccessEntry] = useState<VaultEntry | null>(null);
   const [query, setQuery] = useState("");
   const [view, setView] = useState<ViewMode>("cards");
+  const [groupBy, setGroupBy] = useState<"group" | "project">("group");
   const [requested, setRequested] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulk, setBulk] = useState({ changeGroup: false, group: "", changeProject: false, project: "" });
 
-  // Режим отображения запоминаем между сессиями.
+  // Режим отображения и группировку запоминаем между сессиями.
   useEffect(() => {
-    const saved = typeof window !== "undefined" ? window.localStorage.getItem("vault:view") : null;
+    if (typeof window === "undefined") return;
+    const saved = window.localStorage.getItem("vault:view");
     if (saved === "cards" || saved === "list") setView(saved);
+    const savedG = window.localStorage.getItem("vault:groupBy");
+    if (savedG === "group" || savedG === "project") setGroupBy(savedG);
   }, []);
   useEffect(() => {
     if (typeof window !== "undefined") window.localStorage.setItem("vault:view", view);
   }, [view]);
+  useEffect(() => {
+    if (typeof window !== "undefined") window.localStorage.setItem("vault:groupBy", groupBy);
+  }, [groupBy]);
 
   const memberName = new Map(members.map((m) => [m.id, m.name]));
   const groupSuggestions = useMemo(
@@ -87,19 +95,20 @@ export default function VaultManager({
     );
   }, [entries, query]);
 
-  // Группировка: именованные группы по алфавиту, «Без группы» — в конце.
+  // Группировка по группам или по проектам; безымянная корзина — в конце.
   const groups = useMemo(() => {
+    const none = groupBy === "project" ? NO_PROJECT : NO_GROUP;
     const map = new Map<string, VaultEntry[]>();
     for (const e of filtered) {
-      const key = e.group_name || NO_GROUP;
+      const key = (groupBy === "project" ? (e.project_name ?? "") : e.group_name) || none;
       (map.get(key) ?? map.set(key, []).get(key)!).push(e);
     }
     return Array.from(map.entries()).sort((a, b) => {
-      if (a[0] === NO_GROUP) return 1;
-      if (b[0] === NO_GROUP) return -1;
+      if (a[0] === none) return 1;
+      if (b[0] === none) return -1;
       return a[0].localeCompare(b[0]);
     });
-  }, [filtered]);
+  }, [filtered, groupBy]);
 
   function openCreate() {
     setDraft(EMPTY);
@@ -278,6 +287,22 @@ export default function VaultManager({
           </span>
         </div>
         <div className="flex items-center gap-2">
+          <div className="flex rounded-xl border border-slate-200 p-0.5 dark:border-white/10" title="Группировать список">
+            <button
+              type="button"
+              onClick={() => setGroupBy("group")}
+              className={`rounded-lg px-2.5 py-1 text-xs font-medium ${groupBy === "group" ? "bg-brand/10 text-brand" : "text-slate-500 dark:text-neutral-400"}`}
+            >
+              Группы
+            </button>
+            <button
+              type="button"
+              onClick={() => setGroupBy("project")}
+              className={`rounded-lg px-2.5 py-1 text-xs font-medium ${groupBy === "project" ? "bg-brand/10 text-brand" : "text-slate-500 dark:text-neutral-400"}`}
+            >
+              Проекты
+            </button>
+          </div>
           <div className="flex rounded-xl border border-slate-200 p-0.5 dark:border-white/10">
             <button
               type="button"
