@@ -32,7 +32,8 @@ const config: Config = {
         "4xl": "2rem",
       },
       fontFamily: {
-        sans: ["var(--font-sans)", "system-ui", "sans-serif"],
+        // General Sans (латиница/цифры/₽) → Manrope (кириллица) → системный.
+        sans: ["var(--font-sans)", "var(--font-sans-cyr)", "system-ui", "sans-serif"],
       },
     },
   },

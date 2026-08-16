@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Select } from "@/components/ui/select";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -58,17 +58,6 @@ export default function OperationsTable({
   const [bStatus, setBStatus] = useState("keep");
 
   const editableIds = useMemo(() => items.filter((i) => i.editable).map((i) => i.tx.id), [items]);
-  const today = new Date().toISOString().slice(0, 10);
-
-  const groups = useMemo(() => {
-    const g: { date: string; items: Item[] }[] = [];
-    for (const it of items) {
-      const last = g[g.length - 1];
-      if (last && last.date === it.tx.occurred_on) last.items.push(it);
-      else g.push({ date: it.tx.occurred_on, items: [it] });
-    }
-    return g;
-  }, [items]);
 
   // Авто-детекция переводов: расход с одного счёта ↔ приход на другой (та же сумма/валюта, близкие даты)
   const transferCandidates = useMemo(() => {
@@ -297,37 +286,28 @@ export default function OperationsTable({
               <th className="px-5 py-3 font-medium">Статья / Описание</th>
               <th className="px-5 py-3 font-medium">Проект</th>
               <th className="px-5 py-3 font-medium">Контрагент</th>
-              <th className="px-5 py-3 font-medium">Счёт</th>
+              <th className="px-5 py-3 font-medium">Счёт / Фонд</th>
               <th className="px-3 py-3"></th>
             </tr>
           </thead>
           <tbody>
-            {groups.map((g) => (
-              <Fragment key={g.date}>
-                <tr className="bg-slate-50/70 dark:bg-white/[0.03]">
-                  <td colSpan={8} className="px-5 py-2 text-xs font-semibold text-slate-500 dark:text-neutral-400">
-                    {g.date === today ? "Сегодня" : formatDate(g.date)}
-                  </td>
-                </tr>
-                {g.items.map((it) => (
-                  <EditableTransactionRow
-                    key={it.tx.id}
-                    tx={it.tx}
-                    editable={it.editable}
-                    teamId={teamId}
-                    userId={userId}
-                    attachments={it.attachments}
-                    accounts={accounts}
-                    categories={categories}
-                    counterparties={counterparties}
-                    projects={projects}
-                    selected={sel.has(it.tx.id)}
-                    onToggle={it.editable ? () => toggle(it.tx.id) : undefined}
-                    displayBase={displayBase}
-                    rates={rates}
-                  />
-                ))}
-              </Fragment>
+            {items.map((it) => (
+              <EditableTransactionRow
+                key={it.tx.id}
+                tx={it.tx}
+                editable={it.editable}
+                teamId={teamId}
+                userId={userId}
+                attachments={it.attachments}
+                accounts={accounts}
+                categories={categories}
+                counterparties={counterparties}
+                projects={projects}
+                selected={sel.has(it.tx.id)}
+                onToggle={it.editable ? () => toggle(it.tx.id) : undefined}
+                displayBase={displayBase}
+                rates={rates}
+              />
             ))}
           </tbody>
         </table>

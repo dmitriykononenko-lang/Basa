@@ -25,6 +25,8 @@ export type TxData = {
   status: string;
   account_id: string | null;
   transfer_account_id: string | null;
+  transfer_amount: number | null;
+  transfer_currency: string | null;
   category_id: string | null;
   counterparty_id: string | null;
   project_id: string | null;
@@ -91,6 +93,7 @@ export default function EditableTransactionRow({
       ? toBase(tx.amount, tx.currency, rates)
       : null;
   const sign = tx.type === "income" ? "+" : tx.type === "expense" ? "−" : "";
+  const arrow = tx.type === "income" ? "↗" : tx.type === "expense" ? "↘" : "";
   const amountColor =
     tx.type === "income"
       ? "text-emerald-600 dark:text-emerald-400"
@@ -120,6 +123,7 @@ export default function EditableTransactionRow({
         )}
       </td>
       <td className={`whitespace-nowrap px-5 py-3 font-semibold ${amountColor}`}>
+        {arrow && <span className="mr-1 font-normal">{arrow}</span>}
         {sign}
         {converted != null ? (
           <>
@@ -130,6 +134,11 @@ export default function EditableTransactionRow({
           </>
         ) : (
           formatMoney(tx.amount, tx.currency)
+        )}
+        {isTransfer && tx.transfer_amount != null && tx.transfer_currency && tx.transfer_currency !== tx.currency && (
+          <div className="text-[11px] font-normal text-emerald-600/90 dark:text-emerald-400/90" title="Сумма зачисления">
+            → {formatMoney(tx.transfer_amount, tx.transfer_currency)}
+          </div>
         )}
       </td>
       <td className="px-5 py-3">
@@ -147,17 +156,34 @@ export default function EditableTransactionRow({
         )}
       </td>
       <td className="px-5 py-3 text-slate-500 dark:text-neutral-400">
-        {tx.project_id && tx.projectName ? (
-          <Link href={`/projects/${tx.project_id}`} onClick={(e) => e.stopPropagation()} className="hover:text-brand hover:underline">
-            {tx.projectName}
-          </Link>
+        {tx.projectName ? (
+          tx.project_id ? (
+            <Link
+              href={`/projects/${tx.project_id}`}
+              onClick={(e) => e.stopPropagation()}
+              className="inline-block max-w-[170px] truncate rounded-md bg-slate-100 px-2 py-0.5 align-middle text-xs font-medium text-slate-600 transition hover:bg-slate-200 dark:bg-white/[0.06] dark:text-neutral-300 dark:hover:bg-white/[0.1]"
+            >
+              {tx.projectName}
+            </Link>
+          ) : (
+            <span className="inline-block max-w-[170px] truncate rounded-md bg-slate-100 px-2 py-0.5 align-middle text-xs font-medium text-slate-600 dark:bg-white/[0.06] dark:text-neutral-300">
+              {tx.projectName}
+            </span>
+          )
         ) : (
-          tx.projectName ?? "—"
+          "—"
         )}
       </td>
       <td className="px-5 py-3 text-slate-500 dark:text-neutral-400">{tx.counterpartyName ?? "—"}</td>
       <td className="px-5 py-3 text-slate-500 dark:text-neutral-400">
-        {isTransfer ? `${tx.accountName} → ${tx.toAccountName}` : tx.accountName}
+        {tx.accountName ? (
+          <span className="inline-flex items-center gap-2">
+            <span className={`h-2 w-2 shrink-0 rounded-full ${dotColor(tx.accountName)}`} />
+            <span className="truncate">{isTransfer ? `${tx.accountName} → ${tx.toAccountName ?? "—"}` : tx.accountName}</span>
+          </span>
+        ) : (
+          "—"
+        )}
       </td>
       <td className="px-3 py-3 text-right">
         {editable && (
@@ -191,4 +217,15 @@ export default function EditableTransactionRow({
       </td>
     </tr>
   );
+}
+
+// Стабильный цвет точки для счёта/фонда (как разноцветные метки в макете).
+const DOT_COLORS = [
+  "bg-blue-500", "bg-emerald-500", "bg-amber-500", "bg-violet-500",
+  "bg-rose-500", "bg-cyan-500", "bg-orange-500", "bg-slate-400",
+];
+function dotColor(name: string): string {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return DOT_COLORS[h % DOT_COLORS.length];
 }

@@ -36,15 +36,13 @@ export default function TransactionsFilter({
   }
   const setParam = (k: string, v: string) => setParams({ [k]: v });
 
-  const cls =
-    "rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-600 outline-none focus:border-brand dark:border-white/10 dark:bg-white/[0.04] dark:text-neutral-300";
-
   const period = sp.get("period") ?? "month";
   const toOpts = (items: Opt[]): ComboOption[] =>
     items.map((x) => ({ value: x.id, label: x.name, search: `${x.name} ${x.inn ?? ""}` }));
 
   return (
-    <div className="mb-5 flex flex-wrap items-center gap-2">
+    <div className="mb-5 space-y-3">
+    <div className="flex flex-wrap items-center gap-2">
       <Select
         variant="pill"
         value={period}
@@ -95,20 +93,27 @@ export default function TransactionsFilter({
       <Combobox className="min-w-[160px]" value={sp.get("counterparty") ?? ""} onChange={(v) => setParam("counterparty", v)} options={toOpts(counterparties)} placeholder="Все контрагенты" emptyLabel="Все контрагенты" />
       <Combobox className="min-w-[150px]" value={sp.get("category") ?? ""} onChange={(v) => setParam("category", v)} options={toOpts(categories)} placeholder="Все статьи" emptyLabel="Все статьи" />
 
+      {[...sp.keys()].some((k) => ["type", "status", "account", "project", "counterparty", "category", "q", "from", "to"].includes(k) && sp.get(k)) && (
+        <button onClick={() => router.push("/transactions")} className="rounded-full px-3 py-1.5 text-sm text-slate-400 hover:text-brand">
+          Сбросить
+        </button>
+      )}
+    </div>
+
+    {/* Поиск по описанию — отдельной строкой на всю ширину (как в макете) */}
+    <div className="relative">
+      <svg viewBox="0 0 24 24" className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" />
+      </svg>
       <input
         value={q}
         onChange={(e) => setQ(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter") setParam("q", q); }}
         onBlur={() => setParam("q", q)}
         placeholder="Поиск по описанию"
-        className={cls + " min-w-[160px]"}
+        className="w-full rounded-2xl border border-slate-200 bg-white py-2.5 pl-10 pr-4 text-sm text-slate-700 outline-none placeholder:text-slate-400 focus:border-brand dark:border-white/10 dark:bg-white/[0.04] dark:text-neutral-200 dark:placeholder:text-neutral-500"
       />
-
-      {[...sp.keys()].some((k) => ["type", "status", "account", "project", "counterparty", "category", "q", "from", "to"].includes(k) && sp.get(k)) && (
-        <button onClick={() => router.push("/transactions")} className="rounded-full px-3 py-1.5 text-sm text-slate-400 hover:text-brand">
-          Сбросить
-        </button>
-      )}
+    </div>
     </div>
   );
 }

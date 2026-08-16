@@ -30,6 +30,7 @@ const TYPE_LABELS: Record<string, string> = {
   training_due: "Обучение",
   metric_missing: "Показатели",
   metric_below_plan: "Показатели",
+  vault_access_request: "Запрос доступа",
 };
 
 export default function NotificationList({ initial }: { initial: NotificationRow[] }) {

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { parseMoney } from "@/lib/format";
+import { parseMoney, formatDate } from "@/lib/format";
 import { toast } from "@/lib/toast";
 import Modal from "@/components/Modal";
 import Combobox, { type ComboOption } from "@/components/Combobox";
@@ -73,11 +73,15 @@ export default function OperationCard({
   canEdit: boolean;
 }) {
   const router = useRouter();
-  const isTransfer = tx.type === "transfer";
-  const filteredCats = categories.filter((c) => c.kind === tx.type);
-  const ts = TYPE_STYLE[tx.type];
+  const [txType, setTxType] = useState<TxData["type"]>(tx.type);
+  const isTransfer = txType === "transfer";
+  const filteredCats = categories.filter((c) => c.kind === txType);
+  const ts = TYPE_STYLE[txType];
 
   const [amount, setAmount] = useState(String((tx.amount / 100).toFixed(2)).replace(".", ","));
+  const [toAmount, setToAmount] = useState(
+    tx.transfer_amount ? (tx.transfer_amount / 100).toFixed(2).replace(".", ",") : "",
+  );
   const [accountId, setAccountId] = useState(tx.account_id ?? "");
   const [toAccountId, setToAccountId] = useState(tx.transfer_account_id ?? "");
   const [categoryId, setCategoryId] = useState(tx.category_id ?? "");
@@ -88,6 +92,7 @@ export default function OperationCard({
   const [showAccrual, setShowAccrual] = useState(!!tx.accrual_date);
   const [note, setNote] = useState(tx.note ?? "");
   const [planned, setPlanned] = useState(tx.status === "planned");
+  const [repeatMonthly, setRepeatMonthly] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [splitting, setSplitting] = useState(false);
@@ -96,7 +101,11 @@ export default function OperationCard({
   const imported = !!tx.import_batch_id;
   const acc = accounts.find((a) => a.id === accountId);
   const cur = acc?.currency ?? tx.currency;
-  const accOptions = accounts.map((a): ComboOption => ({ value: a.id, label: a.name }));
+  const toAcc = accounts.find((a) => a.id === toAccountId);
+  const toCur = toAcc?.currency ?? tx.transfer_currency ?? cur;
+  // Кросс-валютный перевод — сумма зачисления в другой валюте, её нужно ввести отдельно.
+  const crossCurrency = isTransfer && !!acc && !!toAcc && acc.currency !== toAcc.currency;
+  const accOptions = accounts.map((a): ComboOption => ({ value: a.id, label: `${a.name} (${a.currency})` }));
 
   async function save() {
     setError(null);
@@ -105,17 +114,29 @@ export default function OperationCard({
     if (!accountId) return setError(isTransfer ? "Укажите счёт списания" : "Укажите счёт");
     if (isTransfer && !toAccountId) return setError("Укажите счёт зачисления");
     if (isTransfer && toAccountId === accountId) return setError("Счета списания и зачисления совпадают");
+    if (isTransfer && (tx.splitCount ?? 0) >= 2)
+      return setError("Операция разбита на части — сначала уберите части, перевод нельзя делить.");
     const account = accounts.find((a) => a.id === accountId);
+
+    // Приход: при разных валютах — введённая сумма зачисления; при одной валюте — равен списанию (null).
+    let creditMinor: number | null = null;
+    if (crossCurrency) {
+      creditMinor = parseMoney(toAmount);
+      if (creditMinor <= 0) return setError("Укажите сумму зачисления");
+    }
 
     setBusy(true);
     const supabase = createClient();
     const { error } = await supabase
       .from("transactions")
       .update({
+        type: txType,
         amount: minor,
         currency: account?.currency ?? tx.currency,
         account_id: accountId || null,
         transfer_account_id: isTransfer ? toAccountId || null : null,
+        transfer_amount: isTransfer ? creditMinor : null,
+        transfer_currency: isTransfer && creditMinor != null ? (toAcc?.currency ?? null) : null,
         category_id: isTransfer ? null : categoryId || null,
         counterparty_id: isTransfer ? null : counterpartyId || null,
         project_id: projectId || null,
@@ -123,10 +144,36 @@ export default function OperationCard({
         accrual_date: isTransfer || !showAccrual ? null : accrualDate || null,
         note: note || null,
         status: planned ? "planned" : "actual",
+        // Перевод не может гасить обязательство — очищаем привязку при конвертации.
+        ...(isTransfer ? { obligation_id: null } : {}),
       })
       .eq("id", tx.id);
     setBusy(false);
     if (error) return setError(error.message);
+
+    // «Повторять каждый месяц» — создаём правило в «Регулярных операциях».
+    if (repeatMonthly) {
+      const day = Number(date.slice(8, 10)) || new Date().getDate();
+      const { error: rErr } = await supabase.from("recurring_rules").insert({
+        team_id: teamId,
+        type: txType,
+        amount: minor,
+        currency: account?.currency ?? tx.currency,
+        account_id: accountId || null,
+        transfer_account_id: isTransfer ? toAccountId || null : null,
+        category_id: isTransfer ? null : categoryId || null,
+        counterparty_id: isTransfer ? null : counterpartyId || null,
+        project_id: projectId || null,
+        note: note || null,
+        frequency: "monthly",
+        day_of_month: day,
+        start_date: date,
+        created_by: userId,
+      });
+      if (rErr) toast.error("Операция сохранена, но правило не создано: " + rErr.message);
+      else toast.success(`Создано правило: ежемесячно ${day}-го числа`);
+    }
+
     toast.success("Изменения сохранены");
     onClose();
     router.refresh();
@@ -149,12 +196,19 @@ export default function OperationCard({
     <Modal
       open={open}
       onClose={onClose}
-      size="xl"
+      side="right"
       title={
-        <span className="flex items-center gap-2.5">
-          {TITLES[tx.type] ?? "Операция"}
-          <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${ts.pill}`}>{ts.label}</span>
-        </span>
+        <div className="flex items-center gap-3">
+          <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl text-base ring-1 ${ts.tint} ${ts.amount}`}>
+            {txType === "income" ? "↗" : txType === "expense" ? "↘" : "⇄"}
+          </span>
+          <div className="min-w-0">
+            <div className="truncate text-lg font-bold leading-tight text-slate-900 dark:text-white">{TITLES[txType] ?? "Операция"}</div>
+            <div className="truncate text-xs font-normal text-slate-400 dark:text-neutral-500">
+              {formatDate(date)}{acc?.name ? ` · ${acc.name}` : ""}
+            </div>
+          </div>
+        </div>
       }
     >
       {imported && (
@@ -166,10 +220,37 @@ export default function OperationCard({
         </div>
       )}
 
+      {/* Тип операции — можно переключить, в т.ч. конвертировать в перевод */}
+      {canEdit && (
+        <div className="mb-4 grid grid-cols-3 gap-1 rounded-full bg-slate-100 p-1 text-sm dark:bg-neutral-800">
+          {(["income", "expense", "transfer"] as const).map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setTxType(t)}
+              className={`rounded-full px-2 py-1.5 font-medium transition ${
+                txType === t
+                  ? "bg-white text-brand shadow-sm dark:bg-neutral-700 dark:text-white"
+                  : "text-slate-500 hover:text-slate-700 dark:text-neutral-400"
+              }`}
+            >
+              {TYPE_STYLE[t].label}
+            </button>
+          ))}
+        </div>
+      )}
+      {canEdit && txType !== tx.type && (
+        <p className="mb-4 rounded-xl bg-blue-50 px-3 py-2 text-xs text-blue-700 ring-1 ring-blue-200/70 dark:bg-blue-500/[0.07] dark:text-blue-200/90 dark:ring-blue-500/20">
+          {isTransfer
+            ? "Операция станет переводом между счетами. Статья и контрагент очистятся; укажите счёт зачисления."
+            : `Тип изменится на «${ts.label.toLowerCase()}».`}
+        </p>
+      )}
+
       {/* Сумма — крупным блоком, тон по типу операции */}
       <div className={`mb-5 rounded-2xl px-4 py-3.5 ring-1 ${ts.tint}`}>
         <label className="mb-0.5 block text-left text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:text-neutral-400">
-          Сумма
+          {isTransfer ? "Сумма списания" : "Сумма"}
         </label>
         <div className="flex items-baseline gap-2">
           {ts.sign && <span className={`text-3xl font-bold ${ts.amount}`}>{ts.sign}</span>}
@@ -202,6 +283,29 @@ export default function OperationCard({
           </Field>
         </div>
       ) : null}
+
+      {/* Кросс-валютный перевод: сумма зачисления в валюте счёта назначения */}
+      {isTransfer && crossCurrency && (
+        <div className="mb-4 rounded-2xl bg-blue-50/60 px-4 py-3 ring-1 ring-blue-200/60 dark:bg-blue-500/[0.06] dark:ring-blue-500/15">
+          <label className="mb-0.5 block text-left text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:text-neutral-400">
+            Сумма зачисления
+          </label>
+          <div className="flex items-baseline gap-2">
+            <input
+              value={toAmount}
+              onChange={(e) => setToAmount(e.target.value)}
+              disabled={!canEdit}
+              inputMode="decimal"
+              className="w-full bg-transparent text-2xl font-bold tabular-nums text-slate-900 outline-none placeholder:text-slate-300 disabled:opacity-70 dark:text-white dark:placeholder:text-neutral-600"
+              placeholder="0,00"
+            />
+            <span className="shrink-0 text-base font-semibold text-slate-400 dark:text-neutral-500">{toCur}</span>
+          </div>
+          <p className="mt-1 text-[11px] text-slate-500 dark:text-neutral-400">
+            Списываем {amount || "0,00"} {cur}, зачисляем в {toCur} по факту — курсы у счетов разные.
+          </p>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-x-4 gap-y-4 sm:grid-cols-2">
         {!isTransfer && (
@@ -272,6 +376,15 @@ export default function OperationCard({
             )
           )}
         </div>
+      )}
+
+      {canEdit && (
+        <label className="mt-3 flex cursor-pointer items-center gap-2.5 text-sm text-slate-700 dark:text-neutral-200">
+          <input type="checkbox" checked={repeatMonthly} onChange={(e) => setRepeatMonthly(e.target.checked)}
+            className="h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand dark:border-white/20" />
+          Повторять операцию каждый месяц
+          <span className="text-xs text-slate-400 dark:text-neutral-500">— создаст правило в «Регулярных»</span>
+        </label>
       )}
 
       {/* Чеки и вложения — заголовок рисует сам Attachments */}

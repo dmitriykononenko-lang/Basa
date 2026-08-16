@@ -6,9 +6,17 @@ export type VaultEntry = {
   login: string;
   url: string;
   note: string;
+  group_name: string;
+  project_id: string | null;
+  project_name: string | null;
+  has_secret: boolean;
+  can_reveal: boolean;
+  can_manage: boolean;
   created_by: string | null;
   updated_at: string;
 };
+
+export type VaultProject = { id: string; name: string };
 
 export type VaultSubjectType = "user" | "unit";
 

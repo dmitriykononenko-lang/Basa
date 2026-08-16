@@ -136,9 +136,14 @@ body {
   from { opacity: 0; transform: translateY(10px) }
   to   { opacity: 1; transform: translateY(0) }
 }
+@keyframes slideInRight {
+  from { opacity: .4; transform: translateX(24px) }
+  to   { opacity: 1; transform: translateX(0) }
+}
 .animate-fade-in  { animation: fadeIn .15s ease-out both }
 .animate-scale-in { animation: scaleIn .18s cubic-bezier(.16, 1, .3, 1) both }
 .animate-toast-in { animation: toastIn .2s ease-out both }
+.animate-slide-in-right { animation: slideInRight .22s cubic-bezier(.16, 1, .3, 1) both }
 
 /* Затемнённо-размытая подложка модалок (как в референсе) */
 .modal-backdrop {

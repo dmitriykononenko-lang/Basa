@@ -8,6 +8,7 @@ import PlannedReview from "@/components/PlannedReview";
 import ExportButton from "@/components/ExportButton";
 import OperationsTable from "@/components/OperationsTable";
 import { PaginationNav } from "@/components/ui/pagination";
+import { formatMoney } from "@/lib/format";
 
 type TxRow = {
   id: string;
@@ -20,6 +21,8 @@ type TxRow = {
   status: string;
   account_id: string | null;
   transfer_account_id: string | null;
+  transfer_amount: number | null;
+  transfer_currency: string | null;
   category_id: string | null;
   counterparty_id: string | null;
   project_id: string | null;
@@ -113,7 +116,7 @@ export default async function TransactionsPage({
       .from("transactions")
       .select(
         `id, type, amount, currency, occurred_on, accrual_date, note, status,
-         account_id, transfer_account_id, category_id, counterparty_id, project_id, created_by, import_batch_id,
+         account_id, transfer_account_id, transfer_amount, transfer_currency, category_id, counterparty_id, project_id, created_by, import_batch_id,
          account:accounts!transactions_account_id_fkey(name),
          to_account:accounts!transactions_transfer_account_id_fkey(name),
          category:categories(name),
@@ -159,6 +162,42 @@ export default async function TransactionsPage({
   const splitByTx = new Map<string, number>();
   for (const s of (splitCnt ?? []) as { transaction_id: string }[]) splitByTx.set(s.transaction_id, (splitByTx.get(s.transaction_id) ?? 0) + 1);
 
+  // ── Сводка за период (факт) для KPI-карточек ──
+  // Те же фильтры, что и у таблицы, кроме типа и статуса: считаем только факт.
+  const base = team.base_currency;
+  let kq = supabase.from("transactions").select("type, amount, currency").eq("team_id", team.id).eq("status", "actual");
+  if (gte) kq = kq.gte("occurred_on", gte);
+  if (lte) kq = kq.lte("occurred_on", lte);
+  if (fAccount !== "all") kq = kq.or(`account_id.eq.${fAccount},transfer_account_id.eq.${fAccount}`);
+  if (fProject !== "all") kq = kq.eq("project_id", fProject);
+  if (fCp !== "all") kq = kq.eq("counterparty_id", fCp);
+  if (fCat !== "all") kq = kq.eq("category_id", fCat);
+  if (q) kq = kq.ilike("note", `%${q}%`);
+  const { data: kpiRows } = await kq;
+
+  let inflow = 0, outflow = 0, outflowCount = 0;
+  const inflowOther = new Map<string, number>();
+  const outflowOther = new Map<string, number>();
+  for (const t of (kpiRows ?? []) as { type: string; amount: number; currency: string }[]) {
+    if (t.type === "income") {
+      if (t.currency === base) inflow += t.amount;
+      else inflowOther.set(t.currency, (inflowOther.get(t.currency) ?? 0) + t.amount);
+    } else if (t.type === "expense") {
+      outflowCount += 1;
+      if (t.currency === base) outflow += t.amount;
+      else outflowOther.set(t.currency, (outflowOther.get(t.currency) ?? 0) + t.amount);
+    }
+  }
+  const netBase = inflow - outflow;
+  const otherLine = (m: Map<string, number>, sign: string) =>
+    [...m.entries()].map(([c, v]) => `${sign}${formatMoney(v, c)}`).join(" · ") || null;
+
+  const PERIOD_LABELS: Record<string, string> = {
+    month: "Текущий месяц", last_month: "Прошлый месяц", quarter: "Квартал",
+    year: "Год", all: "Всё время", custom: "Период",
+  };
+  const periodLabel = PERIOD_LABELS[period] ?? "Текущий месяц";
+
   const exportRows = rows.map((t) => [
     t.occurred_on,
     t.type === "income" ? "Приход" : t.type === "expense" ? "Расход" : "Перевод",
@@ -174,9 +213,15 @@ export default async function TransactionsPage({
 
   return (
     <div className="p-6 sm:p-8">
-      <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">Операции</h1>
-        <div className="flex items-center gap-2">
+      <header className="mb-5 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">Операции</h1>
+          <p className="mt-1 text-sm text-slate-500 dark:text-neutral-400">
+            {periodLabel} · {totalCount ?? 0} {plOps(totalCount ?? 0)}
+            {(plannedCount ?? 0) > 0 ? ` · ${plannedCount} плановых` : ""}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
           <ExportButton
             headers={["Дата", "Тип", "Сумма", "Валюта", "Статья", "Проект", "Контрагент", "Счёт", "Статус", "Комментарий"]}
             rows={exportRows}
@@ -203,6 +248,14 @@ export default async function TransactionsPage({
           )}
         </div>
       </header>
+
+      {/* KPI за период */}
+      <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <KpiCard tone="income" label="Приток за период" value={`+${formatMoney(inflow, base)}`} sub={otherLine(inflowOther, "+")} />
+        <KpiCard tone="expense" label="Отток за период" value={`−${formatMoney(outflow, base)}`} sub={outflowCount ? `${outflowCount} ${plOps(outflowCount)}` : otherLine(outflowOther, "−")} />
+        <KpiCard tone="net" label="Чистый поток" value={`${netBase >= 0 ? "+" : "−"}${formatMoney(Math.abs(netBase), base)}`} sub="итог за период" />
+        <KpiCard tone="pending" label="Требуют проведения" value={String(plannedCount ?? 0)} sub="плановые к проведению" />
+      </div>
 
       {writable && user && (
         <div className="mb-5">
@@ -231,6 +284,7 @@ export default async function TransactionsPage({
             tx: {
               id: t.id, type: t.type, amount: t.amount, currency: t.currency, occurred_on: t.occurred_on,
               accrual_date: t.accrual_date, note: t.note, status: t.status, account_id: t.account_id, transfer_account_id: t.transfer_account_id,
+              transfer_amount: t.transfer_amount, transfer_currency: t.transfer_currency,
               category_id: t.category_id, counterparty_id: t.counterparty_id, project_id: t.project_id,
               import_batch_id: t.import_batch_id,
               accountName: t.account?.name ?? null, toAccountName: t.to_account?.name ?? null,
@@ -264,6 +318,52 @@ export default async function TransactionsPage({
           Страница {page} из {totalPages} · всего операций: {totalCount}
         </p>
       )}
+    </div>
+  );
+}
+
+// Склонение слова «операция» по числу.
+function plOps(n: number): string {
+  const a = Math.abs(n) % 100;
+  const b = n % 10;
+  if (a > 10 && a < 20) return "операций";
+  if (b === 1) return "операция";
+  if (b >= 2 && b <= 4) return "операции";
+  return "операций";
+}
+
+// KPI-карточка сводки за период.
+function KpiCard({
+  tone,
+  label,
+  value,
+  sub,
+}: {
+  tone: "income" | "expense" | "net" | "pending";
+  label: string;
+  value: string;
+  sub: string | null;
+}) {
+  const dot = {
+    income: "bg-emerald-500",
+    expense: "bg-red-500",
+    net: "bg-slate-800 dark:bg-white",
+    pending: "bg-amber-500",
+  }[tone];
+  const valueColor = {
+    income: "text-emerald-600 dark:text-emerald-400",
+    expense: "text-red-600 dark:text-red-400",
+    net: "text-slate-900 dark:text-white",
+    pending: "text-slate-900 dark:text-white",
+  }[tone];
+  return (
+    <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200/70 dark:bg-[#15171c] dark:ring-white/[0.06]">
+      <div className="flex items-center gap-2 text-xs font-medium text-slate-500 dark:text-neutral-400">
+        <span className={`h-2 w-2 shrink-0 rounded-full ${dot}`} />
+        <span className="truncate">{label}</span>
+      </div>
+      <div className={`mt-2 text-2xl font-bold tabular-nums ${valueColor}`}>{value}</div>
+      <div className="mt-1 min-h-[1rem] text-xs text-slate-400 dark:text-neutral-500">{sub}</div>
     </div>
   );
 }

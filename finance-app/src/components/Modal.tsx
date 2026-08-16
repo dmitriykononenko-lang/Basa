@@ -12,7 +12,7 @@ const SIZES: Record<string, string> = {
 };
 
 export default function Modal({
-  open, onClose, title, children, wide = false, size,
+  open, onClose, title, children, wide = false, size, side,
 }: {
   open: boolean;
   onClose: () => void;
@@ -20,6 +20,8 @@ export default function Modal({
   children: React.ReactNode;
   wide?: boolean;
   size?: "md" | "lg" | "xl" | "wide" | "xwide";
+  // side="right" — правая выезжающая панель (drawer) вместо центральной модалки.
+  side?: "right";
 }) {
   // Портал в body: иначе вложенная модалка (карточка операции внутри drilldown)
   // считает position:fixed относительно родителя с transform/backdrop-filter и обрезается.
@@ -36,6 +38,38 @@ export default function Modal({
   }, [open, onClose]);
 
   if (!open || !mounted) return null;
+
+  // Правая выезжающая панель (drawer).
+  if (side === "right") {
+    return createPortal(
+      <div
+        className="fixed inset-0 z-50 flex justify-end bg-black/40 backdrop-blur-[2px]"
+        onClick={onClose}
+        role="dialog"
+        aria-modal="true"
+      >
+        <div
+          className="animate-slide-in-right flex h-full w-full max-w-2xl flex-col bg-slate-50 shadow-2xl ring-1 ring-black/5 dark:bg-[#101116] dark:ring-white/10"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {title !== undefined && (
+            <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-100 px-5 py-4 dark:border-white/[0.07] sm:px-6">
+              <div className="min-w-0 text-lg font-bold text-slate-900 dark:text-white">{title}</div>
+              <button
+                onClick={onClose}
+                aria-label="Закрыть"
+                className="shrink-0 rounded-full px-2 text-xl leading-none text-slate-400 transition hover:text-slate-700 dark:hover:text-neutral-200"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6">{children}</div>
+        </div>
+      </div>,
+      document.body,
+    );
+  }
 
   return createPortal(
     <div className="modal-backdrop" onClick={onClose} role="dialog" aria-modal="true">
