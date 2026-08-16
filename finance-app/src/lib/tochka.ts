@@ -59,6 +59,156 @@ function dateOnly(iso: string | null | undefined): string {
   return String(iso).slice(0, 10);
 }
 
+// ── Счета на оплату (invoice-API) ─────────────────────────────────────────────
+// Схема тела Create Invoice сверена со сгенерированными по OpenAPI-спеке Точки
+// типами (Data → { accountId, customerCode, SecondSide, Content.Invoice }).
+// Версия сервиса invoice — фиксированная "v1.0".
+//   POST /invoice/v1.0/bills                                → { Data.documentId }
+//   GET  /invoice/v1.0/bills/{customerCode}/{documentId}/payment_status
+const INVOICE_VERSION = "v1.0";
+
+export type TochkaVat = "none" | "0" | "10" | "20";
+export type TochkaInvoicePayload = {
+  accountId: string;        // счёт Точки (формат "<номер>/<БИК>")
+  customerCode: string;     // код клиента в Точке
+  number: string;           // номер выставляемого счёта (Invoice.number, обязателен)
+  purpose?: string | null;  // назначение платежа → Invoice.comment
+  paymentExpiryDate?: string | null; // YYYY-MM-DD
+  buyer: { name: string; inn: string; kpp?: string | null };
+  items: { name: string; quantity: number; unitPriceMinor: number; vat: TochkaVat; unit?: string }[];
+};
+
+function money2(minor: number): number { return Math.round(minor) / 100; }
+
+// НДС внутри суммы (цена указана С НДС): amountMinor * r/(100+r).
+function ndsOfMinor(amountMinor: number, v: TochkaVat): number {
+  if (v === "none" || v === "0") return 0;
+  const r = Number(v);
+  return Math.round((amountMinor * r) / (100 + r));
+}
+
+// Ставка НДС в кодах Точки: none → without_nds, N% → nds_N.
+function vatToNdsKind(v: TochkaVat): string {
+  return v === "none" ? "without_nds" : `nds_${v}`;
+}
+
+// Тип контрагента для Точки: ИНН из 12 цифр — ИП, иначе — компания.
+function counterpartType(inn: string): "ip" | "company" {
+  return inn.replace(/\D/g, "").length === 12 ? "ip" : "company";
+}
+
+// Допустимые коды единиц измерения Точки (UnitCodeEnum).
+const TOCHKA_UNIT_CODES = new Set([
+  "шт.", "тыс.шт.", "компл.", "пар.", "усл.ед.", "упак.", "услуга.", "пач.",
+  "мин.", "ч.", "сут.", "г.", "кг.", "л.", "м.", "м2.", "м3.", "км.", "га.", "кВт.", "кВт.ч.",
+]);
+const UNIT_ALIASES: Record<string, string> = {
+  "шт": "шт.", "штука": "шт.", "штук": "шт.", "штуки": "шт.",
+  "усл": "усл.ед.", "услед": "усл.ед.", "усл.ед": "усл.ед.", "услуга": "услуга.", "услуги": "услуга.",
+  "упак": "упак.", "упаковка": "упак.", "компл": "компл.", "комплект": "компл.",
+  "час": "ч.", "ч": "ч.", "мин": "мин.", "минута": "мин.",
+  "день": "сут.", "дней": "сут.", "сут": "сут.", "сутки": "сут.",
+  "кг": "кг.", "г": "г.", "грамм": "г.", "л": "л.", "литр": "л.",
+  "м": "м.", "метр": "м.", "м2": "м2.", "м3": "м3.", "км": "км.", "га": "га.",
+  "квт": "кВт.", "квтч": "кВт.ч.",
+};
+function toUnitCode(u?: string): string {
+  if (!u) return "шт.";
+  const trimmed = u.trim();
+  const withDot = trimmed.endsWith(".") ? trimmed : `${trimmed}.`;
+  if (TOCHKA_UNIT_CODES.has(withDot)) return withDot;
+  const key = trimmed.toLowerCase().replace(/\.+$/, "").replace(/\s+/g, "");
+  return UNIT_ALIASES[key] ?? "шт.";
+}
+
+// Сборка тела Create Invoice. Суммы Точке передаются в рублях (не в копейках).
+export function buildBillBody(p: TochkaInvoicePayload): unknown {
+  let totalMinor = 0;
+  let totalNdsMinor = 0;
+  const Positions = p.items.map((it) => {
+    const amountMinor = Math.round(it.quantity * it.unitPriceMinor);
+    const ndsMinor = ndsOfMinor(amountMinor, it.vat);
+    totalMinor += amountMinor;
+    totalNdsMinor += ndsMinor;
+    return {
+      positionName: it.name,
+      unitCode: toUnitCode(it.unit),
+      ndsKind: vatToNdsKind(it.vat),
+      price: money2(it.unitPriceMinor),
+      quantity: it.quantity,
+      totalAmount: money2(amountMinor),
+      totalNds: money2(ndsMinor),
+    };
+  });
+  return {
+    Data: {
+      accountId: p.accountId,
+      customerCode: p.customerCode,
+      SecondSide: {
+        taxCode: p.buyer.inn,
+        counterpartType: counterpartType(p.buyer.inn),
+        legalName: p.buyer.name,
+        ...(p.buyer.kpp ? { kpp: p.buyer.kpp } : {}),
+      },
+      Content: {
+        Invoice: {
+          Positions,
+          number: p.number,
+          totalAmount: money2(totalMinor),
+          totalNds: money2(totalNdsMinor),
+          ...(p.paymentExpiryDate ? { paymentExpiryDate: p.paymentExpiryDate } : {}),
+          ...(p.purpose ? { comment: p.purpose } : {}),
+        },
+      },
+    },
+  };
+}
+
+// Создать счёт на оплату. Возвращает documentId и сырой ответ.
+export async function createInvoice({ token }: { token: string }, p: TochkaInvoicePayload): Promise<{ documentId: string | null; raw: unknown }> {
+  const json = await api<{ Data?: { documentId?: string; Bill?: { documentId?: string } } }>(
+    `invoice/${INVOICE_VERSION}/bills`,
+    { token, method: "POST", body: buildBillBody(p) },
+  );
+  const documentId = json.Data?.documentId ?? json.Data?.Bill?.documentId ?? null;
+  return { documentId, raw: json };
+}
+
+// Статус оплаты счёта.
+export async function getInvoicePaymentStatus({ token }: { token: string }, customerCode: string, documentId: string): Promise<{ status: string; raw: unknown }> {
+  const json = await api<{ Data?: { paymentStatus?: string; status?: string } }>(
+    `invoice/${INVOICE_VERSION}/bills/${encodeURIComponent(customerCode)}/${encodeURIComponent(documentId)}/payment_status`,
+    { token },
+  );
+  const status = json.Data?.paymentStatus ?? json.Data?.status ?? "";
+  return { status, raw: json };
+}
+
+// ── Клиенты (customerCode) ────────────────────────────────────────────────────
+// customerCode нужен для invoice-API. Берётся из «Get Customers List»: объект с
+// customerType === "Business" (юрлицо/ИП, от чьего имени выставляется счёт).
+export type TochkaCustomer = { customerCode: string; customerType: string; fullName: string | null };
+
+export async function getCustomers({ token, apiVersion }: FetchOpts): Promise<TochkaCustomer[]> {
+  const json = await api<{ Data?: { Customer?: RawCustomer[] } }>(`open-banking/${apiVersion}/customers`, { token });
+  const list = json.Data?.Customer ?? [];
+  return list.map((c) => ({
+    customerCode: c.customerCode,
+    customerType: c.customerType ?? "",
+    fullName: c.fullName ?? c.shortName ?? null,
+  }));
+}
+
+// customerCode бизнес-клиента (или первого доступного). null — если не нашли.
+export async function getBusinessCustomerCode(opts: FetchOpts): Promise<string | null> {
+  const customers = await getCustomers(opts);
+  if (customers.length === 0) return null;
+  const business = customers.find((c) => /business/i.test(c.customerType));
+  return (business ?? customers[0]).customerCode || null;
+}
+
+type RawCustomer = { customerCode: string; customerType?: string; fullName?: string; shortName?: string };
+
 // ── Счета ───────────────────────────────────────────────────────────────────
 export async function getAccounts({ token, apiVersion }: FetchOpts): Promise<TochkaAccount[]> {
   const json = await api<{ Data?: { Account?: RawAccount[] } }>(`open-banking/${apiVersion}/accounts`, { token });

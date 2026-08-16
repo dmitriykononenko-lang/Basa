@@ -172,6 +172,24 @@ export default function InvoicesManager({
     router.refresh();
   }
 
+  async function issueTochka(inv: Invoice) {
+    if (!confirm(`Выставить счёт${inv.number ? ` №${inv.number}` : ""} в Точке?`)) return;
+    setBusy(true);
+    const res = await fetch(`/api/invoices/${inv.id}/issue`, { method: "POST" });
+    setBusy(false);
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) return toast.error(j.error ?? "Не удалось выставить в Точке");
+    toast.success("Счёт выставлен в Точке");
+    router.refresh();
+  }
+  async function refreshTochka(inv: Invoice) {
+    const res = await fetch(`/api/invoices/${inv.id}/tochka-status`, { method: "POST" });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) return toast.error(j.error ?? "Не удалось получить статус из Точки");
+    toast.success(`Статус из Точки: ${j.tochkaStatus || j.status}`);
+    router.refresh();
+  }
+
   return (
     <>
       {/* Сводка */}
@@ -243,6 +261,12 @@ export default function InvoicesManager({
                   </td>
                   <td className="px-3 py-3">
                     <div className="flex justify-end gap-1">
+                      {inv.currency === "RUB" && !inv.tochka_document_id && (
+                        <button type="button" onClick={() => issueTochka(inv)} disabled={busy} className="btn-ghost px-2 py-1 text-xs text-brand" title="Создать счёт в Точке (для закрывающих документов)">В Точку</button>
+                      )}
+                      {inv.tochka_document_id && (
+                        <button type="button" onClick={() => refreshTochka(inv)} className="btn-ghost px-2 py-1 text-xs" title="Обновить статус оплаты из Точки">Точка ⟳</button>
+                      )}
                       {inv.status !== "paid" && (
                         <button type="button" onClick={() => setStatus(inv, "paid")} className="btn-ghost px-2 py-1 text-xs text-emerald-600 dark:text-emerald-400">Оплачен</button>
                       )}
