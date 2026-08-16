@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import { decryptSecret } from "@/lib/crypto";
-import { getAccounts, createInvoice, buildBillBody, type TochkaInvoicePayload, type TochkaVat } from "@/lib/tochka";
+import { getAccounts, getBusinessCustomerCode, createInvoice, buildBillBody, type TochkaInvoicePayload, type TochkaVat } from "@/lib/tochka";
 
 // Выставить рублёвый счёт в Точке (invoice-API). ?debug=1 — вернуть собранное тело
 // запроса БЕЗ отправки (для сверки полей на живом токене), иначе — отправить и
@@ -32,14 +32,28 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   const { data: conn } = await supabase
     .from("bank_connections")
-    .select("token_cipher, api_version, customer_code, tax_system_code")
+    .select("token_cipher, api_version, customer_code")
     .eq("team_id", teamId).eq("provider", "tochka").maybeSingle();
   if (!conn) return NextResponse.json({ error: "Точка не подключена" }, { status: 404 });
-  if (!conn.customer_code) return NextResponse.json({ error: "Не задан customerCode Точки (укажите в подключении банка)" }, { status: 400 });
 
   let token: string;
   try { token = decryptSecret(conn.token_cipher); }
   catch (e) { return NextResponse.json({ error: e instanceof Error ? e.message : "Ошибка токена" }, { status: 500 }); }
+
+  // customerCode: из подключения, иначе — автоподбор бизнес-клиента по токену (и сохранение).
+  let customerCode = conn.customer_code as string | null;
+  if (!customerCode) {
+    try {
+      customerCode = await getBusinessCustomerCode({ token, apiVersion: conn.api_version });
+      if (customerCode) {
+        await supabase.from("bank_connections").update({ customer_code: customerCode })
+          .eq("team_id", teamId).eq("provider", "tochka");
+      }
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : "Ошибка получения customerCode" }, { status: 502 });
+    }
+  }
+  if (!customerCode) return NextResponse.json({ error: "Не удалось определить customerCode Точки" }, { status: 400 });
 
   // Счёт Точки для выставления (первый доступный по токену).
   let accountId: string;
@@ -53,10 +67,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   const payload: TochkaInvoicePayload = {
     accountId,
-    customerCode: conn.customer_code,
+    customerCode,
+    number: inv.number || String(inv.id).slice(0, 8),
     purpose: inv.purpose || (inv.number ? `Оплата по счёту № ${inv.number}` : "Оплата по счёту"),
     paymentExpiryDate: inv.payment_expiry_date,
-    buyer: { name: inv.buyer_name, inn: inv.buyer_inn, kpp: inv.buyer_kpp || null, taxSystemCode: conn.tax_system_code ?? null },
+    buyer: { name: inv.buyer_name, inn: inv.buyer_inn, kpp: inv.buyer_kpp || null },
     items: items.map((it) => ({
       name: it.name, quantity: Number(it.quantity), unitPriceMinor: it.price as number,
       vat: (it.vat_rate as TochkaVat), unit: it.unit as string,
