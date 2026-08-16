@@ -95,7 +95,7 @@ export async function POST(request: Request) {
     if (error) return NextResponse.json({ error: error.message }, { status: 403 });
   } else {
     const { data, error } = await supabase
-      .from("invoices").insert({ ...fields, created_by: user.id }).select("id").single();
+      .from("invoices").insert({ ...fields, status: "payment_waiting", created_by: user.id }).select("id").single();
     if (error) return NextResponse.json({ error: error.message }, { status: 403 });
     invoiceId = data.id;
   }
