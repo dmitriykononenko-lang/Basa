@@ -53,6 +53,7 @@ const GROUPS: Group[] = [
       { href: "/counterparties", label: "Контрагенты", Icon: IconCounterparties },
       { href: "/agents", label: "Агенты", Icon: IconCounterparties },
       { href: "/projects", label: "Проекты", Icon: IconProjects },
+      { href: "/invoices", label: "Инвойсы", Icon: IconReports, match: ["/invoices"] },
       { href: "/licenses", label: "Лицензии", Icon: IconTag },
       { href: "/budgets", label: "Бюджеты", Icon: IconBudgets },
       { href: "/payroll", label: "Зарплата", Icon: IconWallet },
