@@ -126,6 +126,62 @@ export default function OperationsTable({
     router.refresh();
   }
 
+  // Сверка план↔факт: плановый платёж и фактический (тот же счёт/сумма/валюта/тип,
+  // близкие даты) — предлагаем объединить, чтобы не было дубля после поступления.
+  const plannedCandidates = useMemo(() => {
+    const planned = items.filter((i) => i.editable && i.tx.status === "planned" && i.tx.type !== "transfer" && i.tx.account_id);
+    const actual = items.filter((i) => i.editable && i.tx.status === "actual" && i.tx.type !== "transfer" && i.tx.account_id);
+    const usedAct = new Set<string>();
+    const pairs: { plan: TxData; act: TxData; key: string }[] = [];
+    for (const p of planned) {
+      const pt = p.tx;
+      const m = actual.find((a) =>
+        !usedAct.has(a.tx.id) &&
+        a.tx.type === pt.type &&
+        a.tx.account_id === pt.account_id &&
+        a.tx.amount === pt.amount &&
+        a.tx.currency === pt.currency &&
+        daysApart(a.tx.occurred_on, pt.occurred_on) <= 7,
+      );
+      if (m) { usedAct.add(m.tx.id); pairs.push({ plan: pt, act: m.tx, key: `p${pt.id}|${m.tx.id}` }); }
+    }
+    return pairs.filter((p) => !dismissed.has(p.key));
+  }, [items, dismissed]);
+
+  function plannedPatch(plan: TxData, act: TxData): Record<string, unknown> {
+    return {
+      category_id: act.category_id ?? plan.category_id,
+      project_id: act.project_id ?? plan.project_id,
+      counterparty_id: act.counterparty_id ?? plan.counterparty_id,
+      note: act.note || plan.note,
+    };
+  }
+  async function mergePlanned(plan: TxData, act: TxData) {
+    setMergeBusy(true); setErr(null);
+    const supabase = createClient();
+    const { error: upErr } = await supabase.from("transactions").update(plannedPatch(plan, act)).eq("id", act.id);
+    if (upErr) { setMergeBusy(false); return setErr(upErr.message); }
+    const { error: delErr } = await supabase.from("transactions").delete().eq("id", plan.id);
+    setMergeBusy(false);
+    if (delErr) return setErr(delErr.message);
+    toast.success("Плановый платёж объединён с поступившим");
+    router.refresh();
+  }
+  async function mergeAllPlanned() {
+    if (!confirm(`Объединить плановые платежи с поступившими (${plannedCandidates.length})?`)) return;
+    setMergeBusy(true); setErr(null);
+    const supabase = createClient();
+    for (const p of plannedCandidates) {
+      const { error: upErr } = await supabase.from("transactions").update(plannedPatch(p.plan, p.act)).eq("id", p.act.id);
+      if (upErr) { setMergeBusy(false); return setErr(upErr.message); }
+      const { error: delErr } = await supabase.from("transactions").delete().eq("id", p.plan.id);
+      if (delErr) { setMergeBusy(false); return setErr(delErr.message); }
+    }
+    setMergeBusy(false);
+    toast.success(`Объединено план↔факт: ${plannedCandidates.length}`);
+    router.refresh();
+  }
+
   function toggle(id: string) {
     setSel((p) => {
       const n = new Set(p);
@@ -211,6 +267,39 @@ export default function OperationsTable({
 
   return (
     <div>
+      {plannedCandidates.length > 0 && (
+        <div className="mb-3 rounded-2xl bg-blue-50 p-4 ring-1 ring-blue-200 dark:bg-blue-950/20 dark:ring-blue-900/40">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <span className="text-sm font-medium text-blue-800 dark:text-blue-200">
+              🕒→✓ Плановые платежи, которые поступили: {plannedCandidates.length}
+            </span>
+            <button onClick={mergeAllPlanned} disabled={mergeBusy} className="rounded-full bg-blue-600 px-3 py-1 text-sm font-medium text-white disabled:opacity-50">
+              Объединить все
+            </button>
+          </div>
+          <div className="space-y-1.5">
+            {plannedCandidates.slice(0, 6).map((p) => (
+              <div key={p.key} className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                <span className="text-slate-600 dark:text-neutral-300">
+                  План «{p.plan.categoryName ?? (p.plan.type === "income" ? "Приход" : "Расход")}» {formatMoney(p.plan.amount, p.plan.currency)} → поступил {formatDate(p.act.occurred_on)} · {p.act.accountName}
+                </span>
+                <span className="flex gap-2">
+                  <button onClick={() => mergePlanned(p.plan, p.act)} disabled={mergeBusy} className="rounded-full bg-white px-3 py-1 text-xs font-medium text-blue-700 ring-1 ring-blue-300 disabled:opacity-50 dark:bg-white/[0.06] dark:text-blue-300">
+                    Объединить
+                  </button>
+                  <button onClick={() => setDismissed((d) => new Set(d).add(p.key))} className="rounded-full px-2 py-1 text-xs text-slate-400 hover:text-slate-600">
+                    Скрыть
+                  </button>
+                </span>
+              </div>
+            ))}
+            {plannedCandidates.length > 6 && (
+              <p className="text-xs text-blue-600/70 dark:text-blue-300/60">…и ещё {plannedCandidates.length - 6}. «Объединить все» обработает их все.</p>
+            )}
+          </div>
+        </div>
+      )}
+
       {transferCandidates.length > 0 && (
         <div className="mb-3 rounded-2xl bg-violet-50 p-4 ring-1 ring-violet-200 dark:bg-violet-950/20 dark:ring-violet-900/40">
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">

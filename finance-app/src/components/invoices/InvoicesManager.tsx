@@ -162,6 +162,16 @@ export default function InvoicesManager({
     router.refresh();
   }
 
+  async function reconcile() {
+    setBusy(true);
+    const res = await fetch("/api/invoices/reconcile", { method: "POST" });
+    setBusy(false);
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) return toast.error(j.error ?? "Не удалось сверить оплаты");
+    toast.success((j.matched ?? 0) > 0 ? `Отмечено оплаченными: ${j.matched}` : "Новых оплат по приходу не найдено");
+    router.refresh();
+  }
+
   return (
     <>
       {/* Сводка */}
@@ -185,7 +195,12 @@ export default function InvoicesManager({
             </button>
           ))}
         </div>
-        <button type="button" onClick={openCreate} className="btn-primary text-sm">+ Инвойс</button>
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={reconcile} disabled={busy} className="btn-ghost text-sm ring-1 ring-slate-200 dark:ring-white/10" title="Найти оплаты по входящим операциям (выписка Точки / BMI) и отметить счета оплаченными">
+            Сверить оплаты
+          </button>
+          <button type="button" onClick={openCreate} className="btn-primary text-sm">+ Инвойс</button>
+        </div>
       </div>
 
       {invoices.length === 0 ? (
