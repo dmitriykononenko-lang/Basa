@@ -32,6 +32,10 @@ type Draft = {
   items: ItemDraft[];
 };
 
+// Строка быстрого (массового) ввода уже выставленных счетов — без позиций.
+type BulkRow = { number: string; buyer_name: string; buyer_inn: string; amount: string; issue_date: string; payment_expiry_date: string };
+const emptyBulkRow = (): BulkRow => ({ number: "", buyer_name: "", buyer_inn: "", amount: "", issue_date: new Date().toISOString().slice(0, 10), payment_expiry_date: "" });
+
 const emptyItem = (): ItemDraft => ({ name: "", quantity: "1", unit: "шт", price: "", vat_rate: "none" });
 const emptyDraft = (): Draft => ({
   mode: "counterparty", counterparty_id: "", buyer_name: "", buyer_inn: "", buyer_kpp: "",
@@ -61,6 +65,8 @@ export default function InvoicesManager({
   const [draft, setDraft] = useState<Draft>(emptyDraft());
   const [busy, setBusy] = useState(false);
   const [statusFilter, setStatusFilter] = useState<"all" | InvoiceStatus>("all");
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkRows, setBulkRows] = useState<BulkRow[]>([emptyBulkRow(), emptyBulkRow(), emptyBulkRow()]);
 
   const cpById = useMemo(() => new Map(counterparties.map((c) => [c.id, c])), [counterparties]);
   const index = paymentIndex(invoices);
@@ -162,6 +168,67 @@ export default function InvoicesManager({
     router.refresh();
   }
 
+  // ── Массовый ввод уже выставленных счетов ──────────────────────────────────
+  function openBulk() { setBulkRows([emptyBulkRow(), emptyBulkRow(), emptyBulkRow()]); setBulkOpen(true); }
+  function updBulk(i: number, patch: Partial<BulkRow>) {
+    setBulkRows((rows) => rows.map((r, k) => (k === i ? { ...r, ...patch } : r)));
+  }
+  function addBulkRow() { setBulkRows((rows) => [...rows, emptyBulkRow()]); }
+  function delBulkRow(i: number) { setBulkRows((rows) => (rows.length > 1 ? rows.filter((_, k) => k !== i) : rows)); }
+
+  // Вставка таблицы из буфера (Excel/Точка): колонки Номер, Плательщик, ИНН,
+  // Сумма, Дата, Оплатить до — по табуляции. Строку-заголовок пропускаем.
+  function onBulkPaste(e: React.ClipboardEvent, startIdx: number) {
+    const text = e.clipboardData.getData("text/plain");
+    if (!text || !/[\t\n]/.test(text)) return; // одиночная ячейка — обычная вставка
+    e.preventDefault();
+    const today = new Date().toISOString().slice(0, 10);
+    const parsed = text.replace(/\r/g, "").split("\n").filter((l) => l.trim().length)
+      .map((line) => line.split("\t"))
+      .filter((c) => !/плательщик|сумма|номер счёт/i.test(c.join(" ")))
+      .map((c): BulkRow => ({
+        number: (c[0] ?? "").trim(),
+        buyer_name: (c[1] ?? "").trim(),
+        buyer_inn: (c[2] ?? "").replace(/\D/g, ""),
+        amount: (c[3] ?? "").trim(),
+        issue_date: normDate(c[4]) || today,
+        payment_expiry_date: normDate(c[5]),
+      }));
+    if (parsed.length === 0) return;
+    setBulkRows((rows) => {
+      const next = [...rows];
+      next.splice(startIdx, Math.max(1, parsed.length), ...parsed);
+      return next;
+    });
+  }
+
+  async function saveBulk() {
+    const rows = bulkRows
+      .map((r) => ({
+        number: r.number.trim(),
+        buyer_name: r.buyer_name.trim(),
+        buyer_inn: r.buyer_inn.trim(),
+        amount: parseMoney(r.amount),
+        issue_date: r.issue_date || new Date().toISOString().slice(0, 10),
+        payment_expiry_date: r.payment_expiry_date || null,
+      }))
+      .filter((r) => r.buyer_name.length > 0 && r.amount > 0);
+    if (rows.length === 0) return toast.error("Заполните хотя бы одну строку: плательщик и сумма");
+
+    setBusy(true);
+    const res = await fetch("/api/invoices/bulk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rows }),
+    });
+    setBusy(false);
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) return toast.error(j.error ?? "Не удалось сохранить");
+    toast.success(`Заведено счетов: ${j.inserted ?? rows.length}`);
+    setBulkOpen(false);
+    router.refresh();
+  }
+
   async function reconcile() {
     setBusy(true);
     const res = await fetch("/api/invoices/reconcile", { method: "POST" });
@@ -216,6 +283,9 @@ export default function InvoicesManager({
         <div className="flex items-center gap-2">
           <button type="button" onClick={reconcile} disabled={busy} className="btn-ghost text-sm ring-1 ring-slate-200 dark:ring-white/10" title="Найти оплаты по входящим операциям (выписка Точки / BMI) и отметить счета оплаченными">
             Сверить оплаты
+          </button>
+          <button type="button" onClick={openBulk} className="btn-ghost text-sm ring-1 ring-slate-200 dark:ring-white/10" title="Быстро завести уже выставленные счета (напр. из веб-кабинета Точки): номер, плательщик, сумма, срок">
+            Завести из Точки
           </button>
           <button type="button" onClick={openCreate} className="btn-primary text-sm">+ Инвойс</button>
         </div>
@@ -372,8 +442,64 @@ export default function InvoicesManager({
           </div>
         </div>
       </Modal>
+
+      {/* Массовый ввод уже выставленных счетов */}
+      <Modal open={bulkOpen} onClose={() => setBulkOpen(false)} title="Завести выставленные счета" size="wide">
+        <div className="space-y-3">
+          <p className="text-xs text-slate-500 dark:text-neutral-400">
+            Для счетов, уже выставленных в веб-кабинете Точки (списком через API банк их не отдаёт).
+            Заполните строки или <b>вставьте таблицу из буфера</b> (Excel / выгрузка Точки): колонки —
+            Номер, Плательщик, ИНН, Сумма ₽, Дата, Оплатить до. Статус — «ожидает оплаты»;
+            «оплачен» проставится сверкой по приходу.
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[720px] text-sm">
+              <thead>
+                <tr className="text-left text-[11px] uppercase tracking-wider text-slate-400 dark:text-neutral-500">
+                  <th className="px-2 py-1.5 font-medium">Номер</th>
+                  <th className="px-2 py-1.5 font-medium">Плательщик *</th>
+                  <th className="px-2 py-1.5 font-medium">ИНН</th>
+                  <th className="px-2 py-1.5 text-right font-medium">Сумма ₽ *</th>
+                  <th className="px-2 py-1.5 font-medium">Дата</th>
+                  <th className="px-2 py-1.5 font-medium">Оплатить до</th>
+                  <th className="px-1 py-1.5" />
+                </tr>
+              </thead>
+              <tbody>
+                {bulkRows.map((r, i) => (
+                  <tr key={i}>
+                    <td className="px-1 py-1"><input value={r.number} onChange={(e) => updBulk(i, { number: e.target.value })} onPaste={(e) => onBulkPaste(e, i)} className="input py-1.5 text-sm" placeholder="2026-014" /></td>
+                    <td className="px-1 py-1"><input value={r.buyer_name} onChange={(e) => updBulk(i, { buyer_name: e.target.value })} onPaste={(e) => onBulkPaste(e, i)} className="input py-1.5 text-sm" placeholder="ООО «Ромашка»" /></td>
+                    <td className="px-1 py-1"><input value={r.buyer_inn} onChange={(e) => updBulk(i, { buyer_inn: e.target.value })} onPaste={(e) => onBulkPaste(e, i)} inputMode="numeric" className="input py-1.5 text-sm" placeholder="7700000000" /></td>
+                    <td className="px-1 py-1"><input value={r.amount} onChange={(e) => updBulk(i, { amount: e.target.value })} onPaste={(e) => onBulkPaste(e, i)} inputMode="decimal" className="input py-1.5 text-right text-sm" placeholder="0,00" /></td>
+                    <td className="px-1 py-1"><input type="date" value={r.issue_date} onChange={(e) => updBulk(i, { issue_date: e.target.value })} className="input py-1.5 text-sm" /></td>
+                    <td className="px-1 py-1"><input type="date" value={r.payment_expiry_date} onChange={(e) => updBulk(i, { payment_expiry_date: e.target.value })} className="input py-1.5 text-sm" /></td>
+                    <td className="px-1 py-1 text-center"><button type="button" onClick={() => delBulkRow(i)} disabled={bulkRows.length <= 1} className="text-slate-400 hover:text-red-500 disabled:opacity-30">✕</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <button type="button" onClick={addBulkRow} className="text-sm font-medium text-brand">+ Строка</button>
+          <div className="flex justify-end gap-2 pt-1">
+            <button type="button" onClick={() => setBulkOpen(false)} className="btn-ghost">Отмена</button>
+            <button type="button" disabled={busy} onClick={saveBulk} className="btn-primary">{busy ? "…" : "Завести счета"}</button>
+          </div>
+        </div>
+      </Modal>
     </>
   );
+}
+
+// Нормализация даты из вставки: «16.08.2026» / «2026-08-16» / «16/08/2026» → ISO.
+function normDate(v?: string): string {
+  const s = (v ?? "").trim();
+  if (!s) return "";
+  const iso = s.match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  const dmy = s.match(/(\d{1,2})[.\/](\d{1,2})[.\/](\d{4})/);
+  if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, "0")}-${dmy[1].padStart(2, "0")}`;
+  return "";
 }
 
 function SummaryCard({ label, value, sub, tone = "slate" }: { label: string; value: string; sub?: string; tone?: "slate" | "amber" | "emerald" }) {
