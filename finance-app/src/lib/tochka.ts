@@ -146,7 +146,9 @@ export function buildBillBody(p: TochkaInvoicePayload): unknown {
       customerCode: p.customerCode,
       SecondSide: {
         taxCode: p.buyer.inn,
-        counterpartType: counterpartType(p.buyer.inn),
+        // Живой API Точки ждёт поле типа контрагента как `type` (валидатор ругался
+        // «Field SecondSide-type : Field required»), не `counterpartType` из SDK.
+        type: counterpartType(p.buyer.inn),
         legalName: p.buyer.name,
         ...(p.buyer.kpp ? { kpp: p.buyer.kpp } : {}),
       },
