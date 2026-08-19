@@ -4,6 +4,7 @@ import { parseJson } from "@/lib/api-validation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import { itemAmount, invoiceTotals, type VatRate } from "@/lib/invoices";
+import { nextInvoiceNumber } from "@/lib/invoiceNumber";
 
 const itemSchema = z.object({
   name: z.string().optional(),
@@ -73,9 +74,13 @@ export async function POST(request: Request) {
   if (items.every((it) => it.amount <= 0)) return NextResponse.json({ error: "Добавьте хотя бы одну позицию с суммой" }, { status: 400 });
   const totals = invoiceTotals(items);
 
+  // Номер: при создании с пустым полем присваиваем следующий по порядку (ГГГГ-NNN).
+  let number = (b.number ?? "").trim();
+  if (!b.id && !number) number = await nextInvoiceNumber(supabase, current.team.id);
+
   const fields = {
     team_id: current.team.id,
-    number: (b.number ?? "").trim(),
+    number,
     counterparty_id: b.counterparty_id ?? null,
     buyer_name: buyerName,
     buyer_inn: buyerInn,
