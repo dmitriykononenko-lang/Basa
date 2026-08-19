@@ -15,6 +15,8 @@ import {
 
 type Cp = { id: string; name: string; inn: string | null };
 type Proj = { id: string; name: string };
+// Справочник ранее выставленных позиций (наименование → последняя цена/ед./НДС).
+export type CatalogItem = { name: string; unit: string; price: number; vat_rate: VatRate };
 type ItemDraft = { name: string; quantity: string; unit: string; price: string; vat_rate: VatRate };
 type Draft = {
   id?: string;
@@ -52,15 +54,17 @@ const STATUS_FILTERS: { value: "all" | InvoiceStatus; label: string }[] = [
 ];
 
 export default function InvoicesManager({
-  teamId, invoices, counterparties, projects,
+  teamId, invoices, counterparties, projects, catalog = [],
 }: {
   teamId: string;
   invoices: Invoice[];
   counterparties: Cp[];
   projects: Proj[];
+  catalog?: CatalogItem[];
 }) {
   void teamId;
   const router = useRouter();
+  const catalogByName = useMemo(() => new Map(catalog.map((c) => [c.name.trim().toLowerCase(), c])), [catalog]);
   const [editOpen, setEditOpen] = useState(false);
   const [draft, setDraft] = useState<Draft>(emptyDraft());
   const [busy, setBusy] = useState(false);
@@ -106,6 +110,18 @@ export default function InvoicesManager({
 
   function updItem(i: number, patch: Partial<ItemDraft>) {
     setDraft((d) => ({ ...d, items: d.items.map((it, k) => (k === i ? { ...it, ...patch } : it)) }));
+  }
+  // Ввод наименования: если совпало с позицией из справочника — подставляем ед./цену/НДС.
+  function onItemName(i: number, name: string) {
+    const hit = catalogByName.get(name.trim().toLowerCase());
+    setDraft((d) => ({
+      ...d,
+      items: d.items.map((it, k) => {
+        if (k !== i) return it;
+        if (!hit) return { ...it, name };
+        return { ...it, name, unit: hit.unit || "шт", price: (hit.price / 100).toFixed(2).replace(".", ","), vat_rate: hit.vat_rate };
+      }),
+    }));
   }
   function addItem() { setDraft((d) => ({ ...d, items: [...d.items, emptyItem()] })); }
   function delItem(i: number) { setDraft((d) => ({ ...d, items: d.items.length > 1 ? d.items.filter((_, k) => k !== i) : d.items })); }
@@ -391,6 +407,13 @@ export default function InvoicesManager({
 
           {/* Позиции */}
           <div>
+            {catalog.length > 0 && (
+              <datalist id="inv-item-catalog">
+                {catalog.map((c) => (
+                  <option key={c.name} value={c.name} label={`${formatMoney(c.price, "RUB")} · ${VAT_LABELS[c.vat_rate]}`} />
+                ))}
+              </datalist>
+            )}
             <div className="mb-1.5 flex items-center justify-between">
               <span className="text-xs font-medium text-slate-500 dark:text-neutral-400">Позиции</span>
               <span className="text-xs text-slate-400">Итого: <b className="text-slate-700 dark:text-neutral-200">{formatMoney(draftTotals.amount, "RUB")}</b>{draftTotals.vat_amount > 0 ? ` · НДС ${formatMoney(draftTotals.vat_amount, "RUB")}` : ""}</span>
@@ -402,7 +425,7 @@ export default function InvoicesManager({
                   <div key={i} className="grid grid-cols-1 gap-2 rounded-2xl bg-slate-50 p-3 dark:bg-white/[0.03] sm:grid-cols-12 sm:items-end">
                     <div className="sm:col-span-4">
                       <label className="mb-1 block text-[11px] text-slate-500 dark:text-neutral-400">Наименование</label>
-                      <input value={it.name} onChange={(e) => updItem(i, { name: e.target.value })} className="input py-1.5 text-sm" placeholder="Товар / услуга" />
+                      <input value={it.name} onChange={(e) => onItemName(i, e.target.value)} list="inv-item-catalog" className="input py-1.5 text-sm" placeholder="Товар / услуга" />
                     </div>
                     <div className="sm:col-span-1">
                       <label className="mb-1 block text-[11px] text-slate-500 dark:text-neutral-400">Кол-во</label>

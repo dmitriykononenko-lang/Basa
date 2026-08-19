@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canEditFinance } from "@/lib/team";
-import InvoicesManager from "@/components/invoices/InvoicesManager";
-import type { Invoice } from "@/lib/invoices";
+import InvoicesManager, { type CatalogItem } from "@/components/invoices/InvoicesManager";
+import type { Invoice, VatRate } from "@/lib/invoices";
 
 export default async function InvoicesPage() {
   const current = await getCurrentTeam();
@@ -34,7 +34,7 @@ export default async function InvoicesPage() {
   }
 
   const supabase = await createClient();
-  const [{ data: invRaw }, { data: counterparties }, { data: projects }] = await Promise.all([
+  const [{ data: invRaw }, { data: counterparties }, { data: projects }, { data: itemsRaw }] = await Promise.all([
     supabase
       .from("invoices")
       .select("id, number, counterparty_id, buyer_name, buyer_inn, buyer_kpp, project_id, currency, amount, vat_amount, purpose, issue_date, payment_expiry_date, status, tochka_document_id, paid_on, note, created_at, project:projects(name), counterparty:counterparties(name)")
@@ -43,6 +43,12 @@ export default async function InvoicesPage() {
       .order("created_at", { ascending: false }),
     supabase.from("counterparties").select("id, name, inn").eq("team_id", team.id).eq("archived", false).order("name"),
     supabase.from("projects").select("id, name").eq("team_id", team.id).eq("archived", false).order("name"),
+    // Справочник ранее выставленных позиций (для автоподстановки в форме).
+    supabase
+      .from("invoice_items")
+      .select("name, unit, price, vat_rate, invoice:invoices(created_at)")
+      .eq("team_id", team.id)
+      .limit(2000),
   ]);
 
   const invoices = ((invRaw ?? []) as unknown as (Invoice & { project: { name: string } | null; counterparty: { name: string } | null })[]).map((r) => ({
@@ -50,6 +56,25 @@ export default async function InvoicesPage() {
     project_name: r.project?.name ?? null,
     counterparty_name: r.counterparty?.name ?? null,
   })) as Invoice[];
+
+  // Справочник позиций: по каждому наименованию — самая свежая цена/ед./НДС.
+  const itemRows = (itemsRaw ?? []) as unknown as {
+    name: string; unit: string; price: number; vat_rate: VatRate; invoice: { created_at: string } | null;
+  }[];
+  const byName = new Map<string, CatalogItem & { _ts: number }>();
+  for (const r of itemRows) {
+    const name = (r.name ?? "").trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    const ts = r.invoice?.created_at ? Date.parse(r.invoice.created_at) : 0;
+    const prev = byName.get(key);
+    if (!prev || ts > prev._ts) {
+      byName.set(key, { name, unit: r.unit || "шт", price: r.price ?? 0, vat_rate: (r.vat_rate ?? "none") as VatRate, _ts: ts });
+    }
+  }
+  const catalog: CatalogItem[] = [...byName.values()]
+    .sort((a, b) => a.name.localeCompare(b.name, "ru"))
+    .map(({ name, unit, price, vat_rate }) => ({ name, unit, price, vat_rate }));
 
   return (
     <div className="p-6 sm:p-8">
@@ -59,6 +84,7 @@ export default async function InvoicesPage() {
         invoices={invoices}
         counterparties={(counterparties ?? []) as { id: string; name: string; inn: string | null }[]}
         projects={(projects ?? []) as { id: string; name: string }[]}
+        catalog={catalog}
       />
     </div>
   );
