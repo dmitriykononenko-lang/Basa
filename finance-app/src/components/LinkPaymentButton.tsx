@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { formatMoney, formatDate } from "@/lib/format";
 import { toBase, type RateMap } from "@/lib/fx";
 import { toast } from "@/lib/toast";
+import AnchoredPopover from "@/components/AnchoredPopover";
 
 type Cand = {
   id: string;
@@ -31,6 +32,7 @@ export default function LinkPaymentButton({
   baseCurrency: string;
 }) {
   const router = useRouter();
+  const btnRef = useRef<HTMLButtonElement | null>(null);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [cands, setCands] = useState<Cand[]>([]);
@@ -79,36 +81,40 @@ export default function LinkPaymentButton({
     router.refresh();
   }
 
-  if (!open) {
-    return (
-      <button onClick={load} className="rounded-full px-3 py-1 text-xs font-medium text-brand transition hover:bg-brand/5">
+  return (
+    <>
+      <button
+        ref={btnRef}
+        onClick={() => (open ? setOpen(false) : load())}
+        className="rounded-full px-3 py-1 text-xs font-medium text-brand transition hover:bg-brand/5"
+      >
         Привязать
       </button>
-    );
-  }
-
-  return (
-    <div className="relative inline-block text-left">
-      <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
-      <div className="absolute right-0 z-30 mt-1 max-h-72 w-80 overflow-auto rounded-xl border border-slate-200 bg-white p-1 text-left shadow-xl dark:border-white/10 dark:bg-[#1b1d22]">
-        <div className="px-2 py-1.5 text-xs text-slate-400">{txType === "expense" ? "Выплата" : "Оплата"} этому контрагенту (непривязанный остаток)</div>
-        {loading ? (
-          <div className="px-2 py-3 text-sm text-slate-400">Загрузка…</div>
-        ) : cands.length > 0 ? (
-          cands.map((t) => (
-            <button key={t.id} onClick={() => link(t)} disabled={busy}
-              className="flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm hover:bg-slate-100 disabled:opacity-50 dark:hover:bg-white/[0.06]">
-              <span className="truncate text-slate-600 dark:text-neutral-300">
-                {formatDate(t.occurred_on)}{t.note ? ` · ${t.note}` : ""}
-                {t.currency !== baseCurrency && <span className="text-slate-400"> · {formatMoney(t.amount, t.currency)}</span>}
-              </span>
-              <span className="shrink-0 font-medium text-slate-800 dark:text-neutral-100">{formatMoney(t.remainingBase, baseCurrency)}</span>
-            </button>
-          ))
-        ) : (
-          <div className="px-2 py-3 text-sm text-slate-400">Нет операций с непривязанным остатком.</div>
-        )}
-      </div>
-    </div>
+      {open && (
+        <AnchoredPopover
+          anchorRef={btnRef}
+          onClose={() => setOpen(false)}
+          className="max-h-72 w-80 overflow-auto rounded-xl border border-slate-200 bg-white p-1 text-left shadow-xl dark:border-white/10 dark:bg-[#1b1d22]"
+        >
+          <div className="px-2 py-1.5 text-xs text-slate-400">{txType === "expense" ? "Выплата" : "Оплата"} этому контрагенту (непривязанный остаток)</div>
+          {loading ? (
+            <div className="px-2 py-3 text-sm text-slate-400">Загрузка…</div>
+          ) : cands.length > 0 ? (
+            cands.map((t) => (
+              <button key={t.id} onClick={() => link(t)} disabled={busy}
+                className="flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm hover:bg-slate-100 disabled:opacity-50 dark:hover:bg-white/[0.06]">
+                <span className="truncate text-slate-600 dark:text-neutral-300">
+                  {formatDate(t.occurred_on)}{t.note ? ` · ${t.note}` : ""}
+                  {t.currency !== baseCurrency && <span className="text-slate-400"> · {formatMoney(t.amount, t.currency)}</span>}
+                </span>
+                <span className="shrink-0 font-medium text-slate-800 dark:text-neutral-100">{formatMoney(t.remainingBase, baseCurrency)}</span>
+              </button>
+            ))
+          ) : (
+            <div className="px-2 py-3 text-sm text-slate-400">Нет операций с непривязанным остатком.</div>
+          )}
+        </AnchoredPopover>
+      )}
+    </>
   );
 }

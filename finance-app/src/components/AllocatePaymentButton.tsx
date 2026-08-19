@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { formatMoney, formatDate, parseMoney } from "@/lib/format";
 import { toast } from "@/lib/toast";
+import AnchoredPopover from "@/components/AnchoredPopover";
 
 type Obl = { id: string; outstanding: number; currency: string; due_date: string | null; note: string | null };
 
@@ -29,6 +30,7 @@ export default function AllocatePaymentButton({
   userId: string;
 }) {
   const router = useRouter();
+  const btnRef = useRef<HTMLButtonElement | null>(null);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -114,21 +116,21 @@ export default function AllocatePaymentButton({
 
   if (remainingBase <= 0) return null;
 
-  if (!open) {
-    return (
+  return (
+    <>
       <button
-        onClick={load}
+        ref={btnRef}
+        onClick={() => (open ? close() : load())}
         className="rounded-full bg-brand px-3 py-1 text-xs font-semibold text-white transition hover:bg-brand/90"
       >
         Разнести
       </button>
-    );
-  }
-
-  return (
-    <div className="relative inline-block text-left">
-      <div className="fixed inset-0 z-20" onClick={close} />
-      <div className="absolute right-0 z-30 mt-1 max-h-80 w-80 overflow-auto rounded-xl border border-slate-200 bg-white p-1 text-left shadow-xl dark:border-white/10 dark:bg-[#1b1d22]">
+      {open && (
+        <AnchoredPopover
+          anchorRef={btnRef}
+          onClose={close}
+          className="max-h-80 w-80 overflow-auto rounded-xl border border-slate-200 bg-white p-1 text-left shadow-xl dark:border-white/10 dark:bg-[#1b1d22]"
+        >
         <div className="flex items-center justify-between px-2 py-1.5 text-xs text-slate-400">
           <span>Куда разнести · остаток {formatMoney(remaining, baseCurrency)}</span>
         </div>
@@ -185,7 +187,8 @@ export default function AllocatePaymentButton({
             {dirty ? "Все обязательства этого контрагента закрыты." : "Нет открытых обязательств этого контрагента."}
           </div>
         )}
-      </div>
-    </div>
+        </AnchoredPopover>
+      )}
+    </>
   );
 }
