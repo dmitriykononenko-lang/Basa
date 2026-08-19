@@ -4,7 +4,7 @@ import { parseJson } from "@/lib/api-validation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import { itemAmount, invoiceTotals, type VatRate } from "@/lib/invoices";
-import { nextInvoiceNumber } from "@/lib/invoiceNumber";
+import { nextInvoiceNumberForProject, isAutoInvoiceNumber } from "@/lib/invoiceNumber";
 
 const itemSchema = z.object({
   name: z.string().optional(),
@@ -74,9 +74,14 @@ export async function POST(request: Request) {
   if (items.every((it) => it.amount <= 0)) return NextResponse.json({ error: "Добавьте хотя бы одну позицию с суммой" }, { status: 400 });
   const totals = invoiceTotals(items);
 
-  // Номер: при создании с пустым полем присваиваем следующий по порядку (ГГГГ-NNN).
+  // Номер: KO-NNN-INV-XX по проекту. При создании присваиваем авторитетно, если
+  // поле пусто или содержит наш авто-формат (защита от гонок/дублей); произвольный
+  // ручной номер (напр. старый формат) сохраняем как есть.
   let number = (b.number ?? "").trim();
-  if (!b.id && !number) number = await nextInvoiceNumber(supabase, current.team.id);
+  if (!b.id && b.project_id && (!number || isAutoInvoiceNumber(number))) {
+    const auto = await nextInvoiceNumberForProject(supabase, current.team.id, b.project_id);
+    if (auto) number = auto;
+  }
 
   const fields = {
     team_id: current.team.id,
