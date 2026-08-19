@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import InvoicesManager, { type CatalogItem } from "@/components/invoices/InvoicesManager";
 import type { Invoice, VatRate } from "@/lib/invoices";
+import { nextInvoiceNumber } from "@/lib/invoiceNumber";
 
 export default async function InvoicesPage() {
   const current = await getCurrentTeam();
@@ -76,6 +77,8 @@ export default async function InvoicesPage() {
     .sort((a, b) => a.name.localeCompare(b.name, "ru"))
     .map(({ name, unit, price, vat_rate }) => ({ name, unit, price, vat_rate }));
 
+  const nextNumber = await nextInvoiceNumber(supabase, team.id);
+
   return (
     <div className="p-6 sm:p-8">
       {header}
@@ -85,6 +88,7 @@ export default async function InvoicesPage() {
         counterparties={(counterparties ?? []) as { id: string; name: string; inn: string | null }[]}
         projects={(projects ?? []) as { id: string; name: string }[]}
         catalog={catalog}
+        nextNumber={nextNumber}
       />
     </div>
   );

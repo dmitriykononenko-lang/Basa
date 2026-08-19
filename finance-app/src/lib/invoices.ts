@@ -3,6 +3,9 @@
 export type InvoiceStatus = "draft" | "payment_waiting" | "paid" | "payment_expired" | "cancelled";
 export type VatRate = "none" | "0" | "10" | "20";
 
+// Позиция из справочника ранее выставленных товаров/услуг (для автоподстановки).
+export type CatalogItem = { name: string; unit: string; price: number; vat_rate: VatRate };
+
 export type InvoiceItem = {
   id?: string;
   name: string;
