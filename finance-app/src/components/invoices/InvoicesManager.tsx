@@ -55,17 +55,25 @@ const STATUS_FILTERS: { value: "all" | InvoiceStatus; label: string }[] = [
 ];
 
 export default function InvoicesManager({
-  teamId, invoices, counterparties, projects, catalog = [], nextNumber = "",
+  teamId, invoices, counterparties, projects, catalog = [], nextByProject = {},
 }: {
   teamId: string;
   invoices: Invoice[];
   counterparties: Cp[];
   projects: Proj[];
   catalog?: CatalogItem[];
-  nextNumber?: string;
+  nextByProject?: Record<string, string>;
 }) {
   void teamId;
   const router = useRouter();
+
+  // Номер счёта следует за проектом: KO-NNN-INV-XX. Подставляем подсказку, если
+  // поле пусто или содержит наш авто-формат (ручной номер не перетираем).
+  function numberForProject(projectId: string, current: string): string {
+    const auto = projectId ? nextByProject[projectId] : "";
+    if (auto && (!current.trim() || /^KO-\d+-INV-\d+$/.test(current.trim()))) return auto;
+    return current;
+  }
   const [editOpen, setEditOpen] = useState(false);
   const [draft, setDraft] = useState<Draft>(emptyDraft());
   const [busy, setBusy] = useState(false);
@@ -80,7 +88,7 @@ export default function InvoicesManager({
 
   const shown = statusFilter === "all" ? invoices : invoices.filter((i) => i.status === statusFilter);
 
-  function openCreate() { setDraft({ ...emptyDraft(), number: nextNumber }); setEditOpen(true); }
+  function openCreate() { setDraft(emptyDraft()); setEditOpen(true); }
   async function openEdit(inv: Invoice) {
     // Подтягиваем позиции инвойса.
     const res = await fetch(`/api/invoices/${inv.id}/items`).catch(() => null);
@@ -385,13 +393,13 @@ export default function InvoicesManager({
               )}
             </Field>
             <Field label="Проект (необяз.)">
-              <Combobox value={draft.project_id} onChange={(v) => setDraft({ ...draft, project_id: v })} placeholder="— без проекта —" emptyLabel="— без проекта —"
+              <Combobox value={draft.project_id} onChange={(v) => setDraft((d) => ({ ...d, project_id: v, number: numberForProject(v, d.number) }))} placeholder="— без проекта —" emptyLabel="— без проекта —"
                 options={projects.map((p): ComboOption => ({ value: p.id, label: p.name }))} />
             </Field>
           </div>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <Field label="Номер (необяз.)"><input value={draft.number} onChange={(e) => setDraft({ ...draft, number: e.target.value })} className="input" placeholder="напр. 2026-014" /></Field>
+            <Field label="Номер"><input value={draft.number} onChange={(e) => setDraft({ ...draft, number: e.target.value })} className="input" placeholder="KO-127-INV-01 (из проекта)" /></Field>
             <Field label="Дата счёта"><input type="date" value={draft.issue_date} onChange={(e) => setDraft({ ...draft, issue_date: e.target.value })} className="input" /></Field>
             <Field label="Оплатить до (необяз.)"><input type="date" value={draft.payment_expiry_date} onChange={(e) => setDraft({ ...draft, payment_expiry_date: e.target.value })} className="input" /></Field>
           </div>
