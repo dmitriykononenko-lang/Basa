@@ -31,22 +31,47 @@ export type TochkaOperation = {
 
 type FetchOpts = { token: string; apiVersion: string };
 
+// Разворачиваем причину сетевого сбоя: undici бросает голое «fetch failed»,
+// а настоящая причина лежит в error.cause (ETIMEDOUT/ENOTFOUND/ECONNRESET…).
+function networkDetail(e: unknown): string {
+  const cause = (e as { cause?: { code?: string; message?: string } })?.cause;
+  return cause?.code || cause?.message || (e instanceof Error ? e.message : String(e));
+}
+
 async function api<T>(path: string, { token, method = "GET", body }: { token: string; method?: string; body?: unknown }): Promise<T> {
-  const res = await fetch(`${BASE_URL}/${path.replace(/^\//, "")}`, {
-    method,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    body: body ? JSON.stringify(body) : undefined,
-    cache: "no-store",
-  });
-  const text = await res.text();
-  if (!res.ok) {
-    throw new Error(`Точка API ${res.status}: ${text.slice(0, 500)}`);
+  const url = `${BASE_URL}/${path.replace(/^\//, "")}`;
+  // GET идемпотентны — их безопасно повторять при сетевом сбое. POST (напр.
+  // создание счёта) НЕ ретраим, чтобы не задвоить документ в банке.
+  const retries = method === "GET" ? 2 : 0;
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 30_000); // защита от зависшего соединения
+    try {
+      const res = await fetch(url, {
+        method,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: body ? JSON.stringify(body) : undefined,
+        cache: "no-store",
+        signal: ctrl.signal,
+      });
+      clearTimeout(timer);
+      const text = await res.text();
+      if (!res.ok) throw new Error(`Точка API ${res.status}: ${text.slice(0, 500)}`);
+      return (text ? JSON.parse(text) : {}) as T;
+    } catch (e) {
+      clearTimeout(timer);
+      // HTTP-ответ Точки (наш throw про статус) — это не сетевой сбой, не ретраим.
+      if (e instanceof Error && /^Точка API \d/.test(e.message)) throw e;
+      lastErr = e;
+      if (attempt < retries) await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+    }
   }
-  return (text ? JSON.parse(text) : {}) as T;
+  throw new Error(`Сеть Точки недоступна: ${networkDetail(lastErr)}`);
 }
 
 function toMinor(amount: string | number): number {
