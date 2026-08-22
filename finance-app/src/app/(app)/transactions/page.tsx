@@ -9,6 +9,8 @@ import ExportButton from "@/components/ExportButton";
 import OperationsTable from "@/components/OperationsTable";
 import { PaginationNav } from "@/components/ui/pagination";
 import { formatMoney } from "@/lib/format";
+import { buildRateMap, toBase } from "@/lib/fx";
+import { fetchCbrRates, type CbrRates } from "@/lib/cbr";
 
 type TxRow = {
   id: string;
@@ -173,24 +175,29 @@ export default async function TransactionsPage({
   if (fCp !== "all") kq = kq.eq("counterparty_id", fCp);
   if (fCat !== "all") kq = kq.eq("category_id", fCat);
   if (q) kq = kq.ilike("note", `%${q}%`);
-  const { data: kpiRows } = await kq;
+  // Курсы валют: ручные (fx_rates) + ЦБ РФ для валют без ручного курса (USD/USDT).
+  // Нужны, чтобы свести приток/отток/чистый поток к одной (базовой) валюте.
+  const [{ data: kpiRows }, { data: fxRows }, cbr] = await Promise.all([
+    kq,
+    supabase.from("fx_rates").select("currency, rate, rate_date").eq("team_id", team.id),
+    base === "RUB" ? fetchCbrRates() : Promise.resolve<CbrRates>({ rates: {}, date: null }),
+  ]);
+  const rates = buildRateMap(fxRows ?? [], base);
+  for (const [cur, r] of Object.entries(cbr.rates)) {
+    if (rates[cur] === undefined) rates[cur] = r;
+  }
 
+  // Всё считаем в базовой валюте (валютные операции конвертируются по курсу).
   let inflow = 0, outflow = 0, outflowCount = 0;
-  const inflowOther = new Map<string, number>();
-  const outflowOther = new Map<string, number>();
+  let hasForeign = false;
   for (const t of (kpiRows ?? []) as { type: string; amount: number; currency: string }[]) {
-    if (t.type === "income") {
-      if (t.currency === base) inflow += t.amount;
-      else inflowOther.set(t.currency, (inflowOther.get(t.currency) ?? 0) + t.amount);
-    } else if (t.type === "expense") {
-      outflowCount += 1;
-      if (t.currency === base) outflow += t.amount;
-      else outflowOther.set(t.currency, (outflowOther.get(t.currency) ?? 0) + t.amount);
-    }
+    if (t.currency !== base) hasForeign = true;
+    const val = toBase(t.amount, t.currency, rates);
+    if (t.type === "income") inflow += val;
+    else if (t.type === "expense") { outflowCount += 1; outflow += val; }
   }
   const netBase = inflow - outflow;
-  const otherLine = (m: Map<string, number>, sign: string) =>
-    [...m.entries()].map(([c, v]) => `${sign}${formatMoney(v, c)}`).join(" · ") || null;
+  const convHint = hasForeign ? "валюты по курсу" : null;
 
   const PERIOD_LABELS: Record<string, string> = {
     month: "Текущий месяц", last_month: "Прошлый месяц", quarter: "Квартал",
@@ -251,9 +258,9 @@ export default async function TransactionsPage({
 
       {/* KPI за период */}
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <KpiCard tone="income" label="Приток за период" value={`+${formatMoney(inflow, base)}`} sub={otherLine(inflowOther, "+")} />
-        <KpiCard tone="expense" label="Отток за период" value={`−${formatMoney(outflow, base)}`} sub={outflowCount ? `${outflowCount} ${plOps(outflowCount)}` : otherLine(outflowOther, "−")} />
-        <KpiCard tone="net" label="Чистый поток" value={`${netBase >= 0 ? "+" : "−"}${formatMoney(Math.abs(netBase), base)}`} sub="итог за период" />
+        <KpiCard tone="income" label="Приток за период" value={`+${formatMoney(inflow, base)}`} sub={convHint} />
+        <KpiCard tone="expense" label="Отток за период" value={`−${formatMoney(outflow, base)}`} sub={outflowCount ? `${outflowCount} ${plOps(outflowCount)}` : convHint} />
+        <KpiCard tone="net" label="Чистый поток" value={`${netBase >= 0 ? "+" : "−"}${formatMoney(Math.abs(netBase), base)}`} sub={convHint ? "итог за период · в базовой валюте" : "итог за период"} />
         <KpiCard tone="pending" label="Требуют проведения" value={String(plannedCount ?? 0)} sub="плановые к проведению" />
       </div>
 
