@@ -31,7 +31,7 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
 
   if (isOrg) {
     const [{ data: unitsRaw }, { data: empRaw }, { data: membersRaw }, { data: posRaw }, { data: salRaw }, { data: invRaw }] = await Promise.all([
-      supabase.from("kb_departments").select("id, name, parent_id, unit_type, result_text, functions_text, head_counterparty_id, sort").eq("team_id", team.id),
+      supabase.from("kb_departments").select("id, name, parent_id, unit_type, result_text, functions_text, head_counterparty_id, sort, share_percent, icon").eq("team_id", team.id),
       supabase.from("counterparties").select("id, name, unit_id, user_id, email").eq("team_id", team.id).contains("kinds", ["employee"]).eq("archived", false).order("name"),
       supabase.from("team_members").select("user_id, profiles(full_name)").eq("team_id", team.id),
       supabase.from("employee_positions").select("counterparty_id, effective_from, position").eq("team_id", team.id).order("effective_from", { ascending: false }),
