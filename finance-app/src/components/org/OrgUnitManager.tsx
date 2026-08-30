@@ -16,8 +16,13 @@ export type OrgUnit = {
   functions_text: string | null;
   head_counterparty_id: string | null;
   sort: number;
+  share_percent: number | null;
+  icon: string | null;
 };
 type Emp = { id: string; name: string };
+
+// Пресеты иконок узлов (эмодзи) для быстрого выбора.
+const ICON_PRESETS = ["👑", "🩺", "💬", "☀️", "👥", "🛒", "🔊", "🔗", "⚙️", "📈", "💼", "🎯", "🧩", "🛠️"];
 
 export const UNIT_TYPE_LABELS: Record<OrgUnit["unit_type"], string> = {
   department: "Департамент",
@@ -33,8 +38,10 @@ type Draft = {
   head_counterparty_id: string;
   result_text: string;
   functions_text: string;
+  share_percent: string;
+  icon: string;
 };
-const EMPTY: Draft = { name: "", unit_type: "department", parent_id: "", head_counterparty_id: "", result_text: "", functions_text: "" };
+const EMPTY: Draft = { name: "", unit_type: "department", parent_id: "", head_counterparty_id: "", result_text: "", functions_text: "", share_percent: "", icon: "" };
 
 export default function OrgUnitManager({
   teamId,
@@ -94,6 +101,8 @@ export default function OrgUnitManager({
       head_counterparty_id: u.head_counterparty_id ?? "",
       result_text: u.result_text ?? "",
       functions_text: u.functions_text ?? "",
+      share_percent: u.share_percent != null ? String(u.share_percent) : "",
+      icon: u.icon ?? "",
     });
     setOpen(true);
   }
@@ -112,6 +121,8 @@ export default function OrgUnitManager({
       head_counterparty_id: draft.head_counterparty_id || null,
       result_text: draft.result_text || null,
       functions_text: draft.functions_text || null,
+      share_percent: draft.share_percent.trim() ? Math.round(Number(draft.share_percent.replace(",", "."))) : null,
+      icon: draft.icon.trim() || null,
     };
     const { error } = draft.id
       ? await supabase.from("kb_departments").update(payload).eq("id", draft.id)
@@ -168,7 +179,11 @@ export default function OrgUnitManager({
             )}
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
+                {u.icon && <span className="shrink-0 text-lg leading-none">{u.icon}</span>}
                 <span className="truncate text-[15px] font-extrabold uppercase tracking-tight text-slate-900 dark:text-white">{u.name}</span>
+                {u.share_percent != null && (
+                  <span className="shrink-0 rounded-full bg-brand/10 px-2 py-0.5 text-xs font-bold text-brand">{u.share_percent}%</span>
+                )}
                 {kids.length > 0 && (
                   <button type="button" onClick={() => toggle(u.id)} title={isOpen ? "Свернуть" : "Развернуть"} className="shrink-0 text-xs text-slate-400 hover:text-slate-600 dark:hover:text-neutral-200">
                     {isOpen ? "▾" : `▸${kids.length}`}
@@ -249,6 +264,23 @@ export default function OrgUnitManager({
             <label className="block">
               <span className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Руководитель (необяз.)</span>
               <Select value={draft.head_counterparty_id} onChange={(v) => setDraft({ ...draft, head_counterparty_id: v })} options={[{ value: "", label: "— не назначен —" }, ...employees.map((e) => ({ value: e.id, label: e.name }))]} />
+            </label>
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Иконка — необяз.</span>
+              <div className="flex items-center gap-2">
+                <input value={draft.icon} onChange={(e) => setDraft({ ...draft, icon: e.target.value })} className="input w-16 text-center text-lg" placeholder="🩺" maxLength={4} />
+                <div className="flex flex-wrap gap-1">
+                  {ICON_PRESETS.map((ic) => (
+                    <button key={ic} type="button" onClick={() => setDraft({ ...draft, icon: ic })} className={`rounded-lg px-1.5 py-0.5 text-lg leading-none transition hover:bg-slate-100 dark:hover:bg-white/10 ${draft.icon === ic ? "bg-brand/10 ring-1 ring-brand/30" : ""}`}>{ic}</button>
+                  ))}
+                </div>
+              </div>
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Доля владения, % — необяз.</span>
+              <input value={draft.share_percent} onChange={(e) => setDraft({ ...draft, share_percent: e.target.value })} inputMode="numeric" className="input" placeholder="напр. 90" />
             </label>
           </div>
           <label className="block">
