@@ -5,8 +5,9 @@ import { formatMoney } from "@/lib/format";
 import { buildRateMap, toBase } from "@/lib/fx";
 import { EMPLOYMENT_TYPE_LABELS } from "@/lib/constants";
 import AddEmployeeForm from "@/components/AddEmployeeForm";
-import OrgUnitManager, { type OrgUnit } from "@/components/org/OrgUnitManager";
+import OrgUnitManager, { type OrgUnit, type UnitMetric } from "@/components/org/OrgUnitManager";
 import EmployeeOrgAssign from "@/components/org/EmployeeOrgAssign";
+import { achievement } from "@/lib/metrics";
 
 export default async function EmployeesPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
   const { tab } = await searchParams;
@@ -30,14 +31,27 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
   const isOrg = tab === "org";
 
   if (isOrg) {
-    const [{ data: unitsRaw }, { data: empRaw }, { data: membersRaw }, { data: posRaw }, { data: salRaw }, { data: invRaw }] = await Promise.all([
+    const [{ data: unitsRaw }, { data: empRaw }, { data: membersRaw }, { data: posRaw }, { data: salRaw }, { data: invRaw }, { data: metricsRaw }, { data: metricValsRaw }] = await Promise.all([
       supabase.from("kb_departments").select("id, name, parent_id, unit_type, result_text, functions_text, head_counterparty_id, sort, share_percent, icon").eq("team_id", team.id),
       supabase.from("counterparties").select("id, name, unit_id, user_id, email").eq("team_id", team.id).contains("kinds", ["employee"]).eq("archived", false).order("name"),
       supabase.from("team_members").select("user_id, profiles(full_name)").eq("team_id", team.id),
       supabase.from("employee_positions").select("counterparty_id, effective_from, position").eq("team_id", team.id).order("effective_from", { ascending: false }),
       supabase.from("employee_salaries").select("counterparty_id, effective_from, amount, currency").eq("team_id", team.id).order("effective_from", { ascending: false }),
       supabase.from("invites").select("id, email, counterparty_id").eq("team_id", team.id).eq("status", "pending"),
+      supabase.from("metrics").select("id, name, unit_id, plan, direction, unit").eq("team_id", team.id).eq("is_active", true),
+      supabase.from("metric_values").select("metric_id, period_start, value").eq("team_id", team.id),
     ]);
+    // Показатели по узлам: последнее значение + выполнение плана.
+    const valsByMetric = new Map<string, { period_start: string; value: number }[]>();
+    for (const v of (metricValsRaw ?? []) as { metric_id: string; period_start: string; value: number }[]) {
+      const arr = valsByMetric.get(v.metric_id) ?? [];
+      arr.push(v); valsByMetric.set(v.metric_id, arr);
+    }
+    const unitMetrics: UnitMetric[] = ((metricsRaw ?? []) as { id: string; name: string; unit_id: string | null; plan: number | null; direction: "up_good" | "down_good"; unit: string }[]).map((m) => {
+      const vals = (valsByMetric.get(m.id) ?? []).slice().sort((a, b) => (a.period_start < b.period_start ? -1 : 1));
+      const latest = vals.length ? vals[vals.length - 1].value : null;
+      return { id: m.id, name: m.name, unit_id: m.unit_id, latest, plan: m.plan, unit: m.unit, good: achievement(latest, m.plan, m.direction).good };
+    });
     // Ожидающие приглашения по карточке сотрудника.
     const inviteByCp = new Map<string, { id: string; email: string }>();
     for (const i of (invRaw ?? []) as { id: string; email: string; counterparty_id: string | null }[]) {
@@ -84,7 +98,7 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
         </header>
         <OrgTabs active="org" />
         <div className="space-y-6">
-          <OrgUnitManager teamId={team.id} units={units} employees={employees.map((e) => ({ id: e.id, name: e.name }))} canManage={canManage} />
+          <OrgUnitManager teamId={team.id} units={units} employees={employees.map((e) => ({ id: e.id, name: e.name }))} metrics={unitMetrics} canManage={canManage} />
           {canManage && <EmployeeOrgAssign employees={employees} unitOptions={unitOptions} members={members} positionOptions={positionOptions} teamId={team.id} base={base} />}
         </div>
       </div>
