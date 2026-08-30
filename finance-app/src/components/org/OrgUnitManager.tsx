@@ -1,11 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "@/lib/toast";
 import { Select } from "@/components/ui/select";
 import Modal from "@/components/Modal";
+import { formatMetric } from "@/lib/metrics";
 
 export type OrgUnit = {
   id: string;
@@ -20,6 +22,8 @@ export type OrgUnit = {
   icon: string | null;
 };
 type Emp = { id: string; name: string };
+// Показатель, привязанный к узлу (для чипа на карточке).
+export type UnitMetric = { id: string; name: string; unit_id: string | null; latest: number | null; plan: number | null; good: boolean | null; unit: string };
 
 // Пресеты иконок узлов (эмодзи) для быстрого выбора.
 const ICON_PRESETS = ["👑", "🩺", "💬", "☀️", "👥", "🛒", "🔊", "🔗", "⚙️", "📈", "💼", "🎯", "🧩", "🛠️"];
@@ -65,14 +69,21 @@ export default function OrgUnitManager({
   teamId,
   units,
   employees,
+  metrics = [],
   canManage,
 }: {
   teamId: string;
   units: OrgUnit[];
   employees: Emp[];
+  metrics?: UnitMetric[];
   canManage: boolean;
 }) {
   const router = useRouter();
+  const metricsByUnit = useMemo(() => {
+    const m = new Map<string, UnitMetric[]>();
+    for (const x of metrics) { if (!x.unit_id) continue; const a = m.get(x.unit_id) ?? []; a.push(x); m.set(x.unit_id, a); }
+    return m;
+  }, [metrics]);
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<Draft>(EMPTY);
   const [busy, setBusy] = useState(false);
@@ -210,6 +221,7 @@ export default function OrgUnitManager({
     const isOpen = !collapsed.has(u.id);
     const head = u.head_counterparty_id ? empName.get(u.head_counterparty_id) : null;
     const ts = unitTags(u);
+    const mets = metricsByUnit.get(u.id) ?? [];
     return (
       <div className="w-full">
         {/* Карточка */}
@@ -244,6 +256,24 @@ export default function OrgUnitManager({
                   {ts.map((t, i) => (
                     <span key={i} className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600 dark:bg-white/[0.06] dark:text-neutral-300">{t}</span>
                   ))}
+                </div>
+              )}
+              {u.result_text && (
+                <div className="mt-2 text-[11px] text-slate-500 dark:text-neutral-400">
+                  <span className="font-semibold text-slate-400 dark:text-neutral-500">ЦКП:</span> {u.result_text}
+                </div>
+              )}
+              {(mets.length > 0 || (canManage && u.parent_id != null)) && (
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  {mets.map((mt) => (
+                    <Link key={mt.id} href={`/metrics/${mt.id}`} title="Открыть показатель"
+                      className={`rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 transition ${mt.good === false ? "bg-red-50 text-red-600 ring-red-200 dark:bg-red-500/10 dark:text-red-300 dark:ring-red-500/20" : mt.good ? "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/20" : "bg-slate-100 text-slate-600 ring-slate-200 dark:bg-white/[0.06] dark:text-neutral-300 dark:ring-white/10"}`}>
+                      📊 {mt.name}: {formatMetric(mt.latest, mt.unit)}{mt.plan != null ? ` / ${formatMetric(mt.plan, mt.unit)}` : ""}
+                    </Link>
+                  ))}
+                  {canManage && u.parent_id != null && (
+                    <Link href={`/metrics?unit=${u.id}`} className="rounded-full px-2 py-0.5 text-[11px] font-medium text-brand hover:bg-brand/5">+ показатель</Link>
+                  )}
                 </div>
               )}
             </div>
