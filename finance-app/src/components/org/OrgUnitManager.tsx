@@ -24,6 +24,24 @@ type Emp = { id: string; name: string };
 // Пресеты иконок узлов (эмодзи) для быстрого выбора.
 const ICON_PRESETS = ["👑", "🩺", "💬", "☀️", "👥", "🛒", "🔊", "🔗", "⚙️", "📈", "💼", "🎯", "🧩", "🛠️"];
 
+// Стандартная схема отделов (можно добавить одним нажатием, дальше редактируется).
+type TplNode = { name: string; icon?: string; tags?: string; result?: string; children?: TplNode[] };
+const STANDARD_TEMPLATE: TplNode = {
+  name: "Собственник", icon: "👑", tags: "Ресурсы, Видение, Стратегия",
+  children: [{
+    name: "Директор", icon: "🎯", tags: "Люди, Процессы, Показатели",
+    children: [
+      { name: "Персонал (HR)", icon: "👥", result: "Укомплектованная и обученная команда", tags: "Найм, Адаптация, Обучение" },
+      { name: "Маркетинг", icon: "🔊", result: "Поток заявок", tags: "Трафик, Контент, Бренд" },
+      { name: "Продажи", icon: "🛒", result: "Закрытые сделки и доход", tags: "Лиды, Сделки, Допродажи" },
+      { name: "Производство", icon: "⚙️", result: "Оказанная услуга / продукт", tags: "Внедрение, Поддержка, Сроки" },
+      { name: "Сервис и качество", icon: "💬", result: "Довольные клиенты, повторные продажи", tags: "Онбординг, Забота, Удержание" },
+      { name: "Финансы", icon: "📈", result: "Сохранённые и приумноженные деньги", tags: "Учёт, Бюджет, Отчёты" },
+      { name: "Развитие и партнёрства", icon: "🔗", result: "Новые каналы и партнёры", tags: "Партнёры, Каналы, Продукты" },
+    ],
+  }],
+};
+
 export const UNIT_TYPE_LABELS: Record<OrgUnit["unit_type"], string> = {
   department: "Департамент",
   division: "Отдел",
@@ -149,6 +167,29 @@ export default function OrgUnitManager({
     router.refresh();
   }
 
+  // Вставка узла шаблона рекурсивно (с parent_id и порядком).
+  async function insertTpl(supabase: ReturnType<typeof createClient>, node: TplNode, parentId: string | null, sort: number): Promise<void> {
+    const { data, error } = await supabase.from("kb_departments").insert({
+      team_id: teamId, name: node.name, unit_type: "department", parent_id: parentId,
+      icon: node.icon ?? null, functions_text: node.tags ?? null, result_text: node.result ?? null, sort,
+    }).select("id").single();
+    if (error || !data) throw new Error(error?.message ?? "Не удалось создать узел");
+    let i = 0;
+    for (const c of node.children ?? []) await insertTpl(supabase, c, data.id, i++);
+  }
+  async function seedStandard() {
+    if (units.length > 0 && !confirm("Добавить стандартную структуру отделов к текущим узлам?")) return;
+    setBusy(true);
+    try {
+      await insertTpl(createClient(), STANDARD_TEMPLATE, null, units.filter((u) => !u.parent_id).length);
+      toast.success("Стандартная структура добавлена");
+      router.refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Не удалось создать структуру");
+    }
+    setBusy(false);
+  }
+
   function toggle(id: string) {
     setCollapsed((s) => {
       const n = new Set(s);
@@ -190,7 +231,14 @@ export default function OrgUnitManager({
                   </button>
                 )}
               </div>
-              {head && <div className="mt-0.5 text-[11px] font-semibold uppercase tracking-wide text-brand">{head}</div>}
+              {head ? (
+                <div className="mt-0.5 text-[11px] font-semibold uppercase tracking-wide text-brand">{head}</div>
+              ) : u.parent_id != null ? (
+                <div className="mt-0.5 flex items-center gap-1.5">
+                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">нет ответственного</span>
+                  {canManage && <button type="button" onClick={() => openEdit(u)} className="text-[10px] font-medium text-brand hover:underline">назначить</button>}
+                </div>
+              ) : null}
               {ts.length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {ts.map((t, i) => (
@@ -235,19 +283,34 @@ export default function OrgUnitManager({
   }
 
   const roots = childrenOf.get(null) ?? [];
+  // Отделы без ответственного (кроме корневых-собственников) — «проваливается» / на вас.
+  const unfilled = units.filter((u) => u.parent_id != null && !u.head_counterparty_id).length;
 
   return (
     <section className="surface rounded-3xl p-5">
-      <div className="mb-4 flex items-center justify-between gap-3">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Оргструктура · отделы</h2>
-        {canManage && <button type="button" onClick={() => openCreate(null)} className="btn-primary text-sm">+ Отдел</button>}
+        {canManage && (
+          <div className="flex gap-2">
+            <button type="button" onClick={seedStandard} disabled={busy} className="btn-ghost text-sm ring-1 ring-slate-200 dark:ring-white/10" title="Добавить готовую схему отделов">Стандартная структура</button>
+            <button type="button" onClick={() => openCreate(null)} className="btn-primary text-sm">+ Отдел</button>
+          </div>
+        )}
       </div>
+      {canManage && unfilled > 0 && (
+        <div className="mb-4 rounded-2xl bg-amber-50 px-4 py-2.5 text-sm text-amber-800 ring-1 ring-amber-200/60 dark:bg-amber-950/30 dark:text-amber-300 dark:ring-amber-900/40">
+          ⚠️ Без ответственного: <b>{unfilled}</b> {unfilled === 1 ? "отдел" : unfilled < 5 ? "отдела" : "отделов"} — сейчас это закрываете вы сами. Назначьте сотрудников на посты (кнопка «назначить» на карточке).
+        </div>
+      )}
       {roots.length > 0 ? (
         <div className="mx-auto max-w-xl space-y-4">
           {roots.map((r) => <Node key={r.id} u={r} />)}
         </div>
       ) : (
-        <p className="text-sm text-slate-400">Отделов пока нет. Нажмите «+ Отдел», чтобы добавить.</p>
+        <div className="py-6 text-center">
+          <p className="text-sm text-slate-400">Структуры пока нет.</p>
+          {canManage && <button type="button" onClick={seedStandard} disabled={busy} className="btn-primary mt-3 text-sm">Создать стандартную структуру</button>}
+        </div>
       )}
 
       <Modal open={open} onClose={() => setOpen(false)} title={draft.id ? "Изменить узел" : "Новый узел"} size="lg">
