@@ -11,6 +11,7 @@ import SalaryEditor from "@/components/SalaryEditor";
 import CopyField from "@/components/CopyField";
 import EditEmployeePayment from "@/components/EditEmployeePayment";
 import EmployeeSummary from "@/components/employee/EmployeeSummary";
+import EmployeeProductCard from "@/components/employee/EmployeeProductCard";
 import AccrualsTable, { type AccrualRow } from "@/components/employee/AccrualsTable";
 import { effectiveDue, businessDaysBetween, workdaysLabel } from "@/lib/workdays";
 import { levelColor, levelName, DEFAULT_BAND } from "@/lib/assess";
@@ -46,7 +47,7 @@ export default async function EmployeePage({
 
   const { data: emp } = await supabase
     .from("counterparties")
-    .select("id, name, kind, employment_type, start_date, end_date, department, auto_accrue, advance_amount, payout_currency, payment_method, legal_status, payee_name, inn, bank_account, bank_name, bik, wallet_address, wallet_network")
+    .select("id, name, kind, employment_type, start_date, end_date, department, auto_accrue, advance_amount, payout_currency, payment_method, legal_status, payee_name, inn, bank_account, bank_name, bik, wallet_address, wallet_network, product_text, functions_text")
     .eq("id", id)
     .maybeSingle();
   if (!emp) notFound();
@@ -238,6 +239,9 @@ export default async function EmployeePage({
           monthly={monthly}
         />
       </div>
+
+      {/* Карточка должности: продукт (ЦКП) + функции-теги */}
+      <EmployeeProductCard employeeId={emp.id} product={emp.product_text ?? null} functions={emp.functions_text ?? null} canManage={manage} />
 
       {/* Отдел, должность и оклад — подняли выше */}
       {manage && user && (
