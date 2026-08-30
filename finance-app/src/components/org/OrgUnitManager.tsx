@@ -25,13 +25,6 @@ export const UNIT_TYPE_LABELS: Record<OrgUnit["unit_type"], string> = {
   team: "Направление / Команда",
   position: "Должность",
 };
-const TYPE_BADGE: Record<OrgUnit["unit_type"], string> = {
-  department: "bg-brand/10 text-brand",
-  division: "bg-violet-50 text-violet-600 dark:bg-violet-950/40 dark:text-violet-300",
-  team: "bg-sky-50 text-sky-600 dark:bg-sky-950/40 dark:text-sky-300",
-  position: "bg-slate-100 text-slate-500 dark:bg-neutral-800 dark:text-neutral-400",
-};
-
 type Draft = {
   id?: string;
   name: string;
@@ -58,7 +51,8 @@ export default function OrgUnitManager({
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<Draft>(EMPTY);
   const [busy, setBusy] = useState(false);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // Набор СВЁРНУТЫХ узлов (по умолчанию дерево раскрыто).
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
   const empName = useMemo(() => new Map(employees.map((e) => [e.id, e.name])), [employees]);
   const childrenOf = useMemo(() => {
@@ -88,7 +82,7 @@ export default function OrgUnitManager({
   }, [childrenOf, draft.id]);
 
   function openCreate(parentId: string | null) {
-    setDraft({ ...EMPTY, parent_id: parentId ?? "", unit_type: parentId ? "position" : "department" });
+    setDraft({ ...EMPTY, parent_id: parentId ?? "", unit_type: "department" });
     setOpen(true);
   }
   function openEdit(u: OrgUnit) {
@@ -145,7 +139,7 @@ export default function OrgUnitManager({
   }
 
   function toggle(id: string) {
-    setExpanded((s) => {
+    setCollapsed((s) => {
       const n = new Set(s);
       if (n.has(id)) n.delete(id);
       else n.add(id);
@@ -153,38 +147,66 @@ export default function OrgUnitManager({
     });
   }
 
+  const LINE = "bg-slate-200 dark:bg-white/10";
+
+  // Узел-карточка + рекурсивные ветви (дерево сверху-вниз, в фирменной теме).
   function Node({ u, depth }: { u: OrgUnit; depth: number }) {
     const kids = childrenOf.get(u.id) ?? [];
-    const isOpen = expanded.has(u.id);
-    const hasDetails = !!(u.result_text || u.functions_text) || kids.length > 0;
+    const isOpen = !collapsed.has(u.id);
+    const isRoot = depth === 0;
+    const head = u.head_counterparty_id ? empName.get(u.head_counterparty_id) : null;
+    const subtitle = head ? `рук.: ${head}` : "Отдел";
     return (
-      <li>
-        <div
-          className="flex items-center gap-2 rounded-2xl px-3 py-2 hover:bg-slate-50 dark:hover:bg-white/[0.03]"
-          style={{ marginLeft: depth * 16 }}
-        >
-          <button type="button" onClick={() => toggle(u.id)} className={`w-4 text-slate-400 ${hasDetails ? "" : "opacity-0"}`}>
-            {isOpen ? "▾" : "▸"}
-          </button>
-          <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${TYPE_BADGE[u.unit_type]}`}>{UNIT_TYPE_LABELS[u.unit_type]}</span>
-          <span className="font-medium text-slate-800 dark:text-neutral-200">{u.name}</span>
-          {u.head_counterparty_id && <span className="text-xs text-slate-400">· рук.: {empName.get(u.head_counterparty_id) ?? "—"}</span>}
-          {canManage && (
-            <span className="ml-auto flex items-center gap-1">
-              <button type="button" onClick={() => openCreate(u.id)} className="btn-ghost px-2 py-1 text-xs" title="Добавить подузел">+ Подузел</button>
-              <button type="button" onClick={() => openEdit(u)} className="btn-ghost px-2 py-1 text-xs">Изменить</button>
-              <button type="button" onClick={() => remove(u)} className="btn-ghost px-2 py-1 text-xs">Удалить</button>
+      <div className="flex flex-col items-center">
+        {/* Карточка */}
+        <div className="group relative">
+          <div className={`flex min-w-[160px] max-w-[260px] items-center gap-2.5 rounded-2xl px-4 py-3 shadow-sm ring-1 transition ${isRoot ? "bg-brand text-white ring-brand/30" : "bg-white text-slate-800 ring-slate-200/80 dark:bg-[#15171c] dark:text-neutral-100 dark:ring-white/[0.08]"}`}>
+            <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-sm font-bold ${isRoot ? "bg-white/20 text-white" : "bg-brand/10 text-brand"}`}>
+              {u.name.trim().charAt(0).toUpperCase() || "•"}
             </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-bold leading-tight">{u.name}</span>
+              <span className={`block truncate text-[11px] leading-tight ${isRoot ? "text-white/70" : "text-slate-400 dark:text-neutral-500"}`}>{subtitle}</span>
+            </span>
+            {kids.length > 0 && (
+              <button type="button" onClick={() => toggle(u.id)} title={isOpen ? "Свернуть" : "Развернуть"} className={`shrink-0 rounded-full px-1 text-xs ${isRoot ? "text-white/80 hover:text-white" : "text-slate-400 hover:text-slate-600 dark:hover:text-neutral-200"}`}>
+                {isOpen ? "▾" : `▸${kids.length}`}
+              </button>
+            )}
+          </div>
+          {canManage && (
+            <div className="absolute -right-1 -top-2 z-10 flex gap-0.5 rounded-full bg-white p-0.5 opacity-0 shadow ring-1 ring-slate-200 transition group-hover:opacity-100 dark:bg-[#1b1d22] dark:ring-white/10">
+              <button type="button" onClick={() => openCreate(u.id)} title="Добавить отдел" className="rounded-full px-1.5 text-xs text-slate-500 hover:bg-slate-100 hover:text-brand dark:text-neutral-300 dark:hover:bg-white/10">＋</button>
+              <button type="button" onClick={() => openEdit(u)} title="Изменить" className="rounded-full px-1.5 text-xs text-slate-500 hover:bg-slate-100 dark:text-neutral-300 dark:hover:bg-white/10">✎</button>
+              <button type="button" onClick={() => remove(u)} title="Удалить" className="rounded-full px-1.5 text-xs text-slate-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-500/10">✕</button>
+            </div>
           )}
         </div>
-        {isOpen && (u.result_text || u.functions_text) && (
-          <div className="mb-1 space-y-1 rounded-2xl bg-slate-50 px-4 py-2 text-xs text-slate-600 dark:bg-white/[0.03] dark:text-neutral-400" style={{ marginLeft: depth * 16 + 24 }}>
-            {u.result_text && <div><span className="font-semibold text-slate-500">Результат (ЦКП):</span> {u.result_text}</div>}
-            {u.functions_text && <div className="whitespace-pre-wrap"><span className="font-semibold text-slate-500">Функции:</span> {u.functions_text}</div>}
+
+        {/* Ветви */}
+        {isOpen && kids.length > 0 && (
+          <div className="flex flex-col items-center">
+            {/* Ствол от карточки к шине */}
+            <div className={`relative w-px ${isRoot ? "h-10" : "h-6"} ${LINE}`}>
+              {isRoot && (
+                <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap rounded-full bg-brand/10 px-2 py-0.5 text-[10px] font-semibold text-brand">↓ сверху вниз</span>
+              )}
+            </div>
+            {/* Ряд детей с соединителями */}
+            <div className="flex items-start">
+              {kids.map((k, i) => (
+                <div key={k.id} className="relative flex flex-col items-center px-3 pt-6">
+                  <span className={`absolute left-1/2 top-0 h-6 w-px -translate-x-1/2 ${LINE}`} />
+                  {kids.length > 1 && (
+                    <span className={`absolute top-0 h-px ${LINE} ${i === 0 ? "left-1/2 right-0" : i === kids.length - 1 ? "left-0 right-1/2" : "left-0 right-0"}`} />
+                  )}
+                  <Node u={k} depth={depth + 1} />
+                </div>
+              ))}
+            </div>
           </div>
         )}
-        {isOpen && kids.length > 0 && <ul>{kids.map((k) => <Node key={k.id} u={k} depth={depth + 1} />)}</ul>}
-      </li>
+      </div>
     );
   }
 
@@ -192,29 +214,29 @@ export default function OrgUnitManager({
 
   return (
     <section className="surface rounded-3xl p-5">
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Орг-схема</h2>
-        {canManage && <button type="button" onClick={() => openCreate(null)} className="btn-primary text-sm">+ Узел</button>}
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Оргструктура · отделы</h2>
+        {canManage && <button type="button" onClick={() => openCreate(null)} className="btn-primary text-sm">+ Отдел</button>}
       </div>
       {roots.length > 0 ? (
-        <ul>{roots.map((r) => <Node key={r.id} u={r} depth={0} />)}</ul>
+        <div className="overflow-x-auto pb-4">
+          <div className="flex min-w-full justify-center gap-10 px-4 pt-2">
+            {roots.map((r) => <Node key={r.id} u={r} depth={0} />)}
+          </div>
+        </div>
       ) : (
-        <p className="text-sm text-slate-400">Узлов пока нет. Создайте департамент, затем отделы, направления и должности.</p>
+        <p className="text-sm text-slate-400">Отделов пока нет. Нажмите «+ Отдел», чтобы добавить.</p>
       )}
 
       <Modal open={open} onClose={() => setOpen(false)} title={draft.id ? "Изменить узел" : "Новый узел"} size="lg">
         <div className="space-y-4">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <label className="block">
-              <span className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Название</span>
-              <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} className="input" placeholder="Например, Отдел разработки" />
+              <span className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Название отдела</span>
+              <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} className="input" placeholder="Например, Медицина / Операционка" />
             </label>
             <label className="block">
-              <span className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Тип узла</span>
-              <Select value={draft.unit_type} onChange={(v) => setDraft({ ...draft, unit_type: v as OrgUnit["unit_type"] })} options={(Object.keys(UNIT_TYPE_LABELS) as OrgUnit["unit_type"][]).map((t) => ({ value: t, label: UNIT_TYPE_LABELS[t] }))} />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Родитель</span>
+              <span className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Входит в (необяз.)</span>
               <Select value={draft.parent_id} onChange={(v) => setDraft({ ...draft, parent_id: v })} options={parentOptions} />
             </label>
             <label className="block">
