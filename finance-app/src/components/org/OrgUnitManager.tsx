@@ -148,62 +148,71 @@ export default function OrgUnitManager({
   }
 
   const LINE = "bg-slate-200 dark:bg-white/10";
+  // Функции узла → теги-продукты (по строкам/запятым/точкам с запятой).
+  const unitTags = (u: OrgUnit) => (u.functions_text ?? "").split(/[\n,;]+/).map((s) => s.trim()).filter(Boolean).slice(0, 8);
 
-  // Узел-карточка + рекурсивные ветви (дерево сверху-вниз, в фирменной теме).
-  function Node({ u, depth }: { u: OrgUnit; depth: number }) {
+  // Карточка узла (Собственники/CEO/отдел) + рекурсивные ветви.
+  // 1 ребёнок — «цепочка» со стрелкой вниз; >1 — вертикальный нумерованный список.
+  function Node({ u, index }: { u: OrgUnit; index?: number }) {
     const kids = childrenOf.get(u.id) ?? [];
     const isOpen = !collapsed.has(u.id);
-    const isRoot = depth === 0;
     const head = u.head_counterparty_id ? empName.get(u.head_counterparty_id) : null;
-    const subtitle = head ? `рук.: ${head}` : "Отдел";
+    const ts = unitTags(u);
     return (
-      <div className="flex flex-col items-center">
+      <div className="w-full">
         {/* Карточка */}
-        <div className="group relative">
-          <div className={`flex min-w-[160px] max-w-[260px] items-center gap-2.5 rounded-2xl px-4 py-3 shadow-sm ring-1 transition ${isRoot ? "bg-brand text-white ring-brand/30" : "bg-white text-slate-800 ring-slate-200/80 dark:bg-[#15171c] dark:text-neutral-100 dark:ring-white/[0.08]"}`}>
-            <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-sm font-bold ${isRoot ? "bg-white/20 text-white" : "bg-brand/10 text-brand"}`}>
-              {u.name.trim().charAt(0).toUpperCase() || "•"}
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm font-bold leading-tight">{u.name}</span>
-              <span className={`block truncate text-[11px] leading-tight ${isRoot ? "text-white/70" : "text-slate-400 dark:text-neutral-500"}`}>{subtitle}</span>
-            </span>
-            {kids.length > 0 && (
-              <button type="button" onClick={() => toggle(u.id)} title={isOpen ? "Свернуть" : "Развернуть"} className={`shrink-0 rounded-full px-1 text-xs ${isRoot ? "text-white/80 hover:text-white" : "text-slate-400 hover:text-slate-600 dark:hover:text-neutral-200"}`}>
-                {isOpen ? "▾" : `▸${kids.length}`}
-              </button>
+        <div className="group relative rounded-2xl bg-white px-4 py-3 shadow-sm ring-1 ring-slate-200/80 dark:bg-[#15171c] dark:ring-white/[0.08]">
+          <div className="flex items-start gap-3">
+            {index != null && (
+              <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-brand/10 text-sm font-bold text-brand">{index}</span>
             )}
-          </div>
-          {canManage && (
-            <div className="absolute -right-1 -top-2 z-10 flex gap-0.5 rounded-full bg-white p-0.5 opacity-0 shadow ring-1 ring-slate-200 transition group-hover:opacity-100 dark:bg-[#1b1d22] dark:ring-white/10">
-              <button type="button" onClick={() => openCreate(u.id)} title="Добавить отдел" className="rounded-full px-1.5 text-xs text-slate-500 hover:bg-slate-100 hover:text-brand dark:text-neutral-300 dark:hover:bg-white/10">＋</button>
-              <button type="button" onClick={() => openEdit(u)} title="Изменить" className="rounded-full px-1.5 text-xs text-slate-500 hover:bg-slate-100 dark:text-neutral-300 dark:hover:bg-white/10">✎</button>
-              <button type="button" onClick={() => remove(u)} title="Удалить" className="rounded-full px-1.5 text-xs text-slate-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-500/10">✕</button>
-            </div>
-          )}
-        </div>
-
-        {/* Ветви */}
-        {isOpen && kids.length > 0 && (
-          <div className="flex flex-col items-center">
-            {/* Ствол от карточки к шине */}
-            <div className={`relative w-px ${isRoot ? "h-10" : "h-6"} ${LINE}`}>
-              {isRoot && (
-                <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap rounded-full bg-brand/10 px-2 py-0.5 text-[10px] font-semibold text-brand">↓ сверху вниз</span>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span className="truncate text-[15px] font-extrabold uppercase tracking-tight text-slate-900 dark:text-white">{u.name}</span>
+                {kids.length > 0 && (
+                  <button type="button" onClick={() => toggle(u.id)} title={isOpen ? "Свернуть" : "Развернуть"} className="shrink-0 text-xs text-slate-400 hover:text-slate-600 dark:hover:text-neutral-200">
+                    {isOpen ? "▾" : `▸${kids.length}`}
+                  </button>
+                )}
+              </div>
+              {head && <div className="mt-0.5 text-[11px] font-semibold uppercase tracking-wide text-brand">{head}</div>}
+              {ts.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {ts.map((t, i) => (
+                    <span key={i} className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600 dark:bg-white/[0.06] dark:text-neutral-300">{t}</span>
+                  ))}
+                </div>
               )}
             </div>
-            {/* Ряд детей с соединителями */}
-            <div className="flex items-start">
-              {kids.map((k, i) => (
-                <div key={k.id} className="relative flex flex-col items-center px-3 pt-6">
-                  <span className={`absolute left-1/2 top-0 h-6 w-px -translate-x-1/2 ${LINE}`} />
-                  {kids.length > 1 && (
-                    <span className={`absolute top-0 h-px ${LINE} ${i === 0 ? "left-1/2 right-0" : i === kids.length - 1 ? "left-0 right-1/2" : "left-0 right-0"}`} />
-                  )}
-                  <Node u={k} depth={depth + 1} />
-                </div>
-              ))}
-            </div>
+            {canManage && (
+              <div className="flex shrink-0 gap-0.5 opacity-0 transition group-hover:opacity-100">
+                <button type="button" onClick={() => openCreate(u.id)} title="Добавить внутрь" className="rounded-full px-1.5 text-sm text-slate-400 hover:text-brand">＋</button>
+                <button type="button" onClick={() => openEdit(u)} title="Изменить" className="rounded-full px-1.5 text-sm text-slate-400 hover:text-slate-700 dark:hover:text-neutral-200">✎</button>
+                <button type="button" onClick={() => remove(u)} title="Удалить" className="rounded-full px-1.5 text-sm text-slate-400 hover:text-red-500">✕</button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Один ребёнок — цепочка со стрелкой */}
+        {isOpen && kids.length === 1 && (
+          <div className="flex flex-col items-center">
+            <div className={`h-4 w-px ${LINE}`} />
+            <div className="-mt-1 text-brand">▼</div>
+            <div className="mt-1 w-full"><Node u={kids[0]} /></div>
+          </div>
+        )}
+
+        {/* Несколько детей — вертикальный нумерованный список с левым брекетом */}
+        {isOpen && kids.length > 1 && (
+          <div className="relative mt-3 space-y-3 pl-7">
+            <span className={`absolute left-[10px] top-0 w-px ${LINE}`} style={{ height: "calc(100% - 1.5rem)" }} />
+            {kids.map((k, i) => (
+              <div key={k.id} className="relative">
+                <span className={`absolute -left-[18px] top-6 h-px w-[18px] ${LINE}`} />
+                <Node u={k} index={i + 1} />
+              </div>
+            ))}
           </div>
         )}
       </div>
@@ -219,10 +228,8 @@ export default function OrgUnitManager({
         {canManage && <button type="button" onClick={() => openCreate(null)} className="btn-primary text-sm">+ Отдел</button>}
       </div>
       {roots.length > 0 ? (
-        <div className="overflow-x-auto pb-4">
-          <div className="flex min-w-full justify-center gap-10 px-4 pt-2">
-            {roots.map((r) => <Node key={r.id} u={r} depth={0} />)}
-          </div>
+        <div className="mx-auto max-w-xl space-y-4">
+          {roots.map((r) => <Node key={r.id} u={r} />)}
         </div>
       ) : (
         <p className="text-sm text-slate-400">Отделов пока нет. Нажмите «+ Отдел», чтобы добавить.</p>
@@ -249,8 +256,9 @@ export default function OrgUnitManager({
             <textarea value={draft.result_text} onChange={(e) => setDraft({ ...draft, result_text: e.target.value })} rows={2} className="input resize-y" placeholder="Ценный конечный продукт узла" />
           </label>
           <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Функции — необяз.</span>
-            <textarea value={draft.functions_text} onChange={(e) => setDraft({ ...draft, functions_text: e.target.value })} rows={3} className="input resize-y" placeholder="Список функций (по строкам)" />
+            <span className="mb-1 block text-xs font-medium text-slate-500 dark:text-neutral-400">Теги-продукты — необяз.</span>
+            <textarea value={draft.functions_text} onChange={(e) => setDraft({ ...draft, functions_text: e.target.value })} rows={3} className="input resize-y" placeholder="Через запятую или по строкам — напр. Ресурсы, Видение, Стратегия" />
+            <span className="mt-1 block text-[11px] text-slate-400">Показываются тегами на карточке отдела/роли.</span>
           </label>
           <div className="flex justify-end gap-2">
             <button type="button" onClick={() => setOpen(false)} className="btn-ghost">Отмена</button>
