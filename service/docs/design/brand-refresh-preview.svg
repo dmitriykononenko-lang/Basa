@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 900" font-family="IBM Plex Sans, sans-serif">
+  <defs>
+    <style>
+      .mono { font-family: 'IBM Plex Mono', monospace; font-weight: 600; text-transform: uppercase; letter-spacing: -0.03em; }
+      .h2 { font-size: 24px; font-weight: 600; letter-spacing: -0.03em; }
+      .h3 { font-size: 18px; font-weight: 600; letter-spacing: -0.03em; }
+      .body { font-size: 14px; }
+      .small { font-size: 11px; }
+      .muted { fill: #6b6b6b; }
+    </style>
+  </defs>
+
+  <!-- Pure White background -->
+  <rect width="1200" height="900" fill="#ffffff"/>
+
+  <!-- Top bar -->
+  <rect x="0" y="0" width="1200" height="58" fill="#ffffff" stroke="#ececec" stroke-width="1"/>
+  <circle cx="38" cy="29" r="7" fill="#e60000"/>
+  <text x="56" y="35" class="h3">Basa</text>
+
+  <text x="180" y="35" class="body" fill="#101010" font-weight="600">Проекты</text>
+  <rect x="170" y="50" width="80" height="2" fill="#e60000"/>
+  <text x="270" y="35" class="body muted">Выплаты</text>
+  <text x="350" y="35" class="body muted">Эффективность</text>
+  <text x="480" y="35" class="body muted">Аналитики</text>
+  <text x="580" y="35" class="body muted">Сопоставление</text>
+
+  <text x="1010" y="35" class="small muted">admin@example.com</text>
+  <rect x="1140" y="20" width="50" height="20" rx="10" fill="none" stroke="#e60000" stroke-width="1"/>
+  <text x="1150" y="34" class="mono" fill="#e60000" font-size="9">ADMIN</text>
+
+  <!-- Page header -->
+  <circle cx="48" cy="120" r="7" fill="#e60000"/>
+  <text x="64" y="128" class="h2">Проекты</text>
+
+  <rect x="1010" y="105" width="170" height="34" rx="8" fill="#e60000"/>
+  <text x="1095" y="128" text-anchor="middle" class="body" font-weight="600" fill="#ffffff">+ Новый проект</text>
+
+  <!-- Card with table -->
+  <rect x="32" y="160" width="1136" height="280" rx="12" fill="#ffffff" stroke="#101010" stroke-width="1"/>
+
+  <!-- Table header -->
+  <rect x="33" y="161" width="1134" height="42" fill="#ffffff"/>
+  <line x1="32" y1="203" x2="1168" y2="203" stroke="#101010" stroke-width="1"/>
+  <text x="60" y="186" class="mono muted" font-size="10">НАЗВАНИЕ</text>
+  <text x="320" y="186" class="mono muted" font-size="10">СТАРТ</text>
+  <text x="450" y="186" class="mono muted" font-size="10">АНАЛИТИК</text>
+  <text x="620" y="186" class="mono muted" font-size="10">СТАТУС</text>
+  <text x="780" y="186" class="mono muted" font-size="10">СУММА</text>
+  <text x="920" y="186" class="mono muted" font-size="10">AMOCRM</text>
+
+  <!-- Row 1 -->
+  <text x="60" y="232" class="body">Внедрение CRM в ООО Ромашка</text>
+  <text x="320" y="232" class="body muted">14.05.2026</text>
+  <text x="450" y="232" class="body">Иван Петров</text>
+  <rect x="615" y="218" width="92" height="20" rx="10" fill="none" stroke="#101010" stroke-width="1"/>
+  <text x="660" y="232" text-anchor="middle" class="mono" fill="#101010" font-size="9">В РАБОТЕ</text>
+  <text x="780" y="232" class="body">150 000.00 ₽</text>
+  <text x="920" y="232" class="body muted">Amo #5001</text>
+
+  <!-- Row 2 -->
+  <text x="60" y="270" class="body">Аналитика воронки</text>
+  <text x="320" y="270" class="body muted">10.05.2026</text>
+  <text x="450" y="270" class="body">Мария Сидорова</text>
+  <rect x="615" y="256" width="92" height="20" rx="10" fill="none" stroke="#e60000" stroke-width="1"/>
+  <text x="660" y="270" text-anchor="middle" class="mono" fill="#e60000" font-size="9">ЗАВЕРШЁН</text>
+  <text x="780" y="270" class="body">75 000.00 ₽</text>
+  <text x="920" y="270" class="body muted">Amo #5002</text>
+
+  <!-- Row 3 -->
+  <text x="60" y="308" class="body">Аудит KPI отдела продаж</text>
+  <text x="320" y="308" class="body muted">02.05.2026</text>
+  <text x="450" y="308" class="body">Иван Петров</text>
+  <rect x="615" y="294" width="92" height="20" rx="10" fill="#101010"/>
+  <text x="660" y="308" text-anchor="middle" class="mono" fill="#ffffff" font-size="9">ОПЛАЧЕН</text>
+  <text x="780" y="308" class="body">100 000.00 ₽</text>
+  <text x="920" y="308" class="body muted">Amo #5003</text>
+
+  <!-- Row 4 -->
+  <text x="60" y="346" class="body">Запуск рекламной кампании</text>
+  <text x="320" y="346" class="body muted">25.04.2026</text>
+  <text x="450" y="346" class="body">Олег Кузнецов</text>
+  <rect x="615" y="332" width="92" height="20" rx="10" fill="none" stroke="#ececec" stroke-width="1"/>
+  <text x="660" y="346" text-anchor="middle" class="mono" fill="#6b6b6b" font-size="9">ОТМЕНЁН</text>
+  <text x="780" y="346" class="body">— </text>
+  <text x="920" y="346" class="body muted">Amo #5004</text>
+
+  <!-- Metrics row -->
+  <circle cx="48" cy="500" r="7" fill="#e60000"/>
+  <text x="64" y="508" class="h2">Эффективность</text>
+
+  <rect x="32" y="540" width="270" height="120" rx="12" fill="#ffffff" stroke="#101010" stroke-width="1"/>
+  <text x="52" y="568" class="mono muted" font-size="10">ЗАКРЫТО ЗА ПЕРИОД</text>
+  <text x="52" y="615" font-size="32" font-weight="600" letter-spacing="-0.03em" fill="#101010">47</text>
+
+  <rect x="320" y="540" width="270" height="120" rx="12" fill="#ffffff" stroke="#101010" stroke-width="1"/>
+  <text x="340" y="568" class="mono muted" font-size="10">% ПРОСРОЧЕК</text>
+  <text x="340" y="615" font-size="32" font-weight="600" letter-spacing="-0.03em" fill="#e60000">12,77 %</text>
+
+  <rect x="608" y="540" width="270" height="120" rx="12" fill="#ffffff" stroke="#101010" stroke-width="1"/>
+  <text x="628" y="568" class="mono muted" font-size="10">СРЕДНЯЯ ЗАДЕРЖКА</text>
+  <text x="628" y="615" font-size="32" font-weight="600" letter-spacing="-0.03em" fill="#101010">6.0 ч</text>
+
+  <rect x="896" y="540" width="272" height="120" rx="12" fill="#ffffff" stroke="#101010" stroke-width="1"/>
+  <text x="916" y="568" class="mono muted" font-size="10">НЕСОПОСТАВЛЕНЫ В AMO</text>
+  <text x="916" y="615" font-size="32" font-weight="600" letter-spacing="-0.03em" fill="#e60000">3</text>
+
+  <!-- Palette -->
+  <circle cx="48" cy="730" r="7" fill="#e60000"/>
+  <text x="64" y="738" class="h2">Палитра</text>
+
+  <rect x="32" y="770" width="370" height="100" rx="12" fill="#ffffff" stroke="#101010" stroke-width="1"/>
+  <rect x="48" y="786" width="68" height="68" rx="8" fill="#ffffff" stroke="#ececec" stroke-width="1"/>
+  <text x="132" y="808" class="body" font-weight="600">Pure White</text>
+  <text x="132" y="828" class="body muted" font-size="12">#FFFFFF</text>
+  <text x="132" y="848" class="mono muted" font-size="9">0/0/0/1</text>
+
+  <rect x="416" y="770" width="370" height="100" rx="12" fill="#ffffff" stroke="#101010" stroke-width="1"/>
+  <rect x="432" y="786" width="68" height="68" rx="8" fill="#101010"/>
+  <text x="516" y="808" class="body" font-weight="600">Soft Black</text>
+  <text x="516" y="828" class="body muted" font-size="12">#101010</text>
+  <text x="516" y="848" class="mono muted" font-size="9">0/0/0/94</text>
+
+  <rect x="800" y="770" width="368" height="100" rx="12" fill="#ffffff" stroke="#101010" stroke-width="1"/>
+  <rect x="816" y="786" width="68" height="68" rx="8" fill="#e60000"/>
+  <text x="900" y="808" class="body" font-weight="600">Electric Red</text>
+  <text x="900" y="828" class="body muted" font-size="12">#E60000</text>
+  <text x="900" y="848" class="mono muted" font-size="9">0/100/100/10</text>
+</svg>
