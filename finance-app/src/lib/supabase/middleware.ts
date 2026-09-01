@@ -40,9 +40,12 @@ export async function updateSession(request: NextRequest) {
   const isPublicAssess = path === "/t" || path.startsWith("/t/");
   // Obsidian sync API — авторизуется своим Bearer-токеном, не сессией.
   const isObsidianApi = path.startsWith("/api/obsidian/pull") || path.startsWith("/api/obsidian/push");
+  // Крон-эндпоинты (Vercel Cron / Supabase pg_cron) — без сессии, авторизуются
+  // своим CRON_SECRET внутри роута. Иначе middleware редиректит их на /login (HTML).
+  const isCron = path === "/api/tochka/cron" || path.startsWith("/api/cron/");
 
   // Неавторизованных уводим на /login, сохраняя адрес назначения в ?next
-  if (!user && !isAuthRoute && !isTelegram && !isPublicAssess && !isObsidianApi) {
+  if (!user && !isAuthRoute && !isTelegram && !isPublicAssess && !isObsidianApi && !isCron) {
     const nextPath = request.nextUrl.pathname + request.nextUrl.search;
     const url = request.nextUrl.clone();
     url.pathname = "/login";
