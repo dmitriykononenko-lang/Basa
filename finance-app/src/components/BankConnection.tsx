@@ -242,6 +242,9 @@ export default function BankConnection({
           {connected && lastSyncedAt && (
             <div className="text-xs text-slate-400 dark:text-neutral-500">Последний импорт: {formatDate(lastSyncedAt)}</div>
           )}
+          {connected && (
+            <div className="text-xs text-emerald-600 dark:text-emerald-400">Синхронизируется автоматически при открытии приложения — кнопки ниже нужны только для ручной сверки.</div>
+          )}
         </div>
         {connected && (
           <button onClick={disconnect} className="ml-auto rounded-full px-3 py-1.5 text-sm font-medium text-red-500 transition hover:bg-red-50 dark:hover:bg-red-500/10">Отключить</button>

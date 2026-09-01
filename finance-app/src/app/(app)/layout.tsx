@@ -11,6 +11,7 @@ import Brand from "@/components/Brand";
 import ThemeToggle from "@/components/ThemeToggle";
 import NavProgress from "@/components/NavProgress";
 import Toaster from "@/components/Toaster";
+import TochkaAutoSync from "@/components/TochkaAutoSync";
 import CommandPalette from "@/components/CommandPalette";
 import CommandPaletteButton from "@/components/CommandPaletteButton";
 import NotificationBell from "@/components/NotificationBell";
@@ -130,6 +131,7 @@ export default async function AppLayout({
           </div>
         </header>
         <Toaster />
+        {current && canEditFinance(current.role) && <TochkaAutoSync />}
         <CommandPalette />
 
         {/* Мобильное меню (только узкие экраны) */}
