@@ -5,7 +5,19 @@
 // Авторизация: JWT-токен → заголовок `Authorization: Bearer <token>`.
 // Базовый URL и версия настраиваются через env (значения по умолчанию — прод).
 
+import { Agent } from "undici";
+import { rootCertificates } from "node:tls";
+import { RUSSIAN_TRUSTED_CA } from "./russianTrustedCa";
+
 const BASE_URL = (process.env.TOCHKA_API_BASE || "https://enter.tochka.com/uapi").replace(/\/$/, "");
+
+// API Точки перешёл на TLS-сертификаты Минцифры («Russian Trusted CA»), которых
+// нет в стандартном хранилище Node → fetch падал с SELF_SIGNED_CERT_IN_CHAIN.
+// Диспетчер undici добавляет этот CA ПОВЕРХ стандартных (проверку не отключаем),
+// и применяется только к запросам Точки.
+const tochkaDispatcher = new Agent({
+  connect: { ca: [...rootCertificates, RUSSIAN_TRUSTED_CA] },
+});
 
 export type TochkaAccount = {
   accountId: string;
@@ -58,7 +70,8 @@ async function api<T>(path: string, { token, method = "GET", body }: { token: st
         body: body ? JSON.stringify(body) : undefined,
         cache: "no-store",
         signal: ctrl.signal,
-      });
+        dispatcher: tochkaDispatcher,
+      } as RequestInit & { dispatcher: Agent } as RequestInit);
       clearTimeout(timer);
       const text = await res.text();
       if (!res.ok) throw new Error(`Точка API ${res.status}: ${text.slice(0, 500)}`);
