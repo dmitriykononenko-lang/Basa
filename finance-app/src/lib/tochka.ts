@@ -5,7 +5,7 @@
 // Авторизация: JWT-токен → заголовок `Authorization: Bearer <token>`.
 // Базовый URL и версия настраиваются через env (значения по умолчанию — прод).
 
-import { Agent } from "undici";
+import { Agent, fetch as undiciFetch } from "undici";
 import { rootCertificates } from "node:tls";
 import { RUSSIAN_TRUSTED_CA } from "./russianTrustedCa";
 
@@ -60,7 +60,9 @@ async function api<T>(path: string, { token, method = "GET", body }: { token: st
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 30_000); // защита от зависшего соединения
     try {
-      const res = await fetch(url, {
+      // Используем fetch из undici (не глобальный), чтобы dispatcher был «родным»
+      // для того же undici — иначе Node бросает UND_ERR_INVALID_ARG.
+      const res = await undiciFetch(url, {
         method,
         headers: {
           Authorization: `Bearer ${token}`,
@@ -68,10 +70,9 @@ async function api<T>(path: string, { token, method = "GET", body }: { token: st
           Accept: "application/json",
         },
         body: body ? JSON.stringify(body) : undefined,
-        cache: "no-store",
         signal: ctrl.signal,
         dispatcher: tochkaDispatcher,
-      } as RequestInit & { dispatcher: Agent } as RequestInit);
+      });
       clearTimeout(timer);
       const text = await res.text();
       if (!res.ok) throw new Error(`Точка API ${res.status}: ${text.slice(0, 500)}`);
