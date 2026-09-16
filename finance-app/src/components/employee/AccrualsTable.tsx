@@ -109,7 +109,8 @@ export default function AccrualsTable({
       )}
 
       <div className={`${CARD} overflow-hidden`}>
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[520px] text-sm">
           <thead>
             <tr>
               <th className={`px-6 pb-3 pt-5 text-left ${LABEL}`}>Тип · за что</th>
@@ -141,6 +142,7 @@ export default function AccrualsTable({
             })}
           </tbody>
         </table>
+        </div>
       </div>
       <p className="px-1 text-[11.5px] leading-relaxed text-[#9a9e95] dark:text-neutral-600">
         Показаны неоплаченные. Статус — точка слева. «Погасить» — отметить выплату, «Привязать» — связать с операцией; «⋯» — изменить/запланировать.

@@ -301,7 +301,8 @@ export default async function EmployeePage({
             </span>
           </div>
           <div className="surface overflow-hidden">
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[560px] text-sm">
               <thead>
                 <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wider text-slate-400 dark:border-white/[0.07] dark:text-neutral-500">
                   <th className="px-5 py-3 font-medium">Дата</th>
@@ -338,6 +339,7 @@ export default async function EmployeePage({
                 })}
               </tbody>
             </table>
+            </div>
           </div>
           <p className="mt-3 text-xs leading-relaxed text-slate-400 dark:text-neutral-600">
             Все расходные операции по этому контрагенту со статусом «факт», независимо от начислений — включая прямые выплаты с номинального/расчётного счёта. Суммы в валюте операции; «≈» — эквивалент в {base} по курсу.
@@ -352,7 +354,8 @@ export default async function EmployeePage({
             Проекты в работе
           </h2>
           <div className="surface overflow-hidden">
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[420px] text-sm">
               <thead>
                 <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wider text-slate-400 dark:border-white/[0.07] dark:text-neutral-500">
                   <th className="px-5 py-3 font-medium">Проект</th>
@@ -384,6 +387,7 @@ export default async function EmployeePage({
                 })}
               </tbody>
             </table>
+            </div>
           </div>
         </section>
       )}

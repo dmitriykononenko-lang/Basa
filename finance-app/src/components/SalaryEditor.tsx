@@ -167,7 +167,8 @@ export default function SalaryEditor({
       <div className="mt-4 mb-2 text-xs font-medium text-slate-600 dark:text-neutral-300">История (действует с даты)</div>
       {history.length > 0 ? (
         <div className="overflow-hidden rounded-2xl ring-1 ring-slate-100 dark:ring-white/[0.06]">
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[400px] text-sm">
             <thead>
               <tr className="bg-slate-50 text-left text-xs uppercase tracking-wider text-slate-400 dark:bg-white/[0.03] dark:text-neutral-500">
                 <th className="px-3 py-2 font-medium">Действует с</th>
@@ -191,6 +192,7 @@ export default function SalaryEditor({
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       ) : (
         <p className="text-sm text-slate-400">Пока нет записей. Добавьте отдел/должность/оклад выше.</p>
