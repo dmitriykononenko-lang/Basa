@@ -1,0 +1,140 @@
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { parseJson } from "@/lib/api-validation";
+import { createClient } from "@/lib/supabase/server";
+import { getCurrentTeam, canEditFinance } from "@/lib/team";
+import { encryptSecret, vaultKeyConfigured } from "@/lib/vault-crypto";
+
+// Создать/обновить запись парольницы. Секрет шифруется на сервере.
+export async function POST(request: Request) {
+  if (!vaultKeyConfigured()) return NextResponse.json({ error: "Парольница не настроена (нет VAULT_KEY)" }, { status: 503 });
+  const current = await getCurrentTeam();
+  if (!current) return NextResponse.json({ error: "Нет команды" }, { status: 400 });
+  if (!canEditFinance(current.role)) return NextResponse.json({ error: "Недостаточно прав" }, { status: 403 });
+
+  const p = await parseJson(
+    request,
+    z.object({
+      id: z.string().uuid().optional(),
+      title: z.string().optional(),
+      login: z.string().optional(),
+      url: z.string().optional(),
+      note: z.string().optional(),
+      secret: z.string().optional(),
+      group_name: z.string().optional(),
+      project_id: z.string().uuid().nullable().optional(),
+    }),
+  );
+  if (!p.ok) return p.res;
+  const body = p.data;
+
+  const title = (body.title ?? "").trim();
+  if (!title) return NextResponse.json({ error: "Укажите название" }, { status: 400 });
+
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
+
+  // Привязка к проекту — только к проекту своей команды.
+  let projectId: string | null = null;
+  if (body.project_id) {
+    const { data: proj } = await supabase
+      .from("projects")
+      .select("id")
+      .eq("id", body.project_id)
+      .eq("team_id", current.team.id)
+      .maybeSingle();
+    if (!proj) return NextResponse.json({ error: "Проект не найден" }, { status: 400 });
+    projectId = proj.id;
+  }
+
+  const fields: Record<string, unknown> = {
+    title,
+    login: (body.login ?? "").trim(),
+    url: (body.url ?? "").trim(),
+    note: (body.note ?? "").trim(),
+    group_name: (body.group_name ?? "").trim(),
+    project_id: projectId,
+  };
+
+  // Секрет шифруем только если прислан (при правке метаданных можно не слать пароль заново).
+  if (typeof body.secret === "string" && body.secret.length > 0) {
+    try {
+      fields.secret_cipher = encryptSecret(body.secret);
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : "Ошибка шифрования" }, { status: 500 });
+    }
+  }
+
+  if (body.id) {
+    const { error } = await supabase.from("vault_entries").update(fields).eq("id", body.id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 403 });
+    return NextResponse.json({ ok: true, id: body.id });
+  }
+
+  if (!fields.secret_cipher) return NextResponse.json({ error: "Укажите пароль" }, { status: 400 });
+  const { data, error } = await supabase
+    .from("vault_entries")
+    .insert({ team_id: current.team.id, created_by: user.id, ...fields })
+    .select("id")
+    .single();
+  if (error) return NextResponse.json({ error: error.message }, { status: 403 });
+  return NextResponse.json({ ok: true, id: data.id });
+}
+
+// Массовое назначение группы и/или проекта выбранным записям.
+export async function PATCH(request: Request) {
+  const current = await getCurrentTeam();
+  if (!current) return NextResponse.json({ error: "Нет команды" }, { status: 400 });
+  if (!canEditFinance(current.role)) return NextResponse.json({ error: "Недостаточно прав" }, { status: 403 });
+
+  const p = await parseJson(
+    request,
+    z.object({
+      ids: z.array(z.string().uuid()).min(1),
+      group_name: z.string().optional(),
+      project_id: z.string().uuid().nullable().optional(),
+    }),
+  );
+  if (!p.ok) return p.res;
+  const { ids, group_name, project_id } = p.data;
+
+  const patch: Record<string, unknown> = {};
+  if (group_name !== undefined) patch.group_name = group_name.trim();
+  if (project_id !== undefined) {
+    if (project_id === null) {
+      patch.project_id = null;
+    } else {
+      const supabaseCheck = await createClient();
+      const { data: proj } = await supabaseCheck
+        .from("projects")
+        .select("id")
+        .eq("id", project_id)
+        .eq("team_id", current.team.id)
+        .maybeSingle();
+      if (!proj) return NextResponse.json({ error: "Проект не найден" }, { status: 400 });
+      patch.project_id = proj.id;
+    }
+  }
+  if (Object.keys(patch).length === 0) return NextResponse.json({ error: "Нечего менять" }, { status: 400 });
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("vault_entries").update(patch).in("id", ids);
+  if (error) return NextResponse.json({ error: error.message }, { status: 403 });
+  return NextResponse.json({ ok: true, updated: ids.length });
+}
+
+// Удалить запись.
+export async function DELETE(request: Request) {
+  const current = await getCurrentTeam();
+  if (!current) return NextResponse.json({ error: "Нет команды" }, { status: 400 });
+  if (!canEditFinance(current.role)) return NextResponse.json({ error: "Недостаточно прав" }, { status: 403 });
+
+  const id = new URL(request.url).searchParams.get("id");
+  if (!id) return NextResponse.json({ error: "Не указана запись" }, { status: 400 });
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("vault_entries").delete().eq("id", id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 403 });
+  return NextResponse.json({ ok: true });
+}

@@ -1,0 +1,466 @@
+// Клиент Open Banking API Точки (только сервер). Документация:
+// https://developers.tochka.com/docs/tochka-api/
+// Формат ответов — стандарт OpenBanking ЦБ РФ ({ Data: { ... } }).
+//
+// Авторизация: JWT-токен → заголовок `Authorization: Bearer <token>`.
+// Базовый URL и версия настраиваются через env (значения по умолчанию — прод).
+
+import { Agent, fetch as undiciFetch } from "undici";
+import { rootCertificates } from "node:tls";
+import { RUSSIAN_TRUSTED_CA } from "./russianTrustedCa";
+
+const BASE_URL = (process.env.TOCHKA_API_BASE || "https://enter.tochka.com/uapi").replace(/\/$/, "");
+
+// API Точки перешёл на TLS-сертификаты Минцифры («Russian Trusted CA»), которых
+// нет в стандартном хранилище Node → fetch падал с SELF_SIGNED_CERT_IN_CHAIN.
+// Диспетчер undici добавляет этот CA ПОВЕРХ стандартных (проверку не отключаем),
+// и применяется только к запросам Точки.
+const tochkaDispatcher = new Agent({
+  connect: { ca: [...rootCertificates, RUSSIAN_TRUSTED_CA] },
+});
+
+export type TochkaAccount = {
+  accountId: string;
+  accountNumber: string | null;
+  currency: string;
+  name: string | null;
+};
+
+export type TochkaOperation = {
+  transactionId: string;
+  direction: "income" | "expense";
+  amountMinor: number;
+  currency: string;
+  date: string; // YYYY-MM-DD
+  counterpartyName: string | null;
+  counterpartyAccount: string | null;
+  counterpartyInn: string | null;
+  counterpartyKpp: string | null;
+  description: string | null;
+  docNumber: string | null;   // номер платёжного документа
+  docType: string | null;     // тип документа (напр. «Платежное поручение»)
+};
+
+type FetchOpts = { token: string; apiVersion: string };
+
+// Разворачиваем причину сетевого сбоя: undici бросает голое «fetch failed»,
+// а настоящая причина лежит в error.cause (ETIMEDOUT/ENOTFOUND/ECONNRESET…).
+function networkDetail(e: unknown): string {
+  const cause = (e as { cause?: { code?: string; message?: string } })?.cause;
+  return cause?.code || cause?.message || (e instanceof Error ? e.message : String(e));
+}
+
+async function api<T>(path: string, { token, method = "GET", body }: { token: string; method?: string; body?: unknown }): Promise<T> {
+  const url = `${BASE_URL}/${path.replace(/^\//, "")}`;
+  // GET идемпотентны — их безопасно повторять при сетевом сбое. POST (напр.
+  // создание счёта) НЕ ретраим, чтобы не задвоить документ в банке.
+  const retries = method === "GET" ? 2 : 0;
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 30_000); // защита от зависшего соединения
+    try {
+      // Используем fetch из undici (не глобальный), чтобы dispatcher был «родным»
+      // для того же undici — иначе Node бросает UND_ERR_INVALID_ARG.
+      const res = await undiciFetch(url, {
+        method,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: body ? JSON.stringify(body) : undefined,
+        signal: ctrl.signal,
+        dispatcher: tochkaDispatcher,
+      });
+      clearTimeout(timer);
+      const text = await res.text();
+      if (!res.ok) throw new Error(`Точка API ${res.status}: ${text.slice(0, 500)}`);
+      return (text ? JSON.parse(text) : {}) as T;
+    } catch (e) {
+      clearTimeout(timer);
+      // HTTP-ответ Точки (наш throw про статус) — это не сетевой сбой, не ретраим.
+      if (e instanceof Error && /^Точка API \d/.test(e.message)) throw e;
+      lastErr = e;
+      if (attempt < retries) await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+    }
+  }
+  throw new Error(`Сеть Точки недоступна: ${networkDetail(lastErr)}`);
+}
+
+function toMinor(amount: string | number): number {
+  const n = typeof amount === "number" ? amount : parseFloat(String(amount).replace(",", "."));
+  return Math.round((Number.isFinite(n) ? n : 0) * 100);
+}
+
+function dateOnly(iso: string | null | undefined): string {
+  if (!iso) return new Date().toISOString().slice(0, 10);
+  return String(iso).slice(0, 10);
+}
+
+// ── Счета на оплату (invoice-API) ─────────────────────────────────────────────
+// Схема тела Create Invoice сверена со сгенерированными по OpenAPI-спеке Точки
+// типами (Data → { accountId, customerCode, SecondSide, Content.Invoice }).
+// Версия сервиса invoice — фиксированная "v1.0".
+//   POST /invoice/v1.0/bills                                → { Data.documentId }
+//   GET  /invoice/v1.0/bills/{customerCode}/{documentId}/payment_status
+const INVOICE_VERSION = "v1.0";
+
+export type TochkaVat = "none" | "0" | "10" | "20";
+export type TochkaInvoicePayload = {
+  accountId: string;        // счёт Точки (формат "<номер>/<БИК>")
+  customerCode: string;     // код клиента в Точке
+  number: string;           // номер выставляемого счёта (Invoice.number, обязателен)
+  purpose?: string | null;  // назначение платежа → Invoice.comment
+  paymentExpiryDate?: string | null; // YYYY-MM-DD
+  buyer: { name: string; inn: string; kpp?: string | null };
+  items: { name: string; quantity: number; unitPriceMinor: number; vat: TochkaVat; unit?: string }[];
+};
+
+function money2(minor: number): number { return Math.round(minor) / 100; }
+
+// НДС внутри суммы (цена указана С НДС): amountMinor * r/(100+r).
+function ndsOfMinor(amountMinor: number, v: TochkaVat): number {
+  if (v === "none" || v === "0") return 0;
+  const r = Number(v);
+  return Math.round((amountMinor * r) / (100 + r));
+}
+
+// Ставка НДС в кодах Точки: none → without_nds, N% → nds_N.
+function vatToNdsKind(v: TochkaVat): string {
+  return v === "none" ? "without_nds" : `nds_${v}`;
+}
+
+// Тип контрагента для Точки: ИНН из 12 цифр — ИП, иначе — компания.
+function counterpartType(inn: string): "ip" | "company" {
+  return inn.replace(/\D/g, "").length === 12 ? "ip" : "company";
+}
+
+// Допустимые коды единиц измерения Точки (UnitCodeEnum).
+const TOCHKA_UNIT_CODES = new Set([
+  "шт.", "тыс.шт.", "компл.", "пар.", "усл.ед.", "упак.", "услуга.", "пач.",
+  "мин.", "ч.", "сут.", "г.", "кг.", "л.", "м.", "м2.", "м3.", "км.", "га.", "кВт.", "кВт.ч.",
+]);
+const UNIT_ALIASES: Record<string, string> = {
+  "шт": "шт.", "штука": "шт.", "штук": "шт.", "штуки": "шт.",
+  "усл": "усл.ед.", "услед": "усл.ед.", "усл.ед": "усл.ед.", "услуга": "услуга.", "услуги": "услуга.",
+  "упак": "упак.", "упаковка": "упак.", "компл": "компл.", "комплект": "компл.",
+  "час": "ч.", "ч": "ч.", "мин": "мин.", "минута": "мин.",
+  "день": "сут.", "дней": "сут.", "сут": "сут.", "сутки": "сут.",
+  "кг": "кг.", "г": "г.", "грамм": "г.", "л": "л.", "литр": "л.",
+  "м": "м.", "метр": "м.", "м2": "м2.", "м3": "м3.", "км": "км.", "га": "га.",
+  "квт": "кВт.", "квтч": "кВт.ч.",
+};
+function toUnitCode(u?: string): string {
+  if (!u) return "шт.";
+  const trimmed = u.trim();
+  const withDot = trimmed.endsWith(".") ? trimmed : `${trimmed}.`;
+  if (TOCHKA_UNIT_CODES.has(withDot)) return withDot;
+  const key = trimmed.toLowerCase().replace(/\.+$/, "").replace(/\s+/g, "");
+  return UNIT_ALIASES[key] ?? "шт.";
+}
+
+// Сборка тела Create Invoice. Суммы Точке передаются в рублях (не в копейках).
+export function buildBillBody(p: TochkaInvoicePayload): unknown {
+  let totalMinor = 0;
+  let totalNdsMinor = 0;
+  const Positions = p.items.map((it) => {
+    const amountMinor = Math.round(it.quantity * it.unitPriceMinor);
+    const ndsMinor = ndsOfMinor(amountMinor, it.vat);
+    totalMinor += amountMinor;
+    totalNdsMinor += ndsMinor;
+    return {
+      positionName: it.name,
+      unitCode: toUnitCode(it.unit),
+      ndsKind: vatToNdsKind(it.vat),
+      price: money2(it.unitPriceMinor),
+      quantity: it.quantity,
+      totalAmount: money2(amountMinor),
+      totalNds: money2(ndsMinor),
+    };
+  });
+  return {
+    Data: {
+      accountId: p.accountId,
+      customerCode: p.customerCode,
+      SecondSide: {
+        taxCode: p.buyer.inn,
+        // Живой API Точки ждёт поле типа контрагента как `type` (валидатор ругался
+        // «Field SecondSide-type : Field required»), не `counterpartType` из SDK.
+        type: counterpartType(p.buyer.inn),
+        legalName: p.buyer.name,
+        ...(p.buyer.kpp ? { kpp: p.buyer.kpp } : {}),
+      },
+      Content: {
+        Invoice: {
+          Positions,
+          number: p.number,
+          totalAmount: money2(totalMinor),
+          totalNds: money2(totalNdsMinor),
+          ...(p.paymentExpiryDate ? { paymentExpiryDate: p.paymentExpiryDate } : {}),
+          ...(p.purpose ? { comment: p.purpose } : {}),
+        },
+      },
+    },
+  };
+}
+
+// Создать счёт на оплату. Возвращает documentId и сырой ответ.
+export async function createInvoice({ token }: { token: string }, p: TochkaInvoicePayload): Promise<{ documentId: string | null; raw: unknown }> {
+  const json = await api<{ Data?: { documentId?: string; Bill?: { documentId?: string } } }>(
+    `invoice/${INVOICE_VERSION}/bills`,
+    { token, method: "POST", body: buildBillBody(p) },
+  );
+  const documentId = json.Data?.documentId ?? json.Data?.Bill?.documentId ?? null;
+  return { documentId, raw: json };
+}
+
+// Статус оплаты счёта.
+export async function getInvoicePaymentStatus({ token }: { token: string }, customerCode: string, documentId: string): Promise<{ status: string; raw: unknown }> {
+  const json = await api<{ Data?: { paymentStatus?: string; status?: string } }>(
+    `invoice/${INVOICE_VERSION}/bills/${encodeURIComponent(customerCode)}/${encodeURIComponent(documentId)}/payment_status`,
+    { token },
+  );
+  const status = json.Data?.paymentStatus ?? json.Data?.status ?? "";
+  return { status, raw: json };
+}
+
+// ── Клиенты (customerCode) ────────────────────────────────────────────────────
+// customerCode нужен для invoice-API. Берётся из «Get Customers List»: объект с
+// customerType === "Business" (юрлицо/ИП, от чьего имени выставляется счёт).
+export type TochkaCustomer = { customerCode: string; customerType: string; fullName: string | null };
+
+export async function getCustomers({ token, apiVersion }: FetchOpts): Promise<TochkaCustomer[]> {
+  const json = await api<{ Data?: { Customer?: RawCustomer[] } }>(`open-banking/${apiVersion}/customers`, { token });
+  const list = json.Data?.Customer ?? [];
+  return list.map((c) => ({
+    customerCode: c.customerCode,
+    customerType: c.customerType ?? "",
+    fullName: c.fullName ?? c.shortName ?? null,
+  }));
+}
+
+// customerCode бизнес-клиента (или первого доступного). null — если не нашли.
+export async function getBusinessCustomerCode(opts: FetchOpts): Promise<string | null> {
+  const customers = await getCustomers(opts);
+  if (customers.length === 0) return null;
+  const business = customers.find((c) => /business/i.test(c.customerType));
+  return (business ?? customers[0]).customerCode || null;
+}
+
+type RawCustomer = { customerCode: string; customerType?: string; fullName?: string; shortName?: string };
+
+// ── Счета ───────────────────────────────────────────────────────────────────
+export async function getAccounts({ token, apiVersion }: FetchOpts): Promise<TochkaAccount[]> {
+  const json = await api<{ Data?: { Account?: RawAccount[] } }>(`open-banking/${apiVersion}/accounts`, { token });
+  const list = json.Data?.Account ?? [];
+  return list.map((a) => ({
+    accountId: a.accountId,
+    accountNumber: a.accountId?.split("/")?.[0] ?? a.accountId ?? null,
+    currency: a.currency ?? "RUB",
+    name: a.accountType ?? null,
+  }));
+}
+
+type RawAccount = { accountId: string; currency?: string; accountType?: string };
+
+// Сырой ответ по счетам — для диагностики маппинга на живом токене.
+export async function getAccountsRaw({ token, apiVersion }: FetchOpts): Promise<unknown> {
+  return api(`open-banking/${apiVersion}/accounts`, { token });
+}
+
+
+// ── Выписка (асинхронно): init → poll → Get Statement ─────────────────────────
+async function getStatement(
+  opts: FetchOpts & { accountId: string; from: string; to: string },
+): Promise<RawStatement | null> {
+  const { token, apiVersion, accountId, from, to } = opts;
+
+  // Поля подтверждены ТП Точки: accountId (счёт/БИК), startDateTime, endDateTime.
+  // Основной вариант — обёртка Data.Statement (стандарт OpenBanking); запасной —
+  // плоское тело с теми же полями, на случай если шлюз не требует обёртку.
+  const candidates = [
+    { Data: { Statement: { accountId, startDateTime: from, endDateTime: to } } },
+    { accountId, startDateTime: from, endDateTime: to },
+  ];
+  let statementId: string | undefined;
+  let lastErr: unknown;
+  for (const body of candidates) {
+    try {
+      const init = await api<{ Data?: { Statement?: RawIdHolder | RawIdHolder[] } }>(
+        `open-banking/${apiVersion}/statements`,
+        { token, method: "POST", body },
+      );
+      const st = init.Data?.Statement;
+      statementId = Array.isArray(st) ? st[0]?.statementId : st?.statementId;
+      if (statementId) break;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  if (!statementId) throw (lastErr instanceof Error ? lastErr : new Error("Точка не вернула statementId"));
+
+  // Поллинг статуса до Ready (до ~60 сек — большие выписки Точка собирает дольше).
+  // ВАЖНО: нельзя принимать выписку, как только в ней появились операции — для крупных
+  // счетов Точка отдаёт список постепенно, и ранний выход обрезает её (приходит лишь часть
+  // дохода). Ждём именно status === "Ready". Если шлюз статус не присылает — ждём, пока число
+  // операций не стабилизируется (два одинаковых замера подряд = сборка завершена).
+  let statement: RawStatement | null = null;
+  let lastCount = -1;
+  let stableHits = 0;
+  let sawStatus = false;
+  const MAX_POLLS = 30;
+  for (let i = 0; i < MAX_POLLS; i++) {
+    const got = await api<{ Data?: { Statement?: RawStatement | RawStatement[] } }>(
+      `open-banking/${apiVersion}/accounts/${encodeURIComponent(accountId)}/statements/${encodeURIComponent(statementId)}`,
+      { token },
+    );
+    const st = got.Data?.Statement;
+    statement = Array.isArray(st) ? st[0] ?? null : st ?? null;
+    const status = statement?.status;
+    if (status) sawStatus = true;
+    if (status === "Error") throw new Error("Точка: ошибка формирования выписки");
+    if (status === "Ready") break;
+    if (!sawStatus) {
+      // Шлюз без поля статуса: ждём стабилизации количества операций.
+      const count = statement?.Transaction?.length ?? 0;
+      if (count > 0 && count === lastCount) {
+        if (++stableHits >= 2) break;
+      } else {
+        stableHits = 0;
+      }
+      lastCount = count;
+    }
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  // Если статус приходил, но Ready так и не дождались — это тайм-аут, а не пустая выписка.
+  // Бросаем ошибку, чтобы импорт сообщил о проблеме, а не сохранил неполные данные молча.
+  if (sawStatus && statement?.status !== "Ready") {
+    throw new Error("Точка: выписка ещё формируется (тайм-аут). Повторите импорт этого счёта.");
+  }
+  return statement;
+}
+
+export async function fetchOperations(
+  opts: FetchOpts & { accountId: string; from: string; to: string },
+): Promise<TochkaOperation[]> {
+  const statement = await getStatement(opts);
+  return (statement?.Transaction ?? []).map(mapOperation);
+}
+
+function addDays(iso: string, days: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+function daysBetween(from: string, to: string): number {
+  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000);
+}
+
+// Точка обрезает выписку нагруженного счёта последним окном дат (для крупного счёта
+// за 2.5 года возвращается лишь последний месяц). Грузим адаптивно «шагая назад»:
+// получили выписку → если её самая ранняя операция не достаёт до начала запрошенного
+// диапазона, значит выписка обрезана — догружаем ещё более ранний кусок [from, earliest-1]
+// и так далее, пока не упрёмся в from или в пустой ответ. Маленькие счета берутся за 1 запрос.
+export async function fetchOperationsWindowed(
+  opts: FetchOpts & { accountId: string; from: string; to: string },
+  depth = 0,
+): Promise<TochkaOperation[]> {
+  const MAX_WINDOWS = 60; // потолок шагов (≈5 лет помесячно) — защита от бесконечного цикла
+  const ops = await fetchOperations(opts);
+  if (ops.length === 0 || depth >= MAX_WINDOWS) return ops;
+
+  const earliest = ops.reduce((m, o) => (o.date < m ? o.date : m), ops[0].date);
+  // Выписка не достала до начала диапазона (> 5 дней зазор) → вероятно обрезана.
+  if (daysBetween(opts.from, earliest) > 5) {
+    const earlier = await fetchOperationsWindowed(
+      { ...opts, to: addDays(earliest, -1) }, // строго раньше уже полученного — прогресс гарантирован
+      depth + 1,
+    );
+    const byId = new Map<string, TochkaOperation>();
+    for (const o of [...earlier, ...ops]) byId.set(o.transactionId, o);
+    return [...byId.values()];
+  }
+  return ops;
+}
+
+// Сырые операции из выписки — для сверки имён полей на живом API.
+export async function fetchStatementRaw(
+  opts: FetchOpts & { accountId: string; from: string; to: string },
+): Promise<unknown> {
+  const statement = await getStatement(opts);
+  return (statement?.Transaction ?? []).slice(0, 3);
+}
+
+type RawIdHolder = { statementId?: string };
+
+type RawParty = { name?: string; inn?: string; kpp?: string } | null;
+type RawAcc = { accountNumber?: string; identification?: string } | null;
+type RawTransaction = {
+  transactionId?: string;
+  documentId?: string;
+  documentNumber?: string;
+  transactionTypeCode?: string;
+  documentProcessDate?: string;
+  creditDebitIndicator?: string; // "Credit" | "Debit"
+  Amount?: { amount?: string | number; currency?: string };
+  bookingDateTime?: string;
+  valueDateTime?: string;
+  description?: string;
+  paymentPurpose?: string;
+  DebtorParty?: RawParty;
+  CreditorParty?: RawParty;
+  DebtorAccount?: RawAcc;
+  CreditorAccount?: RawAcc;
+};
+type RawStatement = { status?: string; Transaction?: RawTransaction[] };
+
+// Имя поля даты у Точки заранее неизвестно — сканируем все строковые поля,
+// в имени которых есть "date", и берём приоритетное (booking/transaction/...).
+// Понимаем оба формата: ISO (2026-04-27) и ДД.ММ.ГГГГ (27.04.2026).
+function pickDate(t: Record<string, unknown>): string | null {
+  const entries = Object.entries(t).filter(
+    ([k, v]) => typeof v === "string" && /date/i.test(k),
+  ) as [string, string][];
+  const score = (k: string) => {
+    const s = k.toLowerCase();
+    if (s.includes("booking")) return 6;
+    if (s.includes("transaction")) return 5;
+    if (s.includes("operation")) return 5;
+    if (s.includes("value")) return 4;
+    if (s.includes("process")) return 4; // documentProcessDate у Точки
+    if (s.includes("execut")) return 3;
+    if (s.includes("document")) return 2;
+    return 1;
+  };
+  entries.sort((a, b) => score(b[0]) - score(a[0]));
+  for (const [, v] of entries) {
+    const iso = v.match(/(\d{4})-(\d{2})-(\d{2})/);
+    if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+    const dmy = v.match(/(\d{2})\.(\d{2})\.(\d{4})/);
+    if (dmy) return `${dmy[3]}-${dmy[2]}-${dmy[1]}`;
+  }
+  return null;
+}
+
+function mapOperation(t: RawTransaction): TochkaOperation {
+  const isCredit = (t.creditDebitIndicator ?? "").toLowerCase().startsWith("credit");
+  // При зачислении контрагент — плательщик (Debtor), при списании — получатель (Creditor).
+  const party = isCredit ? t.DebtorParty : t.CreditorParty;
+  const acc = isCredit ? t.DebtorAccount : t.CreditorAccount;
+  const kpp = party?.kpp && party.kpp !== "0" ? party.kpp : null;
+  return {
+    transactionId: t.transactionId || t.documentId || `${pickDate(t) ?? ""}-${t.Amount?.amount ?? ""}-${acc?.accountNumber ?? acc?.identification ?? ""}`,
+    direction: isCredit ? "income" : "expense",
+    amountMinor: toMinor(t.Amount?.amount ?? 0),
+    currency: t.Amount?.currency ?? "RUB",
+    date: pickDate(t as Record<string, unknown>) ?? dateOnly(null),
+    counterpartyName: party?.name ?? null,
+    counterpartyAccount: acc?.accountNumber ?? acc?.identification ?? null,
+    counterpartyInn: party?.inn ?? null,
+    counterpartyKpp: kpp,
+    description: t.paymentPurpose || t.description || null,
+    docNumber: t.documentNumber ?? null,
+    docType: t.transactionTypeCode ?? null,
+  };
+}
