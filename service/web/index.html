@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Basa — учёт проектов и выплат</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- Login screen -->
+    <div id="login-screen" class="login-screen" hidden>
+        <form class="login-card" id="login-form">
+            <h1>Basa</h1>
+            <p class="muted">Учёт проектов и выплат</p>
+            <label>
+                Email
+                <input type="email" name="email" required autofocus>
+            </label>
+            <label>
+                Пароль
+                <input type="password" name="password" required>
+            </label>
+            <button class="btn btn-primary" type="submit">Войти</button>
+            <p class="error" id="login-error" hidden></p>
+        </form>
+    </div>
+
+    <!-- App shell -->
+    <div id="app" hidden>
+        <header class="topbar">
+            <div class="brand">Basa</div>
+            <nav class="tabs" id="tabs"></nav>
+            <div class="user-info">
+                <span id="user-email"></span>
+                <span class="badge" id="user-role"></span>
+                <button class="btn-link" id="logout-btn">Выйти</button>
+            </div>
+        </header>
+
+        <main id="main"></main>
+
+        <div id="toast" class="toast" hidden></div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
