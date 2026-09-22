@@ -28,14 +28,17 @@ export async function POST() {
     .eq("team_id", teamId).eq("provider", "tochka").maybeSingle();
   if (!conn) return NextResponse.json({ ok: true, skipped: "not_connected" });
 
-  // Свежо — ничего не делаем.
-  if (conn.last_synced_at) {
-    const ageMin = (Date.now() - Date.parse(conn.last_synced_at)) / 60000;
-    if (ageMin < FRESH_MINUTES) return NextResponse.json({ ok: true, skipped: "fresh" });
-  }
-  // Оптимистичная блокировка: сразу двигаем метку, чтобы параллельные вкладки не дублировали импорт.
-  await supabase.from("bank_connections").update({ last_synced_at: new Date().toISOString() })
-    .eq("team_id", teamId).eq("provider", "tochka");
+  // Захват права на синк — один атомарный UPDATE с условием по давности
+  // (compare-and-swap). Раньше здесь было «прочитали last_synced_at → сравнили
+  // в JS → записали»: две параллельные вкладки проходили тротлинг одновременно
+  // (аудит, тест T7). Теперь метку двигает ровно одна сессия, остальные выходят.
+  const { data: claimed, error: claimErr } = await supabase.rpc("bank_sync_claim", {
+    _team: teamId,
+    _provider: "tochka",
+    _max_age: `${FRESH_MINUTES} minutes`,
+  });
+  if (claimErr) return NextResponse.json({ ok: false, error: claimErr.message }, { status: 500 });
+  if (!claimed) return NextResponse.json({ ok: true, skipped: "fresh" });
 
   let token: string;
   try { token = decryptSecret(conn.token_cipher); }

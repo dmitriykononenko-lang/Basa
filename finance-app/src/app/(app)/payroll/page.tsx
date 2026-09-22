@@ -5,6 +5,7 @@ import { formatMoney } from "@/lib/format";
 import { buildRateMap, toBase } from "@/lib/fx";
 import type { SalaryRate } from "@/lib/salary";
 import AccrueAllButton from "@/components/AccrueAllButton";
+import MaterializeAccrualsButton from "@/components/MaterializeAccrualsButton";
 import PayrollRowActions from "@/components/PayrollRowActions";
 
 const MONTHS_RU = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
@@ -52,12 +53,11 @@ export default async function PayrollPage({
   const { data: { user } } = await supabase.auth.getUser();
   const manage = canEditFinance(role);
 
-  // Ленивое авто-начисление: зарплата (авто-режим сотрудника) и бонусы аналитику
-  // по ТП — открываем следующий цикл поддержки, когда его месяц закончился.
-  if (manage) {
-    await supabase.rpc("materialize_auto_accruals", { p_team: team.id });
-    await supabase.rpc("materialize_support_cycles", { p_team: team.id });
-  }
+  // ВАЖНО: рендер страницы строго read-only. Раньше здесь вызывались
+  // materialize_auto_accruals/materialize_support_cycles — то есть открытие
+  // страницы писало в БД, и два параллельных рендера создавали двойное
+  // начисление зарплаты (аудит, тест T1). Теперь это явная команда:
+  // кнопка «Обновить начисления» → POST /api/payroll/materialize.
 
   const start = periodStartMonth(period);
   const startStr = `${start.y}-${String(start.m + 1).padStart(2, "0")}-01`;
@@ -150,8 +150,13 @@ export default async function PayrollPage({
             Начисления по месяцам: оклад и бонус по всем сотрудникам, по отделам (в {base})
           </p>
         </div>
-        {manage && employeesWithSalary.length > 0 && (
-          <AccrueAllButton teamId={team.id} employees={employeesWithSalary} />
+        {manage && (
+          <div className="flex flex-wrap items-center gap-2">
+            <MaterializeAccrualsButton />
+            {employeesWithSalary.length > 0 && (
+              <AccrueAllButton teamId={team.id} employees={employeesWithSalary} />
+            )}
+          </div>
         )}
       </header>
 

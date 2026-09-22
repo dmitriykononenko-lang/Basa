@@ -94,6 +94,7 @@ export default function OperationCard({
   const [planned, setPlanned] = useState(tx.status === "planned");
   const [repeatMonthly, setRepeatMonthly] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [conflict, setConflict] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [splitting, setSplitting] = useState(false);
   const partsRef = useRef<PartsHandle>(null);
@@ -127,9 +128,18 @@ export default function OperationCard({
 
     setBusy(true);
     const supabase = createClient();
-    const { error } = await supabase
-      .from("transactions")
-      .update({
+
+    // Части операции собираем ДО записи: они уходят в тот же RPC, что и сама
+    // операция, поэтому строка и её части меняются одной транзакцией БД.
+    const collected = isTransfer ? { ok: true as const, parts: [] } : partsRef.current?.collect();
+    if (collected && !collected.ok) { setBusy(false); return setError(collected.error); }
+
+    // Оптимистичная блокировка: отправляем версию, которую видели при открытии
+    // карточки. Если кто-то успел изменить операцию — RPC ничего не перезапишет
+    // и вернёт conflict (аудит, тест T8: раньше правка коллеги затиралась молча).
+    const { data, error } = await supabase.rpc("transaction_save", {
+      p_transaction: tx.id,
+      p_patch: {
         type: txType,
         amount: minor,
         currency: account?.currency ?? tx.currency,
@@ -144,18 +154,21 @@ export default function OperationCard({
         accrual_date: isTransfer || !showAccrual ? null : accrualDate || null,
         note: note || null,
         status: planned ? "planned" : "actual",
-        // Перевод не может гасить обязательство — очищаем привязку при конвертации.
         ...(isTransfer ? { obligation_id: null } : {}),
-      })
-      .eq("id", tx.id);
+      },
+      p_expected_version: tx.version ?? null,
+      p_parts: collected?.parts ?? null,
+      p_request_id: crypto.randomUUID(),
+    });
     setBusy(false);
     if (error) return setError(error.message);
 
-    // Части операции — сохраняем вместе с карточкой (перевод делить нельзя).
-    if (!isTransfer) {
-      const pr = await partsRef.current?.commit();
-      if (pr && !pr.ok) return setError(pr.error ?? "Не удалось сохранить части");
+    const res = data as { ok?: boolean; conflict?: boolean } | null;
+    if (res?.conflict) {
+      setConflict(true);
+      return setError("Операцию изменил другой пользователь. Обновите страницу, чтобы увидеть актуальные данные, и внесите правку заново.");
     }
+    if (!res?.ok) return setError("Не удалось сохранить операцию");
 
     // «Повторять каждый месяц» — создаём правило в «Регулярных операциях».
     if (repeatMonthly) {
@@ -433,7 +446,20 @@ export default function OperationCard({
         </label>
       )}
 
-      {error && <p className="mt-3 text-sm text-red-600 dark:text-red-400">{error}</p>}
+      {error && (
+        <div className="mt-3 text-sm text-red-600 dark:text-red-400">
+          <p>{error}</p>
+          {conflict && (
+            <button
+              type="button"
+              onClick={() => router.refresh()}
+              className="mt-2 rounded-lg border border-red-200 px-2.5 py-1 text-xs font-semibold text-red-600 transition hover:bg-red-50 dark:border-red-500/30 dark:hover:bg-red-500/10"
+            >
+              Перечитать актуальную запись
+            </button>
+          )}
+        </div>
+      )}
 
       {canEdit && (
         <div className="mt-5 flex items-center gap-2 border-t border-slate-200/70 pt-4 dark:border-white/[0.07]">

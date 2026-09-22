@@ -10,8 +10,21 @@ type Category = { id: string; name: string; kind: "income" | "expense" };
 type Named = { id: string; name: string; inn?: string | null };
 type Part = { key: number; amount: string; categoryId: string; projectId: string; counterpartyId: string; isObligation: boolean };
 
-// Императивный контракт: карточка вызывает commit() при общем «Сохранить».
-export type PartsHandle = { commit: () => Promise<{ ok: boolean; error?: string }> };
+// Императивный контракт: карточка вызывает collect() при общем «Сохранить» и
+// передаёт части В ТУ ЖЕ RPC, что сохраняет саму операцию. Раньше редактор
+// писал части сам (delete + insert отдельными запросами уже ПОСЛЕ сохранения
+// карточки) — то есть операция и её части сохранялись разными транзакциями
+// (аудит, CONC-08). Здесь больше нет записи в БД: только валидация и payload.
+export type PartPayload = {
+  amount: number;
+  category_id: string | null;
+  project_id: string | null;
+  counterparty_id: string | null;
+  is_obligation: boolean;
+};
+export type PartsHandle = {
+  collect: () => { ok: true; parts: PartPayload[] } | { ok: false; error: string };
+};
 
 // Инлайн-редактор «Части операции» (операция остаётся ОДНОЙ записью; части —
 // в transaction_splits, используются в отчётах). Сохраняется вместе с карточкой.
@@ -20,8 +33,8 @@ const TransactionPartsEditor = forwardRef<PartsHandle, {
   categories: Category[];
   counterparties: Named[];
   projects: Named[];
-  teamId: string;
-}>(function TransactionPartsEditor({ tx, categories, counterparties, projects, teamId }, ref) {
+  teamId: string;   // оставлен в пропсах для совместимости вызовов; запись идёт через RPC
+}>(function TransactionPartsEditor({ tx, categories, counterparties, projects }, ref) {
   const supabase = createClient();
   const wholeRow = (): Part => ({
     key: 1, amount: (tx.amount / 100).toFixed(2).replace(".", ","),
@@ -76,24 +89,23 @@ const TransactionPartsEditor = forwardRef<PartsHandle, {
   function stopSplit() { setExpanded(false); setParts([wholeRow()]); }
 
   useImperativeHandle(ref, () => ({
-    async commit() {
-      // Не разбито — гарантированно снимаем любые части.
-      if (!expanded || parts.length < 2) {
-        const { error } = await supabase.from("transaction_splits").delete().eq("transaction_id", tx.id);
-        return { ok: !error, error: error?.message };
-      }
-      if (parts.some((p) => parseMoney(p.amount) <= 0)) return { ok: false, error: "У каждой части сумма должна быть больше нуля" };
-      if (remaining !== 0) return { ok: false, error: `Сумма частей должна совпасть с общей. Разница: ${formatMoney(remaining, tx.currency)}` };
-      await supabase.from("transaction_splits").delete().eq("transaction_id", tx.id);
-      const rows = parts.map((p) => ({
-        team_id: teamId, transaction_id: tx.id, amount: parseMoney(p.amount),
-        category_id: p.categoryId || null, project_id: p.projectId || null,
-        counterparty_id: p.counterpartyId || null, is_obligation: p.isObligation,
-      }));
-      const { error } = await supabase.from("transaction_splits").insert(rows);
-      return { ok: !error, error: error?.message };
+    collect() {
+      // Не разбито — пустой массив: RPC снимет любые существующие части.
+      if (!expanded || parts.length < 2) return { ok: true as const, parts: [] };
+      if (parts.some((p) => parseMoney(p.amount) <= 0)) return { ok: false as const, error: "У каждой части сумма должна быть больше нуля" };
+      if (remaining !== 0) return { ok: false as const, error: `Сумма частей должна совпасть с общей. Разница: ${formatMoney(remaining, tx.currency)}` };
+      return {
+        ok: true as const,
+        parts: parts.map((p) => ({
+          amount: parseMoney(p.amount),
+          category_id: p.categoryId || null,
+          project_id: p.projectId || null,
+          counterparty_id: p.counterpartyId || null,
+          is_obligation: p.isObligation,
+        })),
+      };
     },
-  }), [expanded, parts, remaining, tx.id, tx.currency, teamId, supabase]);
+  }), [expanded, parts, remaining, tx.currency]);
 
   if (loading) return <p className="py-2 text-xs text-slate-400 dark:text-neutral-500">Загрузка частей…</p>;
 

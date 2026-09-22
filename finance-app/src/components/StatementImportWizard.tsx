@@ -173,110 +173,116 @@ export default function StatementImportWizard({
         }
       }
 
-      // 2) Контрагенты: сматчить с существующими (по ИНН, затем имени), недостающих создать.
-      //    Для внутренних переводов контрагент не проставляется.
-      const cpByInn = new Map<string, string>();
-      const cpByName = new Map<string, string>();
-      for (const c of counterparties) {
-        if (c.inn) cpByInn.set(String(c.inn).trim(), c.id);
-        cpByName.set(c.name.trim().toLowerCase(), c.id);
-      }
-      const resolveCp = (r: Rec): string | null => {
-        if (r.internal || !r.cpName) return null;
-        if (r.cpInn && cpByInn.has(r.cpInn)) return cpByInn.get(r.cpInn)!;
-        return cpByName.get(r.cpName.toLowerCase()) ?? null;
+      // ───────────────────────────────────────────────────────────────────
+      // 2) Канонизация внутренних переводов.
+      // Сводная выписка отдаёт перевод между своими счетами ДВУМЯ строками
+      // (списание + зачисление). Импорт Точки отдаёт то же событие ОДНОЙ
+      // строкой type='transfer'. Из-за этого расхождения одно и то же событие
+      // попадало в систему дважды — первопричина FIN-03 (126 задвоенных
+      // переводов). Здесь пара сводится к одной канонической строке.
+      type Row = {
+        type: "income" | "expense" | "transfer";
+        amount: number;
+        currency: string;
+        account_id: string;
+        transfer_account_id: string | null;
+        occurred_on: string;
+        note: string | null;
+        counterparty_key: string | null;
+        origin: "bank_csv";
       };
-      const toCreate = new Map<string, { name: string; inn: string; kind: string }>();
-      for (const r of recs) {
-        if (r.internal || !r.cpName || resolveCp(r)) continue;
-        const key = r.cpInn ? "inn:" + r.cpInn : "name:" + r.cpName.toLowerCase();
-        if (!toCreate.has(key)) {
-          toCreate.set(key, { name: r.cpName, inn: r.cpInn, kind: r.type === "income" ? "client" : "supplier" });
+      const cpKeyOf = (r: Rec): string | null => {
+        if (r.internal || !r.cpName) return null;
+        return r.cpInn ? `inn:${r.cpInn}` : `name:${r.cpName.toLowerCase()}`;
+      };
+
+      const internals = recs.filter((r) => r.internal);
+      const externals = recs.filter((r) => !r.internal);
+      const usedIncome = new Set<number>();
+      const rows: Row[] = [];
+      let merged = 0;
+
+      for (const r of internals) {
+        if (r.type !== "expense") continue;
+        const accFrom = nameToId.get(r.accountNum)!;
+        const idx = internals.findIndex((c, i) =>
+          !usedIncome.has(i) && c.type === "income" && c.iso === r.iso &&
+          c.amount === r.amount && c.accountNum !== r.accountNum);
+        if (idx >= 0) {
+          usedIncome.add(idx);
+          merged++;
+          const accTo = nameToId.get(internals[idx].accountNum)!;
+          rows.push({
+            type: "transfer", amount: r.amount, currency: accFrom.currency,
+            account_id: accFrom.id, transfer_account_id: accTo.id,
+            occurred_on: r.iso, note: r.note || null, counterparty_key: null, origin: "bank_csv",
+          });
+        } else {
+          // Встречной ноги в файле нет — оставляем как есть (списание).
+          rows.push({
+            type: "expense", amount: r.amount, currency: accFrom.currency,
+            account_id: accFrom.id, transfer_account_id: null,
+            occurred_on: r.iso, note: r.note || null, counterparty_key: null, origin: "bank_csv",
+          });
         }
       }
-      let createdCps = 0;
-      if (toCreate.size > 0) {
-        const payload = [...toCreate.values()].map((c) => ({
-          team_id: teamId, name: c.name, inn: c.inn || null, kind: c.kind, kinds: [c.kind],
-        }));
-        const { data: created, error: ce } = await supabase
-          .from("counterparties").insert(payload).select("id, name, inn");
-        if (ce) throw ce;
-        createdCps = created?.length ?? 0;
-        for (const c of created ?? []) {
-          if (c.inn) cpByInn.set(String(c.inn).trim(), c.id);
-          cpByName.set((c.name as string).trim().toLowerCase(), c.id);
-        }
+      internals.forEach((r, i) => {
+        if (r.type !== "income" || usedIncome.has(i)) return;
+        const acc = nameToId.get(r.accountNum)!;
+        rows.push({
+          type: "income", amount: r.amount, currency: acc.currency,
+          account_id: acc.id, transfer_account_id: null,
+          occurred_on: r.iso, note: r.note || null, counterparty_key: null, origin: "bank_csv",
+        });
+      });
+      for (const r of externals) {
+        const acc = nameToId.get(r.accountNum)!;
+        rows.push({
+          type: r.type, amount: r.amount, currency: acc.currency,
+          account_id: acc.id, transfer_account_id: null,
+          occurred_on: r.iso, note: r.note || null, counterparty_key: cpKeyOf(r), origin: "bank_csv",
+        });
       }
 
-      // 3) Дедуп против уже существующих операций (счёт/дата/сумма/тип/назначение).
-      //    Внутрифайловые повторы НЕ режем — это разные реальные операции.
-      const ids = [...new Set(recs.map((r) => nameToId.get(r.accountNum)!.id))];
-      const isos = recs.map((r) => r.iso).sort();
-      const minD = isos[0];
-      const maxD = isos[isos.length - 1];
-      const { data: existing, error: e2 } = await supabase
-        .from("transactions")
-        .select("account_id, occurred_on, amount, type, note")
-        .eq("team_id", teamId)
-        .in("account_id", ids)
-        .gte("occurred_on", minD)
-        .lte("occurred_on", maxD);
-      if (e2) throw e2;
-      const sig = (a: string, d: string, am: number | string, t: string, n: string | null) =>
-        `${a}|${d}|${am}|${t}|${n ?? ""}`;
-      const seen = new Set((existing ?? []).map((t) => sig(t.account_id, t.occurred_on, t.amount, t.type, t.note)));
+      const cps = new Map<string, { key: string; name: string; inn: string | null; kind: string }>();
+      for (const r of externals) {
+        const key = cpKeyOf(r);
+        if (!key || cps.has(key)) continue;
+        cps.set(key, { key, name: r.cpName, inn: r.cpInn || null, kind: r.type === "income" ? "client" : "supplier" });
+      }
 
-      const rows = recs
-        .map((r) => {
-          const acc = nameToId.get(r.accountNum)!;
-          return {
-            team_id: teamId,
-            account_id: acc.id,
-            type: r.type,
-            amount: r.amount,
-            currency: acc.currency,
-            occurred_on: r.iso,
-            note: r.note || null,
-            counterparty_id: resolveCp(r),
-            status: "actual" as const,
-            created_by: userId,
-          };
-        })
-        .filter((row) => !seen.has(sig(row.account_id, row.occurred_on, row.amount, row.type, row.note)));
-
-      const skipped = recs.length - rows.length;
-
-      // 4) Батч импорта
-      const { data: batch, error: e3 } = await supabase
-        .from("import_batches")
-        .insert({
-          team_id: teamId,
-          created_by: userId,
+      // ───────────────────────────────────────────────────────────────────
+      // 3) Одна транзакция БД: батч, контрагенты и операции. Дедуп — по
+      // каноническому отпечатку банковского события (bank_event_fp), поэтому
+      // событие, уже импортированное из Точки, второй записи не создаёт.
+      // Файл отправляется ОДНИМ вызовом: правило кратности отпечатка считает
+      // повторы внутри файла относительно уже имеющихся, и дробить его на
+      // части нельзя — иначе законные одинаковые операции одного дня потерялись бы.
+      const { data: res, error: eImp } = await supabase.rpc("bank_import_commit", {
+        p_team: teamId,
+        p_batch: {
           file_name: fileName || "Сводная выписка.csv",
-          row_count: rows.length,
-          status: "imported",
           bank: "Сводная выписка",
-          note: "Импорт сводной выписки (Все операции), переводы не склеиваются",
-        })
-        .select("id")
-        .single();
-      if (e3) throw e3;
-
-      // 5) Вставка пачками
-      let inserted = 0;
-      const CH = 500;
-      for (let i = 0; i < rows.length; i += CH) {
-        const part = rows.slice(i, i + CH).map((r) => ({ ...r, import_batch_id: batch.id }));
-        const { error: e4 } = await supabase.from("transactions").insert(part);
-        if (e4) throw e4;
-        inserted += part.length;
-      }
+          status: "imported",
+          note: "Импорт сводной выписки (Все операции); внутренние переводы сведены к канонической строке",
+        },
+        p_rows: rows,
+        p_counterparties: [...cps.values()],
+        p_request_id: crypto.randomUUID(),
+      });
+      if (eImp) throw eImp;
+      const r = (res ?? {}) as {
+        imported?: number; skipped_by_event_id?: number; skipped_by_fingerprint?: number;
+        promoted?: number; counterparties?: number;
+      };
+      const skipped = (r.skipped_by_event_id ?? 0) + (r.skipped_by_fingerprint ?? 0);
 
       setResult(
-        `Загружено операций: ${inserted}. Пропущено дублей: ${skipped}. ` +
+        `Загружено операций: ${r.imported ?? 0}. Пропущено как уже учтённые: ${skipped}. ` +
+          (merged ? `Переводов сведено в одну операцию: ${merged}. ` : "") +
+          (r.promoted ? `Сопоставлено с банковскими событиями: ${r.promoted}. ` : "") +
           (missingAccts.length ? `Создано счетов: ${missingAccts.length}. ` : "") +
-          (createdCps ? `Создано контрагентов: ${createdCps}. ` : "") +
+          (r.counterparties ? `Создано контрагентов: ${r.counterparties}. ` : "") +
           "Категории не проставлены — разнесите их на странице «Разнести»."
       );
       setRecs([]);
@@ -296,7 +302,7 @@ export default function StatementImportWizard({
       </h2>
       <p className="mt-1 text-xs text-slate-500 dark:text-neutral-400">
         Загрузите лист «Все операции» в формате CSV (Файл → Сохранить как → CSV). Все счета — за один
-        раз, переводы между своими счетами <b>не склеиваются</b>. Для внешних операций создаются
+        раз, внутренние переводы <b>сводятся к одной операции</b> (как в выписке из банка). Для внешних операций создаются
         карточки контрагентов (по ИНН); категории не проставляются.
       </p>
 

@@ -14,14 +14,13 @@ Postgres 16 (уровень изоляции READ COMMITTED, как в Supabase 
 ## Запуск
 
 ```bash
-BASE=/var/tmp/pgaudit
-mkdir -p $BASE && chown postgres:postgres $BASE
-su postgres -c "/usr/lib/postgresql/16/bin/initdb -D $BASE/data -U audit --auth=trust"
-su postgres -c "/usr/lib/postgresql/16/bin/pg_ctl -D $BASE/data -o '-k $BASE -p 5433 -c listen_addresses=' -l $BASE/pg.log start"
-psql -h $BASE -p 5433 -U audit -d postgres -c 'create database basa'
-psql -h $BASE -p 5433 -U audit -d basa -f scripts/concurrency/schema.sql
-bash scripts/concurrency/conc_test.sh
+cd finance-app && bash scripts/concurrency/run.sh
 ```
+
+`run.sh` поднимает кластер, создаёт две БД — `t_pre` (схема как в production
+до ремедиации, `schema_base.sql`) и `t_post` (та же схема + миграции 0086–0090) —
+и прогоняет `regression.sh` в обоих режимах. Ожидаемый результат:
+`MODE=pre → FAIL=11`, `MODE=post → PASS=11`.
 
 ## Что проверяется
 
@@ -36,5 +35,10 @@ bash scripts/concurrency/conc_test.sh
 | T7 | `/api/tochka/auto-sync` — тротлинг по `last_synced_at` | обе сессии проходят тротлинг |
 | T8 | `OperationCard` — правка операции двумя пользователями | lost update |
 | T9 | `SplitTransactionModal` — вставка частей прошла, удаление исходной нет | сумма учтена дважды |
+| T10 | CSV-импорт, затем синк Точки того же периода | одно событие записано дважды (FIN-03) |
+| T11 | синк Точки, затем CSV-импорт того же периода | одно событие записано дважды (FIN-03) |
 
-Результаты прогона от 2026-09-19 — в `E2E_AUDIT.md`, раздел 3.
+В колонке «Ожидание» — то, что происходит **до** ремедиации (режим `pre`).
+После миграций 0086–0090 (режим `post`) ни один сценарий не воспроизводится.
+
+Результаты: `E2E_AUDIT.md` раздел 3 (до) и `REMEDIATION_STEP0_5.md` (после).

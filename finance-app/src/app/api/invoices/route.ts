@@ -3,8 +3,6 @@ import { z } from "zod";
 import { parseJson } from "@/lib/api-validation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canEditFinance } from "@/lib/team";
-import { itemAmount, invoiceTotals, type VatRate } from "@/lib/invoices";
-import { nextInvoiceNumberForProject, isAutoInvoiceNumber } from "@/lib/invoiceNumber";
 
 const itemSchema = z.object({
   name: z.string().optional(),
@@ -35,6 +33,7 @@ export async function POST(request: Request) {
       payment_expiry_date: z.string().nullable().optional(),
       note: z.string().optional(),
       items: z.array(itemSchema).min(1),
+      request_id: z.string().uuid().optional(),   // ключ идемпотентности (double submit / ретрай)
     }),
   );
   if (!p.ok) return p.res;
@@ -44,80 +43,40 @@ export async function POST(request: Request) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
 
-  // Плательщик из контрагента — подтянем название/ИНН, если не заданы вручную.
-  let buyerName = (b.buyer_name ?? "").trim();
-  let buyerInn = (b.buyer_inn ?? "").trim();
-  if (b.counterparty_id) {
-    const { data: cp } = await supabase
-      .from("counterparties").select("name, inn").eq("id", b.counterparty_id).eq("team_id", current.team.id).maybeSingle();
-    if (!cp) return NextResponse.json({ error: "Контрагент не найден" }, { status: 400 });
-    if (!buyerName) buyerName = cp.name ?? "";
-    if (!buyerInn) buyerInn = (cp.inn ?? "") as string;
-  }
-  if (!buyerName) return NextResponse.json({ error: "Укажите плательщика (контрагента или название)" }, { status: 400 });
-
-  // Пересчёт позиций и итогов на сервере.
-  const items = b.items.map((it, i) => {
-    const quantity = Number.isFinite(it.quantity) ? (it.quantity as number) : 1;
-    const price = it.price ?? 0;
-    const amount = itemAmount(quantity, price);
-    return {
-      name: (it.name ?? "").trim(),
-      quantity,
-      unit: (it.unit ?? "шт").trim() || "шт",
-      price,
-      vat_rate: (it.vat_rate ?? "none") as VatRate,
-      amount,
-      sort: i,
-    };
+  // Одна бизнес-команда — один RPC — одна транзакция БД. Раньше здесь было три
+  // независимых запроса (update invoices / delete invoice_items / insert
+  // invoice_items): при сбое между ними инвойс оставался без позиций, а два
+  // параллельных сохранения смешивали позиции (аудит, тесты T2/T3).
+  // Итоги (amount/vat_amount) и номер документа считает БД — клиент их не задаёт.
+  const { data, error } = await supabase.rpc("invoice_save", {
+    p_payload: {
+      id: b.id ?? null,
+      team_id: current.team.id,
+      number: b.number ?? "",
+      counterparty_id: b.counterparty_id ?? null,
+      buyer_name: b.buyer_name ?? "",
+      buyer_inn: b.buyer_inn ?? "",
+      buyer_kpp: b.buyer_kpp ?? "",
+      project_id: b.project_id ?? null,
+      purpose: b.purpose ?? "",
+      issue_date: b.issue_date ?? null,
+      payment_expiry_date: b.payment_expiry_date ?? null,
+      note: b.note ?? "",
+      items: b.items.map((it) => ({
+        name: it.name ?? "",
+        quantity: it.quantity ?? 1,
+        unit: it.unit ?? "шт",
+        price: it.price ?? 0,
+        vat_rate: it.vat_rate ?? "none",
+      })),
+    },
+    p_request_id: b.request_id ?? null,
   });
-  if (items.every((it) => it.amount <= 0)) return NextResponse.json({ error: "Добавьте хотя бы одну позицию с суммой" }, { status: 400 });
-  const totals = invoiceTotals(items);
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
-  // Номер: KO-NNN-INV-XX по проекту. При создании присваиваем авторитетно, если
-  // поле пусто или содержит наш авто-формат (защита от гонок/дублей); произвольный
-  // ручной номер (напр. старый формат) сохраняем как есть.
-  let number = (b.number ?? "").trim();
-  if (!b.id && b.project_id && (!number || isAutoInvoiceNumber(number))) {
-    const auto = await nextInvoiceNumberForProject(supabase, current.team.id, b.project_id);
-    if (auto) number = auto;
-  }
-
-  const fields = {
-    team_id: current.team.id,
-    number,
-    counterparty_id: b.counterparty_id ?? null,
-    buyer_name: buyerName,
-    buyer_inn: buyerInn,
-    buyer_kpp: (b.buyer_kpp ?? "").trim(),
-    project_id: b.project_id ?? null,
-    amount: totals.amount,
-    vat_amount: totals.vat_amount,
-    purpose: (b.purpose ?? "").trim(),
-    issue_date: b.issue_date || new Date().toISOString().slice(0, 10),
-    payment_expiry_date: b.payment_expiry_date || null,
-    note: (b.note ?? "").trim(),
-  };
-
-  let invoiceId = b.id;
-  if (invoiceId) {
-    const { error } = await supabase.from("invoices").update(fields).eq("id", invoiceId);
-    if (error) return NextResponse.json({ error: error.message }, { status: 403 });
-  } else {
-    const { data, error } = await supabase
-      .from("invoices").insert({ ...fields, status: "payment_waiting", created_by: user.id }).select("id").single();
-    if (error) return NextResponse.json({ error: error.message }, { status: 403 });
-    invoiceId = data.id;
-  }
-
-  // Перезаписываем позиции.
-  await supabase.from("invoice_items").delete().eq("invoice_id", invoiceId);
-  const { error: itErr } = await supabase.from("invoice_items").insert(
-    items.map((it) => ({ ...it, invoice_id: invoiceId, team_id: current.team.id })),
-  );
-  if (itErr) return NextResponse.json({ error: itErr.message }, { status: 403 });
-
-  return NextResponse.json({ ok: true, id: invoiceId });
+  const res = data as { ok?: boolean; id?: string; number?: string; amount?: number; vat_amount?: number } | null;
+  if (!res?.ok) return NextResponse.json({ error: "Не удалось сохранить инвойс" }, { status: 400 });
+  return NextResponse.json({ ok: true, id: res.id, number: res.number, amount: res.amount, vat_amount: res.vat_amount });
 }
 
 // Сменить статус инвойса (ручные переходы: ожидает/оплачен/отменён/черновик).

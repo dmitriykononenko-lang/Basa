@@ -63,15 +63,24 @@ export default function SplitTransactionModal({
       occurred_on: tx.occurred_on, accrual_date: tx.accrual_date,
       note: p.note || tx.note || null, status: tx.status, created_by: userId,
     }));
-    const { data: created, error: insErr } = await supabase.from("transactions").insert(inserts).select("id");
-    if (insErr) { setBusy(false); return setError(insErr.message); }
-    const firstId = (created as { id: string }[])?.[0]?.id;
-    // перенести вложения на первую часть, чтобы не потерять
-    if (hasAttachments && firstId) {
-      await supabase.from("attachments").update({ transaction_id: firstId }).eq("transaction_id", tx.id);
-    }
-    const { error: delErr } = await supabase.from("transactions").delete().eq("id", tx.id);
-    if (delErr) { setBusy(false); return setError(delErr.message); }
+    // Одна транзакция БД: вставка частей, перенос вложений и удаление исходной
+    // операции происходят либо целиком, либо никак. Раньше это были три
+    // отдельных запроса, и сбой на удалении оставлял деньги учтёнными дважды
+    // (аудит, тест T9).
+    const { data, error: rpcErr } = await supabase.rpc("transaction_split", {
+      p_transaction: tx.id,
+      p_parts: parts.map((p) => ({
+        amount: parseMoney(p.amount),
+        category_id: tx.type === "transfer" ? null : (p.categoryId || null),
+        counterparty_id: p.counterpartyId || null,
+        project_id: p.projectId || null,
+        note: p.note || null,
+      })),
+      p_request_id: crypto.randomUUID(),
+    });
+    if (rpcErr) { setBusy(false); return setError(rpcErr.message); }
+    const res = data as { ok?: boolean } | null;
+    if (!res?.ok) { setBusy(false); return setError("Не удалось разбить операцию"); }
     setBusy(false);
     toast.success(`Операция разбита на ${parts.length}`);
     onClose();
