@@ -386,10 +386,17 @@ export default function ImportWizard({
       // origin='bank_csv' + канонический отпечаток события в БД не дают повторно
       // записать то, что уже импортировано из банка (первопричина FIN-03).
 
-      // Реконсиляция встречных операций (existing → перевод) — отдельные UPDATE
-      // существующих строк; это не создание событий, поэтому вне общего вызова.
+      // Реконсиляция встречных операций (existing → перевод) — через узкий RPC:
+      // он проверяет права, принадлежность счёта команде и двигает version.
       for (const r of reconciles) {
-        await supabase.from("transactions").update(r.insert!).eq("id", r.reconcileId!);
+        const ins = (r.insert ?? {}) as Record<string, unknown>;
+        const { error: rcErr } = await supabase.rpc("transactions_convert_to_transfer", {
+          p_ids: [r.reconcileId!],
+          p_transfer_account: ins.transfer_account_id as string,
+          p_account: (ins.account_id as string) ?? null,
+          p_request_id: crypto.randomUUID(),
+        });
+        if (rcErr) throw rcErr;
       }
 
       type Ins = Record<string, unknown>;

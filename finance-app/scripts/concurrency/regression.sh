@@ -30,6 +30,7 @@ reset(){ $P -c "delete from obligation_payments; delete from transaction_splits;
          # таблиц ниже нет в pre-схеме — отдельными вызовами, чтобы ошибка не
          # откатывала основную очистку (psql -c = одна транзакция)
          $P -c "delete from operation_requests;" >/dev/null 2>&1
+         $P -c "delete from bank_reconciliation_conflicts;" >/dev/null 2>&1
          $P -c "truncate invoice_counters;" >/dev/null 2>&1
          true; }
 check(){ # name, expected, actual
@@ -195,8 +196,10 @@ check T9 "100000/2" "$d" "разбиение операции: сумма не �
 
 # ---------------------------------------------------------------- T10 (FIN-03)
 reset
-CSV_ROW="[{\"type\":\"transfer\",\"amount\":100000,\"currency\":\"RUB\",\"account_id\":\"$ACC_A\",\"transfer_account_id\":\"$ACC_B\",\"occurred_on\":\"2025-01-14\",\"note\":\"Отчисление в фонд\",\"origin\":\"bank_csv\"}]"
-BANK_ROW="[{\"type\":\"transfer\",\"amount\":100000,\"currency\":\"RUB\",\"account_id\":\"$ACC_A\",\"transfer_account_id\":\"$ACC_B\",\"occurred_on\":\"2025-01-14\",\"note\":\"Отчисление в фонд\",\"external_id\":\"cbs-1\",\"provider\":\"tochka\",\"origin\":\"bank\"}]"
+CSV_ROW="[{\"type\":\"transfer\",\"amount\":100000,\"currency\":\"RUB\",\"account_id\":\"$ACC_A\",\"transfer_account_id\":\"$ACC_B\",\"occurred_on\":\"2025-01-14\",\"note\":\"Отчисление в фонд Развитие с операции на сумму 20 000 RUB\",\"origin\":\"bank_csv\"}]"
+# note у банка длиннее: добавлен служебный хвост через '·' — нормализация обязана
+# привести оба варианта к одному отпечатку (замер на проде: 130/130 пар)
+BANK_ROW="[{\"type\":\"transfer\",\"amount\":100000,\"currency\":\"RUB\",\"account_id\":\"$ACC_A\",\"transfer_account_id\":\"$ACC_B\",\"occurred_on\":\"2025-01-14\",\"note\":\"Отчисление в фонд Развитие с операции на сумму 20 000 RUB · Платежное поручение №868534\",\"external_id\":\"cbs-1\",\"provider\":\"tochka\",\"provider_account\":\"40802810520000183872\",\"origin\":\"bank\"}]"
 if [ "$MODE" = pre ]; then
   # как было: CSV писал перевод двумя строками, Точка — третьей
   $P -c "insert into transactions(team_id,type,amount,currency,account_id,occurred_on,note) values
@@ -220,11 +223,75 @@ if [ "$MODE" = pre ]; then
           ('$T','expense',100000,'RUB','$ACC_A','2025-01-14','Отчисление в фонд'),
           ('$T','income',100000,'RUB','$ACC_B','2025-01-14','Отчисление в фонд');" >/dev/null
 else
-  q "select bank_import_commit('$T'::uuid,'{\"file_name\":\"Точка\",\"bank\":\"tochka\"}'::jsonb,'${BANK_ROW/cbs-1/cbs-2}'::jsonb);" >/dev/null
+  q "select bank_import_commit('$T'::uuid,'{\"file_name\":\"Точка\",\"bank\":\"tochka\"}'::jsonb,'${BANK_ROW//cbs-1/cbs-2}'::jsonb);" >/dev/null
   q "select bank_import_commit('$T'::uuid,'{\"file_name\":\"svodnaya.csv\",\"bank\":\"Сводная выписка\"}'::jsonb,'$CSV_ROW'::jsonb);" >/dev/null
 fi
 d=$($P -c "select count(*)||' строк, оборот '||sum(amount) from transactions;")
 check T11 "1 строк, оборот 100000" "$d" "синк Точки → CSV того же периода: событие ровно один раз"
+
+# ---------------------------------------------------------------- T12
+# Две РАЗНЫЕ реальные операции: тот же счёт/дата/сумма, но разные назначение и
+# контрагент. Отпечаток обязан их различить, а при неоднозначности — не дропать.
+# Замер на проде: 537 групп слабого отпечатка коллизируют, 446 из них содержат
+# 2+ разных provider id, то есть это заведомо разные события.
+reset
+CP2=$($P -c "insert into counterparties(team_id,name,kind) values('$T','Другой контрагент','supplier') returning id;")
+if [ "$MODE" = pre ]; then
+  $P -c "insert into transactions(team_id,type,amount,currency,account_id,occurred_on,note,counterparty_id,source,external_id) values
+          ('$T','expense',5000,'RUB','$ACC_A','2026-09-10','Оплата А','$CP','tochka','x1');" >/dev/null
+  $P -c "insert into transactions(team_id,type,amount,currency,account_id,occurred_on,note,counterparty_id,source,external_id) values
+          ('$T','expense',5000,'RUB','$ACC_A','2026-09-10','Оплата Б','$CP2','tochka','x2');" >/dev/null
+else
+  R="[{\"type\":\"expense\",\"amount\":5000,\"currency\":\"RUB\",\"account_id\":\"$ACC_A\",\"occurred_on\":\"2026-09-10\",\"note\":\"Оплата А\",\"counterparty_id\":\"$CP\",\"external_id\":\"x1\",\"provider\":\"tochka\",\"origin\":\"bank\"}]"
+  q "select bank_import_commit('$T'::uuid,'{\"file_name\":\"Точка\"}'::jsonb,'$R'::jsonb);" >/dev/null
+  R2="[{\"type\":\"expense\",\"amount\":5000,\"currency\":\"RUB\",\"account_id\":\"$ACC_A\",\"occurred_on\":\"2026-09-10\",\"note\":\"Оплата Б\",\"counterparty_id\":\"$CP2\",\"external_id\":\"x2\",\"provider\":\"tochka\",\"origin\":\"bank\"}]"
+  q "select bank_import_commit('$T'::uuid,'{\"file_name\":\"Точка\"}'::jsonb,'$R2'::jsonb);" >/dev/null
+fi
+d=$($P -c "select count(*)||' строк, оборот '||sum(amount) from transactions;")
+check T12 "2 строк, оборот 10000" "$d" "две разные операции (разные назначение/контрагент) сохранены обе"
+
+# ---------------------------------------------------------------- T13
+# То же событие из CSV и из Точки, но описание различается служебным хвостом
+# («· Платежное поручение №…»). Нормализация обязана свести их к одной операции.
+reset
+if [ "$MODE" = pre ]; then
+  $P -c "insert into transactions(team_id,type,amount,currency,account_id,occurred_on,note) values
+          ('$T','expense',7700,'RUB','$ACC_A','2026-09-11','Оплата услуг связи');" >/dev/null
+  $P -c "insert into transactions(team_id,type,amount,currency,account_id,occurred_on,note,source,external_id) values
+          ('$T','expense',7700,'RUB','$ACC_A','2026-09-11','Оплата услуг связи · Платежное поручение №12345','tochka','y1');" >/dev/null
+else
+  CSV2="[{\"type\":\"expense\",\"amount\":7700,\"currency\":\"RUB\",\"account_id\":\"$ACC_A\",\"occurred_on\":\"2026-09-11\",\"note\":\"Оплата услуг связи\",\"origin\":\"bank_csv\"}]"
+  BNK2="[{\"type\":\"expense\",\"amount\":7700,\"currency\":\"RUB\",\"account_id\":\"$ACC_A\",\"occurred_on\":\"2026-09-11\",\"note\":\"Оплата услуг связи · Платежное поручение №12345\",\"external_id\":\"y1\",\"provider\":\"tochka\",\"origin\":\"bank\"}]"
+  q "select bank_import_commit('$T'::uuid,'{\"file_name\":\"svodnaya.csv\"}'::jsonb,'$CSV2'::jsonb);" >/dev/null
+  q "select bank_import_commit('$T'::uuid,'{\"file_name\":\"Точка\"}'::jsonb,'$BNK2'::jsonb);" >/dev/null
+fi
+d=$($P -c "select count(*)||' строк, оборот '||sum(amount) from transactions;")
+check T13 "1 строк, оборот 7700" "$d" "описание с разным служебным хвостом: событие схлопнулось в одно"
+
+# ---------------------------------------------------------------- T14
+# КРИТИЧЕСКИЙ тест против silent drop. Две РАЗНЫЕ операции провайдера с
+# ПОЛНОСТЬЮ совпадающим отпечатком (тот же счёт/дата/сумма/валюта/направление,
+# тот же контрагент, то же описание) — на проде такие есть: два вывода Bybit
+# одного дня, bybit-wd-226074267 и bybit-wd-226100544. Приходят двумя разными
+# вызовами импорта. Обе обязаны сохраниться; неоднозначность — в журнал сверки.
+reset
+if [ "$MODE" = pre ]; then
+  $P -c "insert into transactions(team_id,type,amount,currency,account_id,occurred_on,note,source,external_id) values
+          ('$T','expense',1000,'USDT','$ACC_A','2026-05-13','Bybit вывод USDT','bybit','wd-1');" >/dev/null
+  $P -c "insert into transactions(team_id,type,amount,currency,account_id,occurred_on,note,source,external_id) values
+          ('$T','expense',1000,'USDT','$ACC_A','2026-05-13','Bybit вывод USDT','bybit','wd-2');" >/dev/null
+else
+  mk(){ echo "[{\"type\":\"expense\",\"amount\":1000,\"currency\":\"USDT\",\"account_id\":\"$ACC_A\",\"occurred_on\":\"2026-05-13\",\"note\":\"Bybit вывод USDT\",\"external_id\":\"$1\",\"provider\":\"bybit\",\"origin\":\"bank\"}]"; }
+  q "select bank_import_commit('$T'::uuid,'{\"file_name\":\"Bybit\"}'::jsonb,'$(mk wd-1)'::jsonb);" >/dev/null
+  q "select bank_import_commit('$T'::uuid,'{\"file_name\":\"Bybit\"}'::jsonb,'$(mk wd-2)'::jsonb);" >/dev/null
+fi
+n=$($P -c "select count(*) from transactions;")
+c=$($P -c "select count(*) from bank_reconciliation_conflicts;" 2>/dev/null || echo 0)
+if [ "$MODE" = pre ]; then
+  check T14 "2" "$n" "два разных события провайдера с одинаковым отпечатком сохранены оба"
+else
+  check T14 "2|1" "$n|$c" "два разных события провайдера с одинаковым отпечатком сохранены оба + conflict заведён"
+fi
 
 echo "---------------------------------------------------"
 echo "MODE=$MODE: PASS=$pass FAIL=$fail"

@@ -48,25 +48,42 @@ create table team_members (
   primary key (team_id, user_id));
 
 -- helper-функции ролей: те же имена и семантика, что в production
-create or replace function public.is_team_member(_team uuid) returns boolean
+-- Имена параметров и тела — 1:1 с production (важно: `_team_id`, и возврат NULL
+-- для не-участника команды — именно это поведение и есть SEC-008).
+create or replace function public.is_team_member(_team_id uuid) returns boolean
   language sql stable security definer set search_path = public as $$
-  select exists (select 1 from team_members where team_id=_team and user_id=auth.uid()) $$;
+  select exists (select 1 from team_members where team_id=_team_id and user_id=auth.uid()) $$;
 
-create or replace function public.current_team_role(_team uuid) returns app_role
+create or replace function public.current_team_role(_team_id uuid) returns app_role
   language sql stable security definer set search_path = public as $$
-  select role from team_members where team_id=_team and user_id=auth.uid() $$;
+  select role from team_members where team_id=_team_id and user_id=auth.uid() $$;
 
-create or replace function public.can_edit_finance(_team uuid) returns boolean
+create or replace function public.can_edit_finance(_team_id uuid) returns boolean
   language sql stable security definer set search_path = public as $$
-  select public.current_team_role(_team) in ('owner','admin','manager') $$;
+  select public.current_team_role(_team_id) in ('owner','admin','manager') $$;
 
-create or replace function public.can_write_tx(_team uuid) returns boolean
+create or replace function public.can_write_tx(_team_id uuid) returns boolean
   language sql stable security definer set search_path = public as $$
-  select public.current_team_role(_team) in ('owner','admin','manager','employee') $$;
+  select public.current_team_role(_team_id) in ('owner','admin','manager','employee') $$;
 
-create or replace function public.can_manage_team(_team uuid) returns boolean
+create or replace function public.can_manage_team(_team_id uuid) returns boolean
   language sql stable security definer set search_path = public as $$
-  select public.current_team_role(_team) in ('owner','admin') $$;
+  select public.current_team_role(_team_id) in ('owner','admin') $$;
+
+-- Воспроизведение production-функции с NULL-prone guard'ом (SEC-008):
+-- для не-участника can_edit_finance вернёт NULL, `if not NULL` не сработает.
+create or replace function public.support_open_period(p_project uuid) returns void
+language plpgsql security definer set search_path = public as $$
+declare pr record;
+begin
+  select * into pr from projects where id = p_project;
+  if not found then raise exception 'project not found'; end if;
+  if not public.can_edit_finance(pr.team_id) then raise exception 'forbidden'; end if;
+  insert into project_periods (project_id, period_month, period_start, period_end)
+  select p_project, date_trunc('month', coalesce(max(period_end), current_date) + 1)::date,
+         coalesce(max(period_end), current_date) + 1, coalesce(max(period_end), current_date) + 30
+    from project_periods where project_id = p_project;
+end $$;
 
 -- ─── справочники ────────────────────────────────────────────────────────────
 create table accounts (
@@ -110,7 +127,9 @@ create table projects (
 create table project_periods (
   id uuid primary key default gen_random_uuid(),
   project_id uuid not null references projects(id) on delete cascade,
+  period_month date,
   period_start date not null, period_end date not null);
+-- ВНИМАНИЕ (факт production): уникального индекса (project_id, period_month) НЕТ.
 
 create table employee_salaries (
   id uuid primary key default gen_random_uuid(),
@@ -314,16 +333,6 @@ begin
     end loop;
   end loop;
   return v_created;
-end $$;
-
--- заглушка production-функции (нужна materialize_support_cycles)
-create or replace function public.support_open_period(p_project uuid) returns void
-language plpgsql security definer set search_path = public as $$
-begin
-  insert into project_periods (project_id, period_start, period_end)
-  select p_project, coalesce(max(period_end), current_date) + 1,
-                    coalesce(max(period_end), current_date) + 30
-    from project_periods where project_id = p_project;
 end $$;
 
 -- ─── сид ────────────────────────────────────────────────────────────────────

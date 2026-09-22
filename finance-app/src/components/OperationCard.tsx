@@ -202,9 +202,16 @@ export default function OperationCard({
     if (!confirm("Удалить операцию?")) return;
     setBusy(true);
     const supabase = createClient();
-    const { error } = await supabase.from("transactions").delete().eq("id", tx.id);
+    const { data, error } = await supabase.rpc("transaction_delete", {
+      p_transaction: tx.id, p_expected_version: tx.version ?? null, p_request_id: crypto.randomUUID(),
+    });
     setBusy(false);
     if (error) return setError(error.message);
+    const res = data as { ok?: boolean; conflict?: boolean } | null;
+    if (res?.conflict) {
+      setConflict(true);
+      return setError("Операцию изменил другой пользователь — удаление отменено. Перечитайте запись.");
+    }
     toast.success("Операция удалена");
     onClose();
     router.refresh();

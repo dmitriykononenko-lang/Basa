@@ -22,8 +22,10 @@ export type PartPayload = {
   counterparty_id: string | null;
   is_obligation: boolean;
 };
+// parts = null означает «не трогать части» (например, они ещё не загрузились).
+// Это важно: пустой массив стирает существующее разнесение.
 export type PartsHandle = {
-  collect: () => { ok: true; parts: PartPayload[] } | { ok: false; error: string };
+  collect: () => { ok: true; parts: PartPayload[] | null } | { ok: false; error: string };
 };
 
 // Инлайн-редактор «Части операции» (операция остаётся ОДНОЙ записью; части —
@@ -90,6 +92,10 @@ const TransactionPartsEditor = forwardRef<PartsHandle, {
 
   useImperativeHandle(ref, () => ({
     collect() {
+      // Части ещё не загрузились — не трогаем их вообще. Иначе быстрый
+      // «Сохранить» сразу после открытия карточки стирал бы существующее
+      // разнесение операции (пустой массив = удалить все части).
+      if (loading) return { ok: true as const, parts: null };
       // Не разбито — пустой массив: RPC снимет любые существующие части.
       if (!expanded || parts.length < 2) return { ok: true as const, parts: [] };
       if (parts.some((p) => parseMoney(p.amount) <= 0)) return { ok: false as const, error: "У каждой части сумма должна быть больше нуля" };
@@ -105,7 +111,7 @@ const TransactionPartsEditor = forwardRef<PartsHandle, {
         })),
       };
     },
-  }), [expanded, parts, remaining, tx.currency]);
+  }), [expanded, parts, remaining, tx.currency, loading]);
 
   if (loading) return <p className="py-2 text-xs text-slate-400 dark:text-neutral-500">Загрузка частей…</p>;
 

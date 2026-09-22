@@ -202,9 +202,16 @@ export default function OperationsTable({
     if (Object.keys(patch).length === 0) return setErr("Выберите хотя бы одно поле");
     setBusy(true);
     const supabase = createClient();
-    const { error } = await supabase.from("transactions").update(patch).in("id", selected);
+    // Массовая правка идёт через узкий RPC: он меняет только аналитические
+    // поля (сумму/дату/тип/валюту через этот путь изменить нельзя), проверяет
+    // право на каждую строку и двигает version (аудит, T8).
+    const { data, error } = await supabase.rpc("transactions_bulk_patch", {
+      p_ids: selected, p_patch: patch, p_request_id: crypto.randomUUID(),
+    });
     setBusy(false);
     if (error) { toast.error(error.message); return setErr(error.message); }
+    const bp = data as { updated?: number; skipped_forbidden?: number } | null;
+    if (bp?.skipped_forbidden) toast.info(`Пропущено без прав: ${bp.skipped_forbidden}`);
     setBCat(""); setBProj(""); setBCp(""); setBAcc(""); setBStatus("keep");
     clear();
     toast.success(`Обновлено операций: ${selected.length}`);
@@ -231,21 +238,14 @@ export default function OperationsTable({
     setBusy(true);
     setErr(null);
     const supabase = createClient();
-    const { error: insErr } = await supabase.from("transactions").insert({
-      team_id: teamId,
-      type: "transfer",
-      amount: e.amount,
-      currency: e.currency,
-      account_id: e.account_id,
-      transfer_account_id: i.account_id,
-      occurred_on: e.occurred_on,
-      status: e.status,
-      created_by: userId,
+    // Третий путь склейки (ручной выбор двух операций) — тоже через атомарный
+    // RPC: insert перевода и delete двух исходных строк в одной транзакции.
+    const { data, error } = await supabase.rpc("transactions_merge_transfer", {
+      p_expense: e.id, p_income: i.id, p_request_id: crypto.randomUUID(),
     });
-    if (insErr) { setBusy(false); return setErr(insErr.message); }
-    const { error: delErr } = await supabase.from("transactions").delete().in("id", [e.id, i.id]);
     setBusy(false);
-    if (delErr) return setErr(delErr.message);
+    if (error) return setErr(error.message);
+    if (!(data as { ok?: boolean } | null)?.ok) return setErr("Не удалось создать перевод");
     clear();
     toast.success("Создан перевод между счетами");
     router.refresh();
