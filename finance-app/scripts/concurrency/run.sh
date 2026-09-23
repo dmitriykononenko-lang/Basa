@@ -11,7 +11,7 @@ BASE=${BASE:-/var/tmp/pgaudit}
 PGBIN=${PGBIN:-/usr/lib/postgresql/16/bin}
 HERE="$(cd "$(dirname "$0")" && pwd)"
 MIGRATIONS="$HERE/../../supabase/migrations"
-STEPS="0086_guard_constraints 0087_accrual_idempotency 0088_financial_rpcs 0089_optimistic_concurrency 0090_bank_event_identity 0091_write_paths_and_authz"
+STEPS="0086_guard_constraints 0087_accrual_idempotency 0088_financial_rpcs 0089_optimistic_concurrency 0090_bank_event_identity 0091_write_paths_and_authz 0092_transaction_lines"
 
 start_pg() {
   if psql -h "$BASE" -p 5433 -U audit -d postgres -qc "select 1" >/dev/null 2>&1; then return; fi

@@ -95,6 +95,20 @@ export default async function CounterpartyPage({
       .filter((t) => !linkedTxIds.has(t.id));
   }
 
+  // MANAGEMENT LAYER: операции, относящиеся к контрагенту, — это те, у которых
+  // он указан в самой операции ИЛИ в её части (SPLIT-01). Сначала берём id из
+  // канонического слоя аналитики, затем сами операции (реестр показывает
+  // операцию целиком — это cash-строка; разбивку видно внутри карточки).
+  const { data: cpLineIds } = await supabase
+    .from("transaction_lines")
+    .select("transaction_id")
+    .eq("team_id", team.id)
+    .eq("counterparty_id", id)
+    .eq("status", "actual")
+    .order("occurred_on", { ascending: false })
+    .limit(300);
+  const cpTxIds = [...new Set(((cpLineIds ?? []) as { transaction_id: string }[]).map((r) => r.transaction_id))];
+
   const [{ data: txs }, { data: obls }, { data: fxRows }, { data: opAccounts }, { data: opCats }, { data: opProjects }, { data: opCps }, { data: extIdRows }] = await Promise.all([
     supabase
       .from("transactions")
@@ -104,7 +118,7 @@ export default async function CounterpartyPage({
         to_account:accounts!transactions_transfer_account_id_fkey(name),
         category:categories(name), counterparty:counterparties(name), project:projects(name)`)
       .eq("team_id", team.id)
-      .eq("counterparty_id", id)
+      .in("id", cpTxIds.length > 0 ? cpTxIds : ["00000000-0000-0000-0000-000000000000"])
       .eq("status", "actual")
       .order("occurred_on", { ascending: false })
       .limit(100),

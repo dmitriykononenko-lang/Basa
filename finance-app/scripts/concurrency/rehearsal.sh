@@ -104,7 +104,7 @@ REL_BEFORE=$($P -c "select relfilenode from pg_class where relname='transactions
 
 echo
 echo "=== 2. Применение миграций: время каждой ==="
-for m in 0086_guard_constraints 0087_accrual_idempotency 0088_financial_rpcs 0089_optimistic_concurrency 0090_bank_event_identity 0091_write_paths_and_authz; do
+for m in 0086_guard_constraints 0087_accrual_idempotency 0088_financial_rpcs 0089_optimistic_concurrency 0090_bank_event_identity 0091_write_paths_and_authz 0092_transaction_lines; do
   S=$(date +%s.%N)
   OUT=$(psql -h "$BASE" -p 5433 -U audit -d $DB -q -v ON_ERROR_STOP=1 -f "$MIG/$m.sql" 2>&1 | grep -viE "does not exist, skipping|^NOTICE|отсутствует — пропущено")
   E=$(date +%s.%N)

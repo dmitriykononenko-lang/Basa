@@ -18,7 +18,7 @@ cd finance-app && bash scripts/concurrency/run.sh
 ```
 
 `run.sh` поднимает кластер, создаёт две БД — `t_pre` (схема как в production
-до ремедиации, `schema_base.sql`) и `t_post` (та же схема + миграции 0086–0091) —
+до ремедиации, `schema_base.sql`) и `t_post` (та же схема + миграции 0086–0092) —
 и прогоняет `regression.sh` в обоих режимах. Ожидаемый результат:
 `MODE=pre → FAIL=12`, `MODE=post → PASS=14`.
 
@@ -26,7 +26,8 @@ cd finance-app && bash scripts/concurrency/run.sh
 
 ```bash
 MODE=post bash scripts/concurrency/authz_test.sh   # авторизация RPC: 21 проверка
-MODE=post bash scripts/concurrency/split_test.sh   # разнесение операции: 23 проверки
+MODE=post bash scripts/concurrency/split_test.sh   # разнесение операции: 36 проверок
+bash scripts/concurrency/split_prod_replay.sh      # BEFORE/AFTER на данных production
 bash scripts/concurrency/rehearsal.sh              # репетиция миграций на объёме прода
 ```
 
@@ -50,7 +51,7 @@ bash scripts/concurrency/rehearsal.sh              # репетиция мигр
 | T14 | два разных события провайдера с одинаковым отпечатком, двумя вызовами импорта | (проверка против silent drop) |
 
 В колонке «Ожидание» — то, что происходит **до** ремедиации (режим `pre`).
-После миграций 0086–0091 (режим `post`) ни один сценарий не воспроизводится.
+После миграций 0086–0092 (режим `post`) ни один сценарий не воспроизводится.
 T12 и T14 — тесты-страховки: они обязаны проходить и до, и после, потому что
 проверяют, что дедуп НЕ удаляет разные реальные операции.
 

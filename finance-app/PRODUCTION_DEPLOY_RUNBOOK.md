@@ -7,7 +7,8 @@
 * Проект: Supabase `kmvsjozxjosmkhvphzdz`, приложение Vercel `basa-16bf` → basefinance.pro
 * Миграции: `0086_guard_constraints` → `0087_accrual_idempotency` →
   `0088_financial_rpcs` → `0089_optimistic_concurrency` →
-  `0090_bank_event_identity` → `0091_write_paths_and_authz`
+  `0090_bank_event_identity` → `0091_write_paths_and_authz` →
+  `0092_transaction_lines`
 * **Порядок обязателен: сначала БД, потом код.** Новый код вызывает RPC из
   0088–0091 и читает `transactions.version`.
 
@@ -18,7 +19,7 @@
 | PRECHECK | 10–15 мин | работают |
 | Отключение cron/синка | 2 мин | работают |
 | Бэкап / PITR-точка | 2–5 мин | работают |
-| **Миграции 0086–0091** | **< 1 мин** (репетиция: 0,7 с на объёме прода) | **запись недоступна ~10–20 с** на время перезаписи `transactions` |
+| **Миграции 0086–0092** | **< 1 мин** (репетиция: 0,64 с на объёме прода) | **запись недоступна ~10–20 с** на время перезаписи `transactions` |
 | Верификация БД | 5 мин | работают (старый код) |
 | Деплой приложения | 3–6 мин (сборка Vercel) | короткая смена версии |
 | Smoke-тесты | 10–15 мин | работают |
@@ -109,6 +110,15 @@
   select origin, count(*) from transactions group by origin;
   select count(*) from transactions;                                   -- должно совпасть с «до»
   ```
+- [ ] `0092_transaction_lines` — проверка канонического слоя аналитики:
+  ```sql
+  select count(*) from public.transaction_lines;                       -- ≈ операций + частей
+  select count(*) from (select transaction_id from transaction_lines
+     group by transaction_id
+     having sum(amount) <> (select t.amount from transactions t where t.id = transaction_id)) z;  -- 0
+  select reloptions from pg_class where relname='transaction_lines';   -- {security_invoker=on}
+  select has_table_privilege('authenticated','public.transaction_lines','insert'); -- false
+  ```
 - [ ] `0091_write_paths_and_authz` — проверка исправления SEC-008:
   ```sql
   select public.can_edit_finance('00000000-0000-0000-0000-000000000000') is not null;  -- true (больше не NULL)
@@ -144,6 +154,7 @@
 - [ ] **T8:** открыть одну операцию в двух вкладках, сохранить в первой, затем во второй → вторая показывает «Операцию изменил другой пользователь» и кнопку «Перечитать актуальную запись».
 - [ ] **Split (бизнес-требование):** взять тестовую операцию, разнести 60/40 на два проекта → ОПиУ и ДДС показывают исходную сумму один раз, разбивка по проектам верна; поменять на 25/75 → старые значения исчезли.
 - [ ] **T4:** попытаться разнести на обязательство больше остатка → отказ «Переплата».
+- [ ] **SPLIT-01 (управленческая аналитика):** на тестовой операции с разнесением 60/40 на два проекта и двух исполнителей проверить, что карточка проекта, карточка сотрудника, бюджеты, дашборд и отчёты показывают части (60/40), а итог периода и остаток счёта — исходную сумму один раз. Для реальных данных: открыть карточку сотрудника «Станислав Кутишко» — выплата 200,00 USDT должна появиться (сейчас её там нет) и разложиться на проекты [125] и [126].
 - [ ] **T9:** разбить тестовую операцию на две части → исходная исчезла, сумма сохранилась.
 - [ ] **T6/T7/FIN-03:** запустить импорт Точки вручную (`/settings/bank`) → в результате видно `imported/skipped`; запустить второй раз сразу → `imported = 0`, новых строк нет. Проверить `select count(*) from bank_reconciliation_conflicts;` — записи (если есть) осмысленны.
 - [ ] Удалить тестовые объекты SMOKE.
@@ -176,6 +187,7 @@
 | Осиротевшие батчи | `select count(*) from import_batches b where not exists(select 1 from transactions t where t.import_batch_id=b.id)` | не растёт (было 32, новых быть не должно) |
 | Дубли авто-начислений | `db_integrity_audit.sql` | не растёт |
 | Задвоенные переводы (FIN-03) | детектор в `db_integrity_audit.sql` | ровно 126, не растёт |
+| Σ строк аналитики = сумме операции | `select count(*) from (select transaction_id from transaction_lines group by transaction_id having sum(amount) <> (select t.amount from transactions t where t.id=transaction_id)) z` | 0 |
 
 ## 11. Критерии откатa
 
@@ -194,7 +206,7 @@
    Схема 0086–0091 совместима со старым кодом, поэтому в большинстве случаев этого достаточно.
 2. Проверить, что старый код работает и целостность в норме.
 3. **Только если проблема в самой схеме** — откатывать миграции в обратном порядке
-   `0091 → 0090 → 0089 → 0088 → 0087 → 0086` скриптами из
+   `0092 → 0091 → 0090 → 0089 → 0088 → 0087 → 0086` скриптами из
    `supabase/migrations/rollback/` (см. README там же; для 0087 нужен текст функций,
    сохранённый в §1).
 4. Крайняя мера — PITR на метку из §3. Теряются все пользовательские изменения

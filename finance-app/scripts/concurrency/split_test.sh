@@ -75,13 +75,23 @@ check S1b "1" "$d" "для пользователя это по-прежнему
 # ── S2. аналитика по проектам / исполнителям / статьям ─────────────────────
 # Правило агрегации в отчётах: если у операции есть части — берутся ЧАСТИ
 # вместо строки целиком (reports/pnl/page.tsx:158-176, cashflow:139-147).
-agg(){ $P -c "with lines as (
+# В post-режиме спрашиваем САМО каноническое представление transaction_lines —
+# то, что реально читают страницы. В pre-режиме представления в схеме нет,
+# поэтому правило выписано вручную.
+agg(){
+  if [ "$MODE" = post ]; then
+    $P -c "select coalesce(sum(amount),0) from transaction_lines
+            where status='actual' and ($(echo "$1" | sed 's/\bprj\b/project_id/g; s/\bcp\b/counterparty_id/g; s/\bcat\b/category_id/g'));"
+  else
+    $P -c "with lines as (
                 select coalesce(s.project_id, t.project_id) prj, coalesce(s.counterparty_id, t.counterparty_id) cp,
                        coalesce(s.category_id, t.category_id) cat, coalesce(s.amount, t.amount) amt
                   from transactions t
                   left join transaction_splits s on s.transaction_id = t.id
                  where t.status='actual')
-              select coalesce(sum(amt),0) from lines where $1;"; }
+              select coalesce(sum(amt),0) from lines where $1;"
+  fi
+}
 check S2a "6000000" "$(agg "prj='$PA'")" "Проект A получил 60 000"
 check S2b "4000000" "$(agg "prj='$PB'")" "Проект B получил 40 000"
 check S2c "6000000" "$(agg "cp='$CA'")"  "Исполнитель A получил 60 000"
@@ -163,6 +173,72 @@ else
   $P -c "insert into transaction_splits(team_id,transaction_id,amount,project_id) values('$T','$TX',2500000,'$PA'),('$T','$TX',7500000,'$PB');" >/dev/null
 fi
 check S8 rejected "$o" "части, не равные сумме операции, не сохраняются"
+
+# ── S9. потребители аналитики: те же запросы, что делают страницы ──────────
+# Восстанавливаем состояние 25/75 со всеми измерениями: предыдущие тесты
+# (параллельная правка) намеренно оставили части без контрагента и статьи.
+if [ "$MODE" = post ]; then
+  V=$($P -c "select version from transactions where id='$TX';")
+  save_parts 2500000 7500000 "$V" >/dev/null
+fi
+if [ "$MODE" = post ]; then
+  # projects/[id]: выручка/затраты проекта
+  d=$($P -c "select coalesce(sum(amount),0) from transaction_lines where status='actual' and project_id='$PA' and type='expense';")
+  check S9a "2500000" "$d" "страница проекта A: затраты 25 000"
+  # employees/[id] и counterparties/[id]: фактические выплаты по контрагенту
+  d=$($P -c "select coalesce(sum(amount),0) from transaction_lines where status='actual' and counterparty_id='$CB' and type='expense';")
+  check S9b "7500000" "$d" "карточка исполнителя B: выплаты 75 000"
+  # budgets и dashboard: расходы по статье
+  d=$($P -c "select coalesce(sum(amount),0) from transaction_lines where status='actual' and type='expense' and category_id='$KA';")
+  check S9c "2500000" "$d" "бюджеты/дашборд: статья A = 25 000"
+  # reports: итог периода
+  d=$($P -c "select coalesce(sum(amount),0) from transaction_lines where status='actual' and type='expense';")
+  check S9d "10000000" "$d" "отчёты: итог расходов 100 000 (не 200 000)"
+  # реестр операций проекта/контрагента: одна исходная операция
+  d=$($P -c "select count(distinct transaction_id) from transaction_lines where status='actual' and project_id='$PA';")
+  check S9e "1" "$d" "в реестре проекта A — одна исходная операция"
+  # инвариант представления: сумма строк каждой операции = её сумме
+  d=$($P -c "select count(*) from (select transaction_id, sum(amount) s, max(transaction_amount) a from transaction_lines group by transaction_id having sum(amount) <> max(transaction_amount)) z;")
+  check S9f "0" "$d" "Σ строк = сумме операции для КАЖДОЙ операции"
+fi
+
+# ── S11. разнесение НЕ создаёт второго начисления/обязательства ───────────
+# Разнесение фактической оплаты и начисление обязательства — разные
+# экономические события. Части операции живут в transaction_splits и на
+# obligations/obligation_payments не влияют вообще.
+OBLN=$($P -c "select count(*) from obligations;")
+PAYN=$($P -c "select count(*) from obligation_payments;")
+if [ "$MODE" = post ]; then
+  V=$($P -c "select version from transactions where id='$TX';")
+  save_parts 3000000 7000000 "$V" >/dev/null
+else
+  save_parts 3000000 7000000 >/dev/null
+fi
+d=$($P -c "select (select count(*) from obligations)||'/'||(select count(*) from obligation_payments);")
+check S11 "$OBLN/$PAYN" "$d" "правка разнесения не создала начислений и разнесений по обязательствам"
+if [ "$MODE" = post ]; then
+  V=$($P -c "select version from transactions where id='$TX';")
+  save_parts 2500000 7500000 "$V" >/dev/null
+else
+  save_parts 2500000 7500000 >/dev/null
+fi
+
+# ── S10. полное снятие разнесения → fallback к исходной операции ───────────
+if [ "$MODE" = post ]; then
+  V=$($P -c "select version from transactions where id='$TX';")
+  q "select transaction_save('$TX','{\"project_id\":\"$PA\",\"counterparty_id\":\"$CA\",\"category_id\":\"$KA\"}'::jsonb,$V,'[]'::jsonb, gen_random_uuid());" >/dev/null
+else
+  $P -c "delete from transaction_splits where transaction_id='$TX';" >/dev/null
+  $P -c "update transactions set project_id='$PA', counterparty_id='$CA', category_id='$KA' where id='$TX';" >/dev/null
+fi
+d=$($P -c "select count(*) from transaction_splits where transaction_id='$TX';")
+check S10 "0" "$d" "разнесение снято"
+check S10a "10000000" "$(agg "prj='$PA'")" "fallback: проект A получил всю операцию 100 000"
+check S10b "0" "$(agg "prj='$PB'")" "fallback: у проекта B не осталось старых 75 000"
+check S10c "10000000" "$(agg "cp='$CA'")" "fallback: исполнитель A получил 100 000"
+check S10d "10000000" "$(agg "true")" "fallback: итог по-прежнему 100 000"
+BAL3=$($P -c "select balance from account_balances where account_id='$ACC';")
+check S10e "-10000000" "$((BAL3 - BAL0))" "fallback: движение денег по-прежнему учтено один раз"
 
 echo "---------------------------------------------------"
 echo "SPLIT MODE=$MODE: PASS=$pass FAIL=$fail"
