@@ -4,6 +4,7 @@ import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import { decryptSecret } from "@/lib/crypto";
 import { getAccounts } from "@/lib/tochka";
 import { importTochkaStatement } from "@/lib/tochka-import";
+import { financialImportsLocked, financialImportsLockedResponse } from "@/lib/maintenance";
 
 // Фоновая авто-синхронизация Точки «при открытии приложения» — чтобы не нажимать
 // кнопки. Работает под сессией пользователя (не требует CRON_SECRET/крона Vercel).
@@ -13,6 +14,8 @@ const FRESH_MINUTES = 120;
 const WINDOW_DAYS = 10;
 
 export async function POST() {
+  // Техническая заморозка импорта — до любых обращений к БД и к API Точки.
+  if (financialImportsLocked()) return financialImportsLockedResponse();
   const current = await getCurrentTeam();
   if (!current) return NextResponse.json({ ok: true, skipped: "no_team" });
   if (!canEditFinance(current.role)) return NextResponse.json({ ok: true, skipped: "no_access" });

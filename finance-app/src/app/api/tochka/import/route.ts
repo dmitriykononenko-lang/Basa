@@ -4,6 +4,7 @@ import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import { decryptSecret } from "@/lib/crypto";
 import { getAccounts, fetchStatementRaw } from "@/lib/tochka";
 import { importTochkaStatement } from "@/lib/tochka-import";
+import { financialImportsLocked, financialImportsLockedResponse } from "@/lib/maintenance";
 
 // Загрузка крупной выписки идёт окнами с «шагами назад» — может занять до минут.
 export const maxDuration = 300;
@@ -11,6 +12,9 @@ export const maxDuration = 300;
 // Импорт операций из Точки за период в транзакции (с дедупом и пометкой переводов).
 // ?debug=1 — вернуть сырые операции из выписки без вставки (для сверки полей).
 export async function POST(request: Request) {
+  // Техническая заморозка импорта — до любых обращений к БД и к API Точки.
+  // Блокируется и ?debug=1: это маршрут импорта, а не read-only endpoint.
+  if (financialImportsLocked()) return financialImportsLockedResponse();
   const debug = new URL(request.url).searchParams.get("debug") === "1";
   const current = await getCurrentTeam();
   if (!current) return NextResponse.json({ error: "Нет команды" }, { status: 400 });
