@@ -130,6 +130,24 @@ psql -h "$BASE" -p 5433 -U audit -d "$DB" -q -v ON_ERROR_STOP=1 -f "$HERE/../../
 psql -h "$BASE" -p 5433 -U audit -d "$DB" -q -v ON_ERROR_STOP=1 -f "$HERE/../../supabase/migrations/0091_write_paths_and_authz.sql" 2>&1 | grep -viE 'notice|skipping' | head -5
 phase "IDEMP" denied_privilege forbidden forbidden allowed forbidden
 
+echo "--- drift: закрывает ли 0091 из репозитория ACL SEC-009 ---"
+# В фикстуре bybit_sync_logged нет, поэтому создаём её с УЯЗВИМЫМ ACL, как было в
+# production до отдельного hotfix, и проверяем, что 0091 из репозитория её закрывает.
+# Это проверка сигнатуры: до правки в списке 0091 стояла bybit_sync_logged() без
+# аргумента, revoke уходил в undefined_function и уязвимый ACL сохранялся.
+$P -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
+create or replace function public.bybit_sync_logged(p_days integer default 7) returns void
+language plpgsql security definer set search_path = public as $$ begin return; end $$;
+grant execute on function public.bybit_sync_logged(integer) to public, anon, authenticated, service_role;
+SQL
+acl(){ $P -c "select has_function_privilege('anon','public.bybit_sync_logged(integer)','EXECUTE')||'/'||has_function_privilege('public','public.bybit_sync_logged(integer)','EXECUTE');"; }
+check "drift bybit ACL до 0091" "true/true" "$(acl)" "уязвимое состояние воспроизведено"
+psql -h "$BASE" -p 5433 -U audit -d "$DB" -q -v ON_ERROR_STOP=1 -f "$HERE/../../supabase/migrations/0091_write_paths_and_authz.sql" 2>&1 | grep -viE 'notice|skipping' | head -3
+check "drift bybit ACL после 0091" "false/false" "$(acl)" "0091 из репозитория закрывает SEC-009"
+sacl(){ $P -c "select has_function_privilege('anon','$1','EXECUTE')||'/'||has_function_privilege('public','$1','EXECUTE')||'/'||has_function_privilege('authenticated','$1','EXECUTE');"; }
+check "drift support_open ACL" "false/false/true" "$(sacl 'public.support_open_period(uuid,bigint,uuid,uuid)')" "anon/PUBLIC закрыты, authenticated сохранён"
+check "drift support_delete ACL" "false/false/true" "$(sacl 'public.support_delete_period(uuid)')" "anon/PUBLIC закрыты, authenticated сохранён"
+
 echo "---------------------------------------------------"
 echo "SEC-008/010: PASS=$pass FAIL=$fail"
 [ "$fail" = 0 ]

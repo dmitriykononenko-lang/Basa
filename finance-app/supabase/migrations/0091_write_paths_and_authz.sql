@@ -54,9 +54,14 @@ begin
   foreach f in array array[
     'public.support_open_period(uuid, bigint, uuid, uuid)',
     'public.support_delete_period(uuid)',
+    -- ВНИМАНИЕ: фактическая сигнатура в production — (uuid, text, text).
+    -- Здесь оставлена как есть намеренно: этот revoke уходит в ветку
+    -- undefined_function и ничего не делает. Правится вместе с остальным
+    -- hardening SEC-011 (pinned search_path) уже после развёртывания —
+    -- чтобы не менять поведение миграции перед окном.
     'public.next_document_number(uuid, text)',
     'public.next_project_code(uuid)',
-    'public.bybit_sync_logged()'
+    'public.bybit_sync_logged(integer)'
   ] loop
     begin
       execute format('revoke all on function %s from public', f);
