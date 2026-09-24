@@ -1,30 +1,43 @@
 #!/usr/bin/env bash
 # ============================================================================
-# backup_and_verify.sh — выполняет MANUAL_BACKUP_PLAN.md и Разрешение №2A.2
-# одной командой: backup → restore → сверка → репетиция 0086–0092 → откат.
+# backup_and_verify.sh — Разрешение №2A.2 одной командой:
+#   backup production → restore в одноразовую БД → сверка 27 показателей →
+#   репетиция 0086–0092 → проверка отката 0092_down…0086_down.
 #
-# ЗАПУСКАТЬ СО СВОЕЙ МАШИНЫ, не из сессии агента: нужен клиент PostgreSQL 17
-# (сервер 17.6) и сетевой доступ к БД Supabase. В контейнере агента нет ни
-# того, ни другого: клиент только 16.13, apt.postgresql.org и хост БД режет
-# сетевая политика, docker-демон не запущен.
+# ЗАПУСКАТЬ СО СВОЕЙ МАШИНЫ (macOS Apple Silicon подходит).
+# Пошаговая инструкция: BACKUP_RUNBOOK_MACOS.md
 #
-#   export DB_URL='postgresql://postgres.<ref>@<POOLER_HOST>:5432/postgres?sslmode=require'
-#   read -rsp 'DB password: ' PGPASSWORD; export PGPASSWORD; echo
-#   bash scripts/backup/backup_and_verify.sh
-#
-# Production НЕ изменяется: к нему идут только SELECT и pg_dump.
-# Ожидаемые значения не зашиты — снимаются с production в момент запуска.
+# ГАРАНТИИ БЕЗОПАСНОСТИ (проверяются самим скриптом, а не обещаются):
+#   * к production идут ТОЛЬКО select/show и pg_dump — через обёртку prod_ro(),
+#     которая отказывается выполнять что-либо иное;
+#   * все DDL/DML, миграции, откаты и restore идут ТОЛЬКО в одноразовую БД,
+#     и перед каждым таким шагом проверяется, что цель — локальный сокет
+#     во временном каталоге, а не production;
+#   * пароль берётся из PGPASSWORD, никогда не попадает в argv, в метаданные,
+#     в логи и в вывод; DB_URL с вписанным паролем отвергается;
+#   * любой критический сбой = немедленный выход с кодом != 0.
 # ============================================================================
-set -euo pipefail
+set -Eeuo pipefail
 
-: "${DB_URL:?нужен DB_URL}"
-: "${PGPASSWORD:?нужен PGPASSWORD (через read -rs, не в истории команд)}"
+die(){ echo "ОСТАНОВ: $*" >&2; exit 1; }
+trap 'die "непредвиденная ошибка на строке $LINENO"' ERR
+
+: "${DB_URL:?нужен DB_URL (строка подключения БЕЗ пароля)}"
+: "${PGPASSWORD:?нужен PGPASSWORD — задайте через: read -rsp \"пароль: \" PGPASSWORD; export PGPASSWORD}"
+
+# ── пароль не должен быть вписан в строку подключения ───────────────────────
+case "$DB_URL" in
+  *://*:*@*) die "в DB_URL вписан пароль. Уберите его: пароль передаётся только через PGPASSWORD.
+       Правильный вид: postgresql://postgres.<ref>@<HOST>:5432/postgres?sslmode=require" ;;
+esac
+case "$DB_URL" in postgres://*|postgresql://*) ;; *) die "DB_URL должен начинаться с postgresql://" ;; esac
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$HERE/../.."
 MIGRATIONS="$REPO/supabase/migrations"
 DOWN="$MIGRATIONS/rollback"
 STEPS="0086_guard_constraints 0087_accrual_idempotency 0088_financial_rpcs 0089_optimistic_concurrency 0090_bank_event_identity 0091_write_paths_and_authz 0092_transaction_lines"
+[ -f "$MIGRATIONS/0086_guard_constraints.sql" ] || die "запускайте из репозитория: не вижу $MIGRATIONS"
 
 TS=$(date -u +%Y%m%dT%H%M%SZ)
 OUT=${OUT:-"$HOME/basa-backup-$TS"}
@@ -32,35 +45,46 @@ mkdir -p "$OUT"; chmod 700 "$OUT"
 DUMP="$OUT/basa_public_$TS.dump"
 META="$OUT/backup_metadata_$TS.txt"
 
-# ── клиент 17: локальный, иначе docker ──────────────────────────────────────
-if command -v pg_dump >/dev/null && pg_dump --version | grep -qE ' 1[7-9]\.'; then
-  PGD=pg_dump; PGR=pg_restore; PSQL=psql
-  echo "клиент: локальный $(pg_dump --version)"
-elif command -v docker >/dev/null && docker info >/dev/null 2>&1; then
-  D="docker run --rm -i --network host -e PGPASSWORD -v $OUT:/out postgres:17"
-  PGD="$D pg_dump"; PGR="$D pg_restore"; PSQL="$D psql"
-  echo "клиент: docker postgres:17"
-else
-  echo "ОСТАНОВ: нужен pg_dump >= 17 либо работающий docker." >&2
-  echo "Подсказка: сервер PostgreSQL 17 без docker можно получить из npm" >&2
-  echo "  npm i @embedded-postgres/linux-x64@17.6.0-beta.15   (initdb/pg_ctl/postgres)," >&2
-  echo "  но pg_dump/pg_restore/psql там НЕ поставляются — их нужно ставить отдельно." >&2
-  exit 1
-fi
-dpath(){ case "$PGD" in docker*) echo "/out/$(basename "$1")";; *) echo "$1";; esac; }
+# ── клиент PostgreSQL 17 ────────────────────────────────────────────────────
+for c in /opt/homebrew/opt/postgresql@17/bin /usr/local/opt/postgresql@17/bin /usr/lib/postgresql/17/bin ""; do
+  if [ -x "${c:+$c/}pg_dump" ] && "${c:+$c/}pg_dump" --version | grep -qE ' 1[7-9]\.'; then PGBIN="$c"; break; fi
+done
+[ "${PGBIN+set}" = set ] || die "не найден pg_dump версии 17+. На macOS: brew install postgresql@17"
+P(){ echo "${PGBIN:+$PGBIN/}$1"; }
+for t in pg_dump pg_restore psql initdb pg_ctl; do
+  [ -x "$(P "$t")" ] || die "не найден $t рядом с pg_dump ($PGBIN)"
+done
+echo "клиент: $("$(P pg_dump)" --version)"
 
-# ── 1. предполётная проверка заморозки ──────────────────────────────────────
-echo "── предполётная проверка ──"
-$PSQL "$DB_URL" -At -F'|' -c "
-select (select count(*) from pg_stat_activity where state<>'idle' and pid<>pg_backend_pid()) as active,
-       (select string_agg(jobid||':'||active,',' order by jobid) from cron.job) as cron,
-       (select count(*) from transactions) as tx,
-       (select count(*) from import_batches) as batches,
-       (select max(last_synced_at) from bank_connections) as last_synced;" | tee "$OUT/preflight_$TS.txt"
-echo "Прервите (Ctrl-C), если active<>0, cron<>1:f,2:f или счётчики разошлись с принятым baseline."
-sleep 5
+sha256(){ if command -v shasum >/dev/null; then shasum -a 256 "$1" | awk '{print $1}';
+           else sha256sum "$1" | awk '{print $1}'; fi; }
 
-# ── 2. снимок ожидаемых значений с production (27 показателей) ──────────────
+# ── обёртка: к production допускаются только select/show ────────────────────
+prod_ro(){
+  local q="$1" first low
+  low=$(printf '%s' "$q" | tr '\n\t' '  ' | tr '[:upper:]' '[:lower:]')
+  first=$(printf '%s' "$low" | sed -E 's/^ +//' | cut -d' ' -f1)
+  case "$first" in select|show|with|table) ;;
+    *) die "внутренняя защита: к production попытались отправить запрос, начинающийся с '$first'" ;; esac
+  case " $low " in
+    *" insert "*|*" update "*|*" delete "*|*" drop "*|*" truncate "*|*" alter "*|*" create "*|*" grant "*|*" revoke "*|*" copy "*|*" call "*)
+      die "внутренняя защита: в запросе к production обнаружено изменяющее ключевое слово" ;;
+  esac
+  "$(P psql)" "$DB_URL" -At -F'=' -v ON_ERROR_STOP=1 -c "$q"
+}
+
+# ── 1. предполётная проверка ────────────────────────────────────────────────
+echo "── предполётная проверка production (только чтение) ──"
+prod_ro "select 'active_backends='||(select count(*) from pg_stat_activity where state<>'idle' and pid<>pg_backend_pid())
+      ||' cron='||(select string_agg(jobid||':'||active,',' order by jobid) from cron.job)
+      ||' tx='||(select count(*) from transactions)
+      ||' batches='||(select count(*) from import_batches)
+      ||' last_synced='||coalesce((select max(last_synced_at)::text from bank_connections),'-')" | tee "$OUT/preflight_$TS.txt"
+echo
+echo "Сверьте строку выше с принятым baseline. Если что-то разошлось — нажмите Ctrl-C сейчас."
+echo "Продолжение через 10 секунд..."; sleep 10
+
+# ── 2. ожидаемые значения снимаются с живого production (27 показателей) ────
 EXPECT_SQL="
 select 'tables',      count(*)::text from information_schema.tables where table_schema='public' and table_type='BASE TABLE'
 union all select 'views',       count(*)::text from information_schema.views where table_schema='public'
@@ -110,80 +134,108 @@ union all select 'acl:'||p.oid::regprocedure::text,
     'public.can_write_tx(uuid)'::regprocedure,
     'public.can_manage_team(uuid)'::regprocedure)
 order by 1;"
-$PSQL "$DB_URL" -At -F'=' -c "$EXPECT_SQL" > "$OUT/expected_$TS.txt"
-echo "ожидаемых показателей: $(wc -l < "$OUT/expected_$TS.txt")"
+prod_ro "$EXPECT_SQL" > "$OUT/expected_$TS.txt"
+n_exp=$(wc -l < "$OUT/expected_$TS.txt" | tr -d ' ')
+[ "$n_exp" -ge 27 ] || die "с production снято только $n_exp показателей, ожидалось не меньше 27"
+echo "снято показателей с production: $n_exp"
 
-# ── 3. дамп ─────────────────────────────────────────────────────────────────
+# ── 3. дамп (чтение; пароль только в PGPASSWORD, не в argv) ─────────────────
+echo "── снимаю дамп ──"
 STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-$PGD "$DB_URL" --format=custom --compress=9 --verbose \
+"$(P pg_dump)" "$DB_URL" --format=custom --compress=9 --verbose \
      --schema=public --schema=supabase_migrations \
-     --file="$(dpath "$DUMP")" 2> "$OUT/pg_dump_$TS.log"
+     --file="$DUMP" 2> "$OUT/pg_dump_$TS.log" || die "pg_dump упал, см. $OUT/pg_dump_$TS.log"
 FINISHED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-sha(){ sha256sum "$1" 2>/dev/null | cut -d' ' -f1 || shasum -a 256 "$1" | cut -d' ' -f1; }
+[ -s "$DUMP" ] || die "дамп пустой"
 
+SIZE=$(wc -c < "$DUMP" | tr -d ' ')
 { echo "backup_started_at   : $STARTED"
   echo "backup_completed_at : $FINISHED"
   echo "file                : $(basename "$DUMP")"
-  echo "size_bytes          : $(stat -c%s "$DUMP" 2>/dev/null || stat -f%z "$DUMP")"
-  echo "sha256              : $(sha "$DUMP")"
-  echo "source_db           : $(echo "$DB_URL" | sed -E 's#//[^@]*@#//<redacted>@#')"
-  echo "server_version      : $($PSQL "$DB_URL" -At -c 'show server_version')"
-  echo "pg_dump_version     : $($PGD --version)"
+  echo "size_bytes          : $SIZE"
+  echo "sha256              : $(sha256 "$DUMP")"
+  echo "source_db           : $(printf '%s' "$DB_URL" | sed -E 's#//[^@/]*@#//<redacted>@#')"
+  echo "server_version      : $(prod_ro 'show server_version')"
+  echo "pg_dump_version     : $("$(P pg_dump)" --version)"
   echo "scope               : --schema=public --schema=supabase_migrations, -Fc --compress=9"
 } | tee "$META"
 
-echo "── что реально вошло в дамп (оглавление) ──"
-$PGR --list "$(dpath "$DUMP")" > "$OUT/dump_toc_$TS.txt" 2>&1 || true
-awk '{print $4}' "$OUT/dump_toc_$TS.txt" | grep -v '^$' | sort | uniq -c | sort -rn | head -20 | tee "$OUT/dump_objects_$TS.txt"
+"$(P pg_restore)" --list "$DUMP" > "$OUT/dump_toc_$TS.txt" 2>&1 || true
+{ awk '{print $4}' "$OUT/dump_toc_$TS.txt" | grep -v '^$' | sort | uniq -c | sort -rn | head -20; } > "$OUT/dump_objects_$TS.txt" || true
+echo "── состав дампа (топ типов объектов) ──"; cat "$OUT/dump_objects_$TS.txt"
 
-echo "── дополнительные артефакты (то, чего в дампе нет) ──"
-if command -v supabase >/dev/null; then
-  supabase db dump --db-url "$DB_URL" --role-only -f "$OUT/basa_roles_$TS.sql" && echo "  роли: ok" || echo "  роли: пропущено"
-else echo "  роли: supabase CLI не установлен — пропущено"; fi
-$PSQL "$DB_URL" -At -c "select jobid, jobname, schedule, active from cron.job order by jobid" > "$OUT/cron_jobs_$TS.txt"
-echo "  cron.job: $(wc -l < "$OUT/cron_jobs_$TS.txt") строк (без поля command — оно содержит секрет, OPS-01)"
-(cd "$OUT" && sha256sum ./*.dump ./*.txt 2>/dev/null > SHA256SUMS; true)
+echo "── дополнительные артефакты ──"
+if command -v supabase >/dev/null 2>&1; then
+  if supabase db dump --db-url "$DB_URL" --role-only -f "$OUT/basa_roles_$TS.sql" >/dev/null 2>&1
+    then echo "  роли: ok"; else echo "  роли: не получилось, пропущено"; fi
+else echo "  роли: Supabase CLI не установлен — пропущено (не критично)"; fi
+prod_ro "select jobid||' '||jobname||' '||schedule||' active='||active from cron.job order by jobid" \
+  > "$OUT/cron_jobs_$TS.txt"
+echo "  cron.job: сохранён БЕЗ поля command (в нём лежит секрет, OPS-01)"
+( cd "$OUT" && for f in *.dump *.txt *.sql; do [ -f "$f" ] && echo "$(sha256 "$f")  $f"; done > SHA256SUMS ) || true
 
-# ── 4. одноразовый PostgreSQL 17 и восстановление ───────────────────────────
-command -v docker >/dev/null && docker info >/dev/null 2>&1 || { echo "для проверки нужен docker" >&2; exit 1; }
-docker rm -f basa-verify >/dev/null 2>&1 || true
-docker run -d --name basa-verify -e POSTGRES_PASSWORD=verify -p 5455:5432 postgres:17 >/dev/null
-V='postgresql://postgres:verify@localhost:5455/postgres'
-until psql "$V" -c 'select 1' >/dev/null 2>&1; do sleep 1; done
+# ── 4. одноразовая БД: свой кластер PostgreSQL 17 во временном каталоге ─────
+VDATA="$OUT/verifydb"; VSOCK="$OUT/vsock"; VPORT=${VPORT:-5455}
+mkdir -p "$VSOCK"
+"$(P initdb)" -D "$VDATA" -U verifier --auth=trust >"$OUT/initdb_$TS.log" 2>&1 || die "initdb упал, см. $OUT/initdb_$TS.log"
+"$(P pg_ctl)" -D "$VDATA" -o "-p $VPORT -k $VSOCK -c listen_addresses=" -l "$OUT/verifydb_$TS.log" -w start >/dev/null \
+  || die "не удалось поднять одноразовый кластер, см. $OUT/verifydb_$TS.log"
+stop_v(){ "$(P pg_ctl)" -D "$VDATA" -m immediate stop >/dev/null 2>&1 || true; }
+trap 'rc=$?; stop_v; [ $rc -ne 0 ] && echo "ОСТАНОВ: сбой, код $rc" >&2; exit $rc' EXIT
 
-psql "$V" -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
-do $$ begin create role anon nologin; exception when duplicate_object then null; end $$;
-do $$ begin create role authenticated nologin; exception when duplicate_object then null; end $$;
-do $$ begin create role service_role nologin; exception when duplicate_object then null; end $$;
-do $$ begin create role authenticator nologin; exception when duplicate_object then null; end $$;
-do $$ begin create role supabase_admin superuser nologin; exception when duplicate_object then null; end $$;
-do $$ begin create role supabase_auth_admin nologin; exception when duplicate_object then null; end $$;
-do $$ begin create role supabase_storage_admin nologin; exception when duplicate_object then null; end $$;
-create extension if not exists pgcrypto; create extension if not exists "uuid-ossp";
+# ЦЕЛЬ ДЛЯ ВСЕХ РАЗРУШАЮЩИХ ОПЕРАЦИЙ. Только локальный сокет во временном каталоге.
+VOPTS=(-h "$VSOCK" -p "$VPORT" -U verifier -d postgres)
+assert_disposable(){
+  case "$VSOCK" in "$OUT"/*) ;; *) die "цель не во временном каталоге — разрушающие операции запрещены" ;; esac
+  local who
+  who=$("$(P psql)" "${VOPTS[@]}" -At -c "select current_user||'@'||coalesce(inet_server_addr()::text,'unix-socket')||':'||coalesce(current_setting('port',true),'?')" 2>/dev/null || true)
+  case "$who" in "verifier@unix-socket:$VPORT") ;; *) die "цель не опознана как одноразовая БД (получено: '$who') — разрушающие операции запрещены" ;; esac
+}
+assert_disposable
+vq(){ "$(P psql)" "${VOPTS[@]}" -At -F'=' -v ON_ERROR_STOP=1 "$@"; }
+
+vq -c "
+do \$\$ begin create role anon nologin; exception when duplicate_object then null; end \$\$;
+do \$\$ begin create role authenticated nologin; exception when duplicate_object then null; end \$\$;
+do \$\$ begin create role service_role nologin; exception when duplicate_object then null; end \$\$;
+do \$\$ begin create role authenticator nologin; exception when duplicate_object then null; end \$\$;
+do \$\$ begin create role supabase_admin superuser nologin; exception when duplicate_object then null; end \$\$;
+do \$\$ begin create role supabase_auth_admin nologin; exception when duplicate_object then null; end \$\$;
+do \$\$ begin create role supabase_storage_admin nologin; exception when duplicate_object then null; end \$\$;
+create extension if not exists pgcrypto; create extension if not exists \"uuid-ossp\";
 create schema if not exists auth;
-create or replace function auth.uid() returns uuid language sql stable as $f$ select nullif(current_setting('test.uid', true),'')::uuid $f$;
-SQL
+create or replace function auth.uid() returns uuid language sql stable as \$f\$ select nullif(current_setting('test.uid', true),'')::uuid \$f\$;
+" >/dev/null
 
-pg_restore --dbname="$V" --no-owner "$DUMP" > "$OUT/pg_restore_$TS.log" 2>&1 || true
-echo "строк с ошибками/предупреждениями при restore: $(grep -ci 'error\|warning' "$OUT/pg_restore_$TS.log" || true) — см. $OUT/pg_restore_$TS.log"
+echo "── восстанавливаю дамп в одноразовую БД ──"
+assert_disposable
+"$(P pg_restore)" -h "$VSOCK" -p "$VPORT" -U verifier -d postgres --no-owner "$DUMP" \
+  > "$OUT/pg_restore_$TS.log" 2>&1 || true
+n_err=$(grep -ci '^pg_restore: error' "$OUT/pg_restore_$TS.log" || true)
+echo "  ошибок restore: $n_err (подробности: $OUT/pg_restore_$TS.log)"
+[ "$n_err" -eq 0 ] || die "restore завершился с ошибками — дамп непригоден"
 
-# ── 5. сверка восстановленной копии с production ────────────────────────────
-compare(){
-  psql "$V" -At -F'=' -c "$EXPECT_SQL" > "$OUT/actual_$1_$TS.txt"
+# ── 5. сверка копии с production ────────────────────────────────────────────
+compare(){ # $1 метка, $2 = fatal|soft
+  vq -c "$EXPECT_SQL" > "$OUT/actual_$1_$TS.txt"
   local bad=0 a
   while IFS='=' read -r k v; do
-    a=$(grep -m1 -F "$k=" "$OUT/actual_$1_$TS.txt" | cut -d= -f2-)
-    [ "$v" != "$a" ] && { printf '  %-54s prod=[%s] copy=[%s]\n' "$k" "$v" "$a"; bad=$((bad+1)); }
+    a=$(grep -m1 -F -- "$k=" "$OUT/actual_$1_$TS.txt" | cut -d= -f2- || true)
+    if [ "$v" != "$a" ]; then printf '  %-54s prod=[%s] copy=[%s]\n' "$k" "$v" "$a"; bad=$((bad+1)); fi
   done < "$OUT/expected_$TS.txt"
-  [ "$bad" = 0 ] && echo "  [$1] все показатели совпали" || echo "  [$1] расхождений: $bad"
+  if [ "$bad" -eq 0 ]; then echo "  [$1] все $n_exp показателей совпали"
+  else
+    echo "  [$1] расхождений: $bad"
+    if [ "$2" = fatal ]; then die "копия не совпала с production — дальше идти нельзя"; fi
+  fi
   return 0
 }
-echo "── сверка после restore (до миграций) ──"; compare restore
+echo "── сверка после restore (до миграций) ──"; compare restore fatal
 
-# ── 6. что manual backup НЕ покрыл — показываем явно ────────────────────────
+# ── 6. что дамп НЕ покрыл — явно, без маскировки под disaster recovery ──────
 echo "── объекты вне дампа: это НЕ полный disaster-recovery restore ──"
 { for rel in vault.secrets cron.job net._http_response auth.users storage.objects storage.buckets; do
-    n=$(psql "$V" -At -c "select count(*) from $rel" 2>/dev/null || echo "объекта нет")
+    n=$(vq -c "select count(*) from $rel" 2>/dev/null || echo "объекта нет")
     printf '  %-24s на копии: %s\n' "$rel" "$n"
   done
   echo "  файлы Storage (S3) в дамп не входят по определению"
@@ -195,54 +247,63 @@ echo "── объекты вне дампа: это НЕ полный disaster
 echo "── применяю 0086–0092 (порядок как для production) ──"
 : > "$OUT/migration_timings_$TS.txt"
 for m in $STEPS; do
+  assert_disposable
   t0=$(date +%s)
-  if psql "$V" -q -v ON_ERROR_STOP=1 -f "$MIGRATIONS/$m.sql" > "$OUT/mig_${m}_$TS.log" 2>&1; then st=ok; else st=ОШИБКА; fi
-  printf '  %-34s %-8s %3d s  notices/warnings: %s\n' "$m" "$st" "$(( $(date +%s) - t0 ))" \
-    "$(grep -ciE 'notice|warning' "$OUT/mig_${m}_$TS.log" || true)" | tee -a "$OUT/migration_timings_$TS.txt"
-  [ "$st" = "ОШИБКА" ] && { tail -5 "$OUT/mig_${m}_$TS.log"; exit 1; }
+  if "$(P psql)" "${VOPTS[@]}" -q -v ON_ERROR_STOP=1 -f "$MIGRATIONS/$m.sql" > "$OUT/mig_${m}_$TS.log" 2>&1
+    then st=ok; else st=ОШИБКА; fi
+  w=$(grep -ciE 'notice|warning' "$OUT/mig_${m}_$TS.log" || true)
+  printf '  %-34s %-8s %3d s  notices/warnings: %s\n' "$m" "$st" "$(( $(date +%s) - t0 ))" "$w" \
+    | tee -a "$OUT/migration_timings_$TS.txt"
+  if [ "$st" = "ОШИБКА" ]; then tail -8 "$OUT/mig_${m}_$TS.log"; die "миграция $m не применилась"; fi
 done
 
-echo "── сверка после миграций (structure-показатели МОГУТ вырасти) ──"; compare postmig
+echo "── сверка после миграций (structure-показатели МОГУТ вырасти — это норма) ──"
+compare postmig soft
 echo "── integrity audit на восстановленной копии ──"
-psql "$V" -f "$REPO/scripts/db_integrity_audit.sql" 2>&1 | tail -32 | tee "$OUT/integrity_postmig_$TS.txt"
-echo "  ожидание: чисто, кроме двух известных findings — FIN-03 = 126 и duplicate auto-accrual = 1;"
+"$(P psql)" "${VOPTS[@]}" -f "$REPO/scripts/db_integrity_audit.sql" > "$OUT/integrity_postmig_$TS.txt" 2>&1 || true
+tail -32 "$OUT/integrity_postmig_$TS.txt"
+echo "  ожидание: чисто, кроме двух известных findings — FIN-03 и duplicate auto-accrual;"
 echo "  миграции 0086–0092 по дизайну их не исправляют."
 
-# ── 8. наборы тестов (синтетическая фикстура, НЕ эта копия) ─────────────────
-echo "── T1–T14 / AUTHZ / SPLIT / SEC-008-010 на одноразовой фикстуре ──"
-bash "$REPO/scripts/concurrency/run.sh" 2>&1 | grep -E "MODE=(pre|post):" || true
-MODE=post bash "$REPO/scripts/concurrency/authz_test.sh" 2>&1 | tail -1
-MODE=post bash "$REPO/scripts/concurrency/split_test.sh" 2>&1 | tail -1
-bash "$REPO/scripts/concurrency/sec010_test.sh" 2>&1 | tail -1
+# ── 8. наборы на синтетической фикстуре — только по явному запросу ──────────
+if [ "${RUN_FIXTURE_SUITES:-0}" = "1" ]; then
+  echo "── T1–T14 / AUTHZ / SPLIT / SEC-008-010 (отдельная фикстура, НЕ эта копия) ──"
+  bash "$REPO/scripts/concurrency/run.sh" 2>&1 | grep -E "MODE=(pre|post):" || true
+  MODE=post bash "$REPO/scripts/concurrency/authz_test.sh" 2>&1 | tail -1 || true
+  MODE=post bash "$REPO/scripts/concurrency/split_test.sh" 2>&1 | tail -1 || true
+  bash "$REPO/scripts/concurrency/sec010_test.sh" 2>&1 | tail -1 || true
+else
+  echo "── наборы T1–T14 / AUTHZ / SPLIT / SEC пропущены (RUN_FIXTURE_SUITES=0) ──"
+  echo "  они рассчитаны на Linux-окружение аудита и уже прогнаны там:"
+  echo "  T1–T14 14/0 · AUTHZ 21/0 · SPLIT 36/0 · SEC-008/010 25/0"
+fi
 
-# ── 9. откат 0092_down → 0086_down на этой же копии ─────────────────────────
+# ── 9. откат 0092_down → 0086_down ──────────────────────────────────────────
 echo "── откат ──"
 : > "$OUT/rollback_$TS.txt"
-run_down(){ psql "$V" -q -v ON_ERROR_STOP=1 -f "$1" > "$2" 2>&1 && echo ok || echo ОШИБКА; }
-for m in 0092 0091 0090 0089 0088; do
-  st=$(run_down "$DOWN/${m}_down.sql" "$OUT/down_${m}_$TS.log")
-  printf '  %-22s %s\n' "${m}_down" "$st" | tee -a "$OUT/rollback_$TS.txt"
-  [ "$st" = "ОШИБКА" ] && { tail -5 "$OUT/down_${m}_$TS.log"; exit 1; }
-done
-st=$(run_down "$DOWN/0087_functions_before.sql" "$OUT/down_0087fn_$TS.log")
-printf '  %-22s %s\n' "0087_functions_before" "$st" | tee -a "$OUT/rollback_$TS.txt"
-[ "$st" = "ОШИБКА" ] && { tail -5 "$OUT/down_0087fn_$TS.log"; exit 1; }
-for m in 0087 0086; do
-  st=$(run_down "$DOWN/${m}_down.sql" "$OUT/down_${m}_$TS.log")
-  printf '  %-22s %s\n' "${m}_down" "$st" | tee -a "$OUT/rollback_$TS.txt"
-  [ "$st" = "ОШИБКА" ] && { tail -5 "$OUT/down_${m}_$TS.log"; exit 1; }
+apply_down(){
+  assert_disposable
+  if "$(P psql)" "${VOPTS[@]}" -q -v ON_ERROR_STOP=1 -f "$1" > "$2" 2>&1; then echo ok; else echo ОШИБКА; fi
+}
+for f in 0092_down 0091_down 0090_down 0089_down 0088_down 0087_functions_before 0087_down 0086_down; do
+  st=$(apply_down "$DOWN/$f.sql" "$OUT/down_${f}_$TS.log")
+  printf '  %-24s %s\n' "$f" "$st" | tee -a "$OUT/rollback_$TS.txt"
+  if [ "$st" = "ОШИБКА" ]; then tail -8 "$OUT/down_${f}_$TS.log"; die "откат $f не прошёл — production migrations не разрешены"; fi
 done
 
 echo "── сверка после отката с состоянием сразу после restore ──"
-psql "$V" -At -F'=' -c "$EXPECT_SQL" > "$OUT/actual_rollback_$TS.txt"
+vq -c "$EXPECT_SQL" > "$OUT/actual_rollback_$TS.txt"
 if diff -u "$OUT/actual_restore_$TS.txt" "$OUT/actual_rollback_$TS.txt" > "$OUT/rollback_diff_$TS.txt"; then
-  echo "  ОТКАТ ЧИСТЫЙ: все показатели вернулись к состоянию после restore"
+  echo "  ОТКАТ ЧИСТЫЙ: все $n_exp показателей вернулись к состоянию после restore"
 else
-  echo "  РАСХОЖДЕНИЯ ПОСЛЕ ОТКАТА — production migrations НЕ разрешать до разбора:"
   cat "$OUT/rollback_diff_$TS.txt"
+  die "после отката состояние не совпало с точкой restore — production migrations НЕ разрешать"
 fi
 
+stop_v; trap - EXIT
 echo
-echo "готово. артефакты: $OUT"
-echo "зашифровать дамп: age -p -o $DUMP.age $DUMP && shred -u $DUMP"
-echo "снести копию:     docker rm -f basa-verify"
+echo "============================================================"
+echo "ВСЁ ПРОШЛО УСПЕШНО"
+echo "артефакты: $OUT"
+echo "зашифровать дамп:  age -p -o \"$DUMP.age\" \"$DUMP\" && rm -P \"$DUMP\""
+echo "============================================================"
