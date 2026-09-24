@@ -23,5 +23,5 @@ Thumbs.db
 *.dump.age
 *.sql.gz
 basa-backup-*/
-backup/
+/backup/
 cron_jobs_*.txt
