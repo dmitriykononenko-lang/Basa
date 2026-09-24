@@ -227,3 +227,151 @@ Vercel уже не отдаёт (на текущем плане они живу�
 * Открытый вопрос: кто сдвинул `last_synced_at` в 08:26:54.
 
 **STOP.** `scripts/backup/backup_and_verify.sh` — следующий шаг, жду вашего разрешения.
+
+---
+
+# Повторная проверка по вашему списку — 2026-09-24 13:28 UTC
+
+Изменений в коде **не потребовалось**: `LOCK_DEFAULT = true` уже находится в
+развёрнутой ветке. Ничего не переделывал и не передеплоивал — ниже свежие
+подтверждения по каждому пункту.
+
+## 0. Состояние, которое уже было достигнуто
+
+```
+origin/maintenance-lock HEAD = 67e9a79  «держать замок по умолчанию в коде, а не в env»
+deployment dpl_GSoPbNicTYUKDAoMdzALdw1pMCRp → githubCommitSha 67e9a79
+state READY · target production · alias basefinance.pro · aliasError null
+```
+
+`src/lib/maintenance.ts` в развёрнутой ветке:
+
+```
+26: const LOCK_DEFAULT = true;
+32:   if (raw === "") return LOCK_DEFAULT;   // переменной нет — решает код
+33:   if (OFF.has(raw)) return false;        // явное выключение
+```
+
+## 1. `tsc --noEmit` + production build (ветка `maintenance-lock`, чистый `.next`)
+
+```
+tsc --noEmit         → без единой ошибки
+next build           → ✓ Compiled successfully · ✓ Generating static pages (67/67)
+```
+
+Единственное предупреждение сборки — **не от нашего изменения** и присутствует
+на `main`: `@supabase/supabase-js` использует `process.version`, не поддерживаемый
+в Edge Runtime (плюс два webpack-совета про размер кэша).
+
+## 2. Итоговый diff относительно `origin/main`
+
+```
+ finance-app/src/app/api/tochka/auto-sync/route.ts |  3 ++
+ finance-app/src/app/api/tochka/cron/route.ts      |  4 ++
+ finance-app/src/app/api/tochka/import/route.ts    |  4 ++
+ finance-app/src/lib/maintenance.ts                | 46 ++++++++++++++++++++++
+ 4 files changed, 57 insertions(+)
+```
+
+`git diff origin/main..origin/maintenance-lock --name-only` возвращает ровно эти
+четыре пути. **Кода PR #99 в деплое нет**: ни миграций 0086–0092, ни переписанного
+`lib/tochka-import.ts`, ни RPC-версий `OperationCard`/`SplitTransactionModal` и
+прочих файлов ветки PR #99 — ничего из этого в диффе не значится.
+
+## 3. Deploy
+
+Повторный деплой не делал: развёрнут уже именно этот коммит (см. §0). Создавать
+второй идентичный деплой ради галочки не стал — это лишняя смена production без
+изменения содержимого.
+
+## 4. 503 на write/import маршрутах — свежие зонды 13:23:00 UTC
+
+| Маршрут | Ответ | Оценка |
+|---|---|---|
+| `GET /api/tochka/cron` | **503** `{"ok":false,"locked":true,…}` | ✅ доказано: запрос доходит до обработчика |
+| `POST /api/tochka/auto-sync` | 405 + `Location: /login?next=…` | ⚠ middleware разворачивает до обработчика |
+| `POST /api/tochka/import` | 405 + `Location: /login?next=…` | ⚠ то же |
+
+**Честно: 503 на всех трёх я доказать не могу.** Два маршрута закрыты сессионным
+middleware, а учётной записи приложения у меня нет — без неё запрос физически не
+доходит до guard'а. Ровно поэтому вы и просили не считать `307 /login`
+доказательством, и я его таковым не считаю.
+
+Косвенно (из ответа `/cron` следует, что функция в рантайме возвращает `true`, а из
+развёрнутого коммита — что все три обработчика зовут её первым оператором) вывод
+однозначен, но живой проверки это не заменяет. Она закрывается пунктом 6.
+
+## 5. Side effects от зондов — нет
+
+| Показатель | 13:22:59 (до) | 13:24:32 (после) |
+|---|---|---|
+| transactions | 7 970 | **7 970** |
+| import_batches | 275 | **275** |
+| `bank_connections.last_synced_at` | 2026-09-24 08:26:54 | **не двигался** |
+| `tochka_sync_log` | 0 | **0** |
+| `bybit_sync_log` | 453, последняя 2026-09-23 06:00:00 | **та же** |
+| последняя `transactions.created_at` | 2026-09-23 16:56:36 | **та же** |
+| active sync/import | 0 | **0** |
+
+## 6. Открытие `basefinance.pro` под finance-user — **выполнить не могу**
+
+У меня нет учётных данных пользователя приложения, и получить их безопасным путём
+нельзя: подделать сессию без JWT-секрета невозможно, а заводить себе пользователя
+в `auth.users` я не буду — это незапрошенная мутация production и обход аутентификации.
+
+Проверка за вами, занимает полминуты:
+
+1. откройте `https://basefinance.pro` под учётной записью с правом редактировать финансы;
+2. в DevTools → Network найдите запрос `POST /api/tochka/auto-sync` — ожидается **503**
+   с телом `{"ok":false,"locked":true,…}` (интерфейс при этом не сломается: компонент
+   молча проглатывает неуспешный ответ);
+3. скажите мне — я тут же сверю, что `transactions`, `import_batches` и
+   `bank_connections.last_synced_at` не сдвинулись.
+
+Чтобы шаг 3 был доказательным, ориентир на сейчас: **transactions 7 970,
+import_batches 275, `last_synced_at` 2026-09-24 08:26:54**.
+
+Если предпочитаете, чтобы проверку провёл я, — потребуется временный доступ
+(сессионная кука), но это передача действующего доступа, и я не стал бы это
+предлагать как основной путь.
+
+## 7. pg_cron
+
+```
+1:bybit-sync-daily active=false | 2:tochka-autosync active=false
+прогонов после 2026-09-23 16:59:28 UTC — 0
+```
+
+## 8. Новый FINAL baseline — 2026-09-24 **13:28:53 UTC**
+
+| Показатель | Значение | Δ к 13:11:43 |
+|---|---|---|
+| transactions | **7 970** | 0 |
+| actual / planned | **7 962 / 8** | 0 |
+| import_batches | **275** | 0 |
+| obligations | **190** | 0 |
+| allocations | **97** | 0 |
+| invoices | **25** | 0 |
+| invoice_items | **22** | 0 |
+| splits | **4** | 0 |
+| FIN-03 | **126** | 0 |
+| duplicate auto-accrual | **1** | 0 |
+| RUB flow | **−11 398 192** | 0 |
+| USDT flow | **305 451** | 0 |
+| Σ `opening_balance` | **61 904 483** | 0 |
+| accounts | **24** | 0 |
+| counterparties | **159** | 0 |
+
+Относительно предыдущего снимка — **без изменений**. Расхождения с baseline
+16:59:28 (allocations +1, counterparties +1) объяснены ручной работой пользователя
+в 08:29 и 08:31 и разобраны выше.
+
+## Замок переживёт PR #99
+
+`LOCK_DEFAULT = true` лежит и в ветке PR #99 (`claude/intelligent-ramanujan-Jdbbu`,
+`src/lib/maintenance.ts:26`), поэтому её merge и деплой замок **не снимут**.
+Разблокировка возможна только отдельным коммитом `LOCK_DEFAULT = false` (или
+`FINANCIAL_IMPORTS_DISABLED=false`, если появятся права на env) плюс отдельным
+деплоем — то есть отдельным контролируемым этапом после smoke-тестов.
+
+**STOP.** Backup и 0086–0092 не выполнял.
