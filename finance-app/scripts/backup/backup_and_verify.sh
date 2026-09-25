@@ -207,7 +207,9 @@ echo "снято показателей с production: $n_exp"
 
 # ── 2b. окружение схемы, которое НЕ входит в дамп public ────────────────────
 echo "── снимаю с production описание окружения (только чтение) ──"
-prod_ro "select rolname from pg_roles where rolname not like 'pg\\_%' and rolname <> current_user order by 1" \
+# current_user НЕ исключается: на Supabase это postgres, и GRANT … TO postgres в дампе
+# без этой роли роняют restore
+prod_ro "select rolname from pg_roles where rolname not like 'pg\\_%' order by 1" \
   > "$OUT/env_roles_$TS.txt"
 prod_ro "select e.extname||'='||n.nspname from pg_extension e join pg_namespace n on n.oid=e.extnamespace order by 1" \
   > "$OUT/env_extensions_$TS.txt"
@@ -334,14 +336,22 @@ while read -r t; do
           from information_schema.columns where table_schema='$sch' and table_name='$rel'")
   [ -n "$cols" ] || { echo "  $t — колонок не видно, пропущено"; continue; }
   vsql -c "create table \"$sch\".\"$rel\" ($cols)" >/dev/null
-  # PK и UNIQUE, на которые могут ссылаться FK
-  keys=$(prod_ro "select co.contype||':'||string_agg(quote_ident(a.attname), ',' order by k.ord)
+  # PK и те UNIQUE, на которые реально ссылаются FK из public. Прочие UNIQUE
+  # (например auth.users.phone) НЕ берём: их колонки не нужны и содержат персональные данные
+  keys=$(prod_ro "select co.contype::text||':'||string_agg(quote_ident(a.attname), ',' order by k.ord)
                     from pg_constraint co
                     join pg_class c on c.oid=co.conrelid
                     join pg_namespace n on n.oid=c.relnamespace
                     cross join lateral unnest(co.conkey) with ordinality as k(attnum, ord)
                     join pg_attribute a on a.attrelid=c.oid and a.attnum=k.attnum
-                   where n.nspname='$sch' and c.relname='$rel' and co.contype in ('p','u')
+                   where n.nspname='$sch' and c.relname='$rel'
+                     and (co.contype='p'
+                          or (co.contype='u' and exists (
+                                select 1 from pg_constraint f
+                                  join pg_class fc on fc.oid=f.conrelid
+                                  join pg_namespace fn on fn.oid=fc.relnamespace
+                                 where f.contype='f' and f.confrelid=c.oid and f.confkey=co.conkey
+                                   and fn.nspname in ('public','supabase_migrations'))))
                    group by co.oid, co.contype")
   keycols=""
   while IFS=':' read -r ctype clist; do
