@@ -25,6 +25,57 @@ set -Eeuo pipefail
 die(){ echo "ОСТАНОВ: $*" >&2; exit 1; }
 trap 'die "непредвиденная ошибка на строке $LINENO"' ERR
 
+# >>> pure-helpers — не обращаются ни к одной БД; тесты извлекают этот блок и source'ят
+# Финансовые и integrity-показатели. После миграций 0086–0092 любое их изменение
+# относительно точки restore — FAIL.
+FIN_KEYS="tx_total tx_actual tx_planned obligations allocations invoices invoice_items splits split_sum_mismatch import_batches accounts counterparties dup_auto_accrual rub_flow usdt_flow opening_sum fin03"
+# Финансовые ключи, которые миграции меняют НАМЕРЕННО (формат: "ключ ключ ...").
+# Сейчас пусто: 0086–0092 не меняют данных. Добавлять сюда только с обоснованием.
+FIN_EXPECTED_DELTA=""
+
+# значение ключа из файла "ключ=значение"; точное совпадение ключа; нет ключа → <нет>
+kv_get(){ awk -F= -v k="$1" '$1==k{print substr($0,length(k)+2); f=1; exit} END{if(!f) print "<нет>"}' "$2"; }
+is_fin_key(){ case " $FIN_KEYS " in *" $1 "*) return 0;; esac; return 1; }
+
+# все ключи базового файла должны совпасть (используется для restore против production)
+compare_all(){ # BASE ACTUAL LABEL
+  local base="$1" act="$2" label="$3" line k v a bad=0 n=0
+  while IFS= read -r line; do
+    k=${line%%=*}; [ -n "$k" ] || continue
+    v=${line#*=}; a=$(kv_get "$k" "$act"); n=$((n+1))
+    if [ "$v" != "$a" ]; then printf '  [%s] %-54s было=[%s] стало=[%s]\n' "$label" "$k" "$v" "$a"; bad=$((bad+1)); fi
+  done < "$base"
+  echo "  [$label] сверено показателей: $n, расхождений: $bad"
+  [ "$bad" -eq 0 ]
+}
+
+# финансы — фатально; структура/ACL — отдельно и только информативно
+compare_fin_struct(){ # BASE ACTUAL LABEL → код 1 при любом финансовом расхождении
+  local base="$1" act="$2" label="$3" line k v a fin_bad=0 st_bad=0
+  echo "  [$label] финансовые показатели (расхождение = FAIL):"
+  for k in $FIN_KEYS; do
+    v=$(kv_get "$k" "$base"); a=$(kv_get "$k" "$act")
+    if [ "$v" = "$a" ]; then continue; fi
+    case " $FIN_EXPECTED_DELTA " in
+      *" $k "*) printf '    %-20s было=[%s] стало=[%s]  (предусмотрено миграцией)\n' "$k" "$v" "$a"; continue;;
+    esac
+    printf '    ФИНАНСЫ %-20s было=[%s] стало=[%s]\n' "$k" "$v" "$a"; fin_bad=$((fin_bad+1))
+  done
+  echo "  [$label] структура и ACL (изменения ожидаемы от миграций, не FAIL):"
+  while IFS= read -r line; do
+    k=${line%%=*}; [ -n "$k" ] || continue
+    if is_fin_key "$k"; then continue; fi
+    v=${line#*=}; a=$(kv_get "$k" "$act")
+    if [ "$v" != "$a" ]; then printf '    структура %-44s было=[%s] стало=[%s]\n' "$k" "$v" "$a"; st_bad=$((st_bad+1)); fi
+  done < "$base"
+  echo "  [$label] финансовых расхождений: $fin_bad · структурных изменений: $st_bad"
+  [ "$fin_bad" -eq 0 ]
+}
+
+# каталог → абсолютный физический путь (создаётся при необходимости)
+abs_dir(){ mkdir -p -- "$1" && (cd -- "$1" && pwd -P); }
+# <<< pure-helpers
+
 : "${DB_URL:?нужен DB_URL (строка подключения БЕЗ пароля)}"
 : "${PGPASSWORD:?нужен PGPASSWORD — задайте через: read -rsp \"пароль: \" PGPASSWORD; export PGPASSWORD}"
 
@@ -43,7 +94,9 @@ STEPS="0086_guard_constraints 0087_accrual_idempotency 0088_financial_rpcs 0089_
 
 TS=$(date -u +%Y%m%dT%H%M%SZ)
 OUT=${OUT:-"$HOME/basa-backup-$TS"}
-mkdir -p "$OUT"; chmod 700 "$OUT"
+OUT=$(abs_dir "$OUT") || die "не удалось создать каталог артефактов"
+case "$OUT" in /*) ;; *) die "каталог артефактов не абсолютный: '$OUT'" ;; esac
+chmod 700 "$OUT"
 DUMP="$OUT/basa_public_$TS.dump"
 META="$OUT/backup_metadata_$TS.txt"
 
@@ -217,6 +270,9 @@ echo "  cron.job: сохранён БЕЗ поля command (в нём лежит
 
 # ── 4. одноразовая БД ───────────────────────────────────────────────────────
 VDATA="$OUT/verifydb"; VSOCK="$OUT/vsock"; VPORT=${VPORT:-5455}
+case "$VSOCK" in /*) ;; *) die "путь к сокету не абсолютный: '$VSOCK'" ;; esac
+# у unix-сокета ограничение длины пути (~104 байта на macOS)
+[ ${#VSOCK} -le 90 ] || die "слишком длинный путь к каталогу артефактов (${#VSOCK} симв.). Запустите без OUT — по умолчанию ~/basa-backup-<TS>"
 mkdir -p "$VSOCK"
 "$(P initdb)" -D "$VDATA" -U verifier --auth=trust >"$OUT/initdb_$TS.log" 2>&1 || die "initdb упал, см. $OUT/initdb_$TS.log"
 "$(P pg_ctl)" -D "$VDATA" -o "-p $VPORT -k $VSOCK -c listen_addresses=" -l "$OUT/verifydb_$TS.log" -w start >/dev/null \
@@ -226,6 +282,7 @@ trap 'rc=$?; stop_v; exit $rc' EXIT
 
 VOPTS=(-h "$VSOCK" -p "$VPORT" -U verifier -d postgres)
 assert_disposable(){
+  case "$VSOCK" in /*) ;; *) die "путь к сокету не абсолютный — разрушающие операции запрещены" ;; esac
   case "$VSOCK" in "$OUT"/*) ;; *) die "цель не во временном каталоге — разрушающие операции запрещены" ;; esac
   local who
   who=$("$(P psql)" "${VOPTS[@]}" -X -At -c "select current_user||'@'||coalesce(inet_server_addr()::text,'unix-socket')||':'||coalesce(current_setting('port',true),'?')" 2>/dev/null || true)
@@ -318,22 +375,10 @@ echo "  ошибок restore: $n_err (подробности: $OUT/pg_restore_$T
 [ "$n_err" -eq 0 ] || { grep -i '^pg_restore: error' "$OUT/pg_restore_$TS.log" | head -10; die "restore завершился с ошибками"; }
 
 # ── 5. сверка копии с production. (4) ключ ищется точно ─────────────────────
-compare(){ # $1 метка, $2 = fatal|soft
-  vq -c "$EXPECT_SQL" > "$OUT/actual_$1_$TS.txt"
-  local bad=0 a
-  while IFS='=' read -r k v; do
-    [ -n "$k" ] || continue
-    a=$(awk -F= -v k="$k" '$1==k{print substr($0,length(k)+2); exit}' "$OUT/actual_$1_$TS.txt")
-    if [ "$v" != "$a" ]; then printf '  %-54s prod=[%s] copy=[%s]\n' "$k" "$v" "$a"; bad=$((bad+1)); fi
-  done < "$OUT/expected_$TS.txt"
-  if [ "$bad" -eq 0 ]; then echo "  [$1] все $n_exp показателей совпали"
-  else
-    echo "  [$1] расхождений: $bad"
-    if [ "$2" = fatal ]; then die "копия не совпала с production — дальше идти нельзя"; fi
-  fi
-  return 0
-}
-echo "── сверка после restore (до миграций) ──"; compare restore fatal
+echo "── сверка после restore с production ──"
+vq -c "$EXPECT_SQL" > "$OUT/actual_restore_$TS.txt"
+compare_all "$OUT/expected_$TS.txt" "$OUT/actual_restore_$TS.txt" restore \
+  || die "копия не совпала с production — дальше идти нельзя"
 
 # ── 6. что дамп НЕ покрыл ───────────────────────────────────────────────────
 echo "── объекты вне дампа: это НЕ полный disaster-recovery restore ──"
@@ -361,8 +406,10 @@ for m in $STEPS; do
   if [ "$st" = "ОШИБКА" ]; then tail -8 "$OUT/mig_${m}_$TS.log"; die "миграция $m не применилась"; fi
 done
 
-echo "── сверка после миграций (structure-показатели МОГУТ вырасти — это норма) ──"
-compare postmig soft
+echo "── сверка после миграций с точкой restore ──"
+vq -c "$EXPECT_SQL" > "$OUT/actual_postmig_$TS.txt"
+compare_fin_struct "$OUT/actual_restore_$TS.txt" "$OUT/actual_postmig_$TS.txt" postmig \
+  || die "после 0086–0092 изменились финансовые показатели — production migrations НЕ разрешать"
 echo "── integrity audit на восстановленной копии ──"
 "$(P psql)" "${VOPTS[@]}" -X -f "$REPO/scripts/db_integrity_audit.sql" > "$OUT/integrity_postmig_$TS.txt" 2>&1 || true
 tail -32 "$OUT/integrity_postmig_$TS.txt"
