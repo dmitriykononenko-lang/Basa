@@ -37,25 +37,21 @@ export default function PayrollRowActions({
     if (!confirm(`Выплатить все начисления (${due.length})? Будут созданы расходы по счетам в соответствующей валюте.`)) return;
     setLoading("pay");
     const supabase = createClient();
+    // Одна транзакция БД на выплату: операция и её разнесение на начисление
+    // создаются вместе. Раньше это были два независимых insert'а — при сбое
+    // второго деньги списаны, а начисление осталось открытым. Ключ
+    // идемпотентности (id начисления) делает повторный прогон безопасным.
     for (const o of due) {
       const acc = accounts.find((a) => a.currency === o.currency);
-      let transactionId: string | null = null;
-      if (acc) {
-        const { data: tx, error } = await supabase
-          .from("transactions")
-          .insert({
-            team_id: teamId, type: "expense", amount: o.outstanding, currency: o.currency,
-            account_id: acc.id, counterparty_id: counterpartyId, occurred_on: today,
-            note: "Выплата ЗП", created_by: userId,
-          })
-          .select("id").single();
-        if (error) { setLoading(null); toast.error(error.message); return; }
-        transactionId = tx?.id ?? null;
-      }
-      const { error: pErr } = await supabase.from("obligation_payments").insert({
-        obligation_id: o.id, amount: o.outstanding, paid_on: today, transaction_id: transactionId, created_by: userId,
+      const { error: payErr } = await supabase.rpc("obligation_pay", {
+        p_obligation: o.id,
+        p_account: acc?.id ?? null,
+        p_amount: o.outstanding,
+        p_occurred_on: today,
+        p_note: "Выплата ЗП",
+        p_request_id: o.id,
       });
-      if (pErr) { setLoading(null); toast.error(pErr.message); return; }
+      if (payErr) { setLoading(null); toast.error(payErr.message); return; }
     }
     setLoading(null);
     toast.success("Выплачено");
@@ -72,9 +68,16 @@ export default function PayrollRowActions({
       counterparty_id: counterpartyId, occurred_on: o.due_date ?? today,
       status: "planned" as const, obligation_id: o.id, created_by: userId,
     }));
-    const { error } = await supabase.from("transactions").insert(payload);
+    // Плановые платежи создаются по одному через transaction_insert с ключом
+    // идемпотентности: повторное нажатие «Запланировать» не создаёт дублей
+    // (в БД это дополнительно закрыто индексом transactions_obl_planned_uniq).
+    for (const row of payload) {
+      const { error } = await supabase.rpc("transaction_insert", {
+        p_payload: row, p_request_id: row.obligation_id,
+      });
+      if (error) { setLoading(null); toast.error(error.message); return; }
+    }
     setLoading(null);
-    if (error) { toast.error(error.message); return; }
     toast.success(`Запланировано: ${payload.length}`);
     router.refresh();
   }

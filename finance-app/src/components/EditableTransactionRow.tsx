@@ -31,6 +31,7 @@ export type TxData = {
   counterparty_id: string | null;
   project_id: string | null;
   import_batch_id?: string | null;
+  version?: number;            // для оптимистичной блокировки при сохранении карточки
   accountName: string | null;
   toAccountName: string | null;
   categoryName: string | null;

@@ -6,3 +6,11 @@ out
 .DS_Store
 *.tsbuildinfo
 next-env.d.ts
+
+# backups / dumps — никогда не коммитить
+*.dump
+*.dump.age
+*.sql.gz
+basa-backup-*/
+/backup/
+cron_jobs_*.txt

@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { decryptSecret } from "@/lib/crypto";
 import { getAccounts } from "@/lib/tochka";
 import { importTochkaStatement } from "@/lib/tochka-import";
+import { financialImportsLocked, financialImportsLockedResponse } from "@/lib/maintenance";
 
 // Фоновый автоимпорт выписок Точки по расписанию (Vercel Cron).
 // Расписание задаётся в vercel.json. Окно — последние 45 дней (дедуп защищает от
@@ -13,6 +14,9 @@ export const maxDuration = 300;
 const LOOKBACK_DAYS = 45;
 
 export async function GET(request: Request) {
+  // Техническая заморозка импорта — раньше проверки CRON_SECRET, чтобы не
+  // писалась даже строка «skipped» в tochka_sync_log.
+  if (financialImportsLocked()) return financialImportsLockedResponse();
   // CRON_SECRET одновременно и защита, и «рубильник»: автоимпорт работает ТОЛЬКО в том
   // проекте, где задан этот секрет. Это позволяет держать всё на одном проекте (basa-16bf):
   // зададите CRON_SECRET только там — дубль-проект без секрета будет вхолостую.

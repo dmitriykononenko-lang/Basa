@@ -195,12 +195,27 @@ function RuleEditor({
     if (res.error) { setBusy(false); return setError(res.error.message); }
 
     if (applyExisting) {
-      const patch =
-        action.type === "set_category" ? { category_id: action.value }
-        : action.type === "set_project" ? { project_id: action.value }
-        : { type: "transfer", transfer_account_id: action.value, category_id: null, counterparty_id: null };
-      const { error } = await buildQuery(supabase.from("transactions").update(patch));
-      if (error) { setBusy(false); return setError(error.message); }
+      // Раньше правило применялось одним UPDATE по фильтру — без списка id и
+      // без версии, то есть могло переписать поля операций, которые кто-то
+      // правит прямо сейчас (аудит, T8). Теперь сначала фиксируем набор id,
+      // потом меняем его узким RPC.
+      const { data: rows, error: selErr } = await buildQuery(supabase.from("transactions").select("id"));
+      if (selErr) { setBusy(false); return setError(selErr.message); }
+      const ids = ((rows ?? []) as { id: string }[]).map((r) => r.id);
+      if (ids.length > 0) {
+        const rid = crypto.randomUUID();
+        const { error } =
+          action.type === "make_transfer"
+            ? await supabase.rpc("transactions_convert_to_transfer", {
+                p_ids: ids, p_transfer_account: action.value, p_account: null, p_request_id: rid,
+              }).then((r) => ({ error: r.error }))
+            : await supabase.rpc("transactions_bulk_patch", {
+                p_ids: ids,
+                p_patch: action.type === "set_category" ? { category_id: action.value } : { project_id: action.value },
+                p_request_id: rid,
+              }).then((r) => ({ error: r.error }));
+        if (error) { setBusy(false); return setError(error.message); }
+      }
     }
     setBusy(false);
     toast.success(rule ? "Правило обновлено" : "Правило создано");

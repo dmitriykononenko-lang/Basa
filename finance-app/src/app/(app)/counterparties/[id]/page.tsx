@@ -95,16 +95,30 @@ export default async function CounterpartyPage({
       .filter((t) => !linkedTxIds.has(t.id));
   }
 
+  // MANAGEMENT LAYER: операции, относящиеся к контрагенту, — это те, у которых
+  // он указан в самой операции ИЛИ в её части (SPLIT-01). Сначала берём id из
+  // канонического слоя аналитики, затем сами операции (реестр показывает
+  // операцию целиком — это cash-строка; разбивку видно внутри карточки).
+  const { data: cpLineIds } = await supabase
+    .from("transaction_lines")
+    .select("transaction_id")
+    .eq("team_id", team.id)
+    .eq("counterparty_id", id)
+    .eq("status", "actual")
+    .order("occurred_on", { ascending: false })
+    .limit(300);
+  const cpTxIds = [...new Set(((cpLineIds ?? []) as { transaction_id: string }[]).map((r) => r.transaction_id))];
+
   const [{ data: txs }, { data: obls }, { data: fxRows }, { data: opAccounts }, { data: opCats }, { data: opProjects }, { data: opCps }, { data: extIdRows }] = await Promise.all([
     supabase
       .from("transactions")
-      .select(`id, type, amount, currency, occurred_on, accrual_date, note, status,
+      .select(`id, type, amount, currency, occurred_on, accrual_date, note, status, version,
         account_id, transfer_account_id, transfer_amount, transfer_currency, category_id, counterparty_id, project_id, import_batch_id,
         account:accounts!transactions_account_id_fkey(name),
         to_account:accounts!transactions_transfer_account_id_fkey(name),
         category:categories(name), counterparty:counterparties(name), project:projects(name)`)
       .eq("team_id", team.id)
-      .eq("counterparty_id", id)
+      .in("id", cpTxIds.length > 0 ? cpTxIds : ["00000000-0000-0000-0000-000000000000"])
       .eq("status", "actual")
       .order("occurred_on", { ascending: false })
       .limit(100),
@@ -126,7 +140,7 @@ export default async function CounterpartyPage({
   const rates = buildRateMap(fxRows ?? [], base);
   const txRows = (txs ?? []) as unknown as {
     id: string; type: "income" | "expense" | "transfer"; amount: number; currency: string;
-    occurred_on: string; accrual_date: string | null; note: string | null; status: string;
+    occurred_on: string; accrual_date: string | null; note: string | null; status: string; version: number;
     account_id: string | null; transfer_account_id: string | null; transfer_amount: number | null; transfer_currency: string | null; category_id: string | null;
     counterparty_id: string | null; project_id: string | null; import_batch_id: string | null;
     account: { name: string } | null; to_account: { name: string } | null;
@@ -149,7 +163,7 @@ export default async function CounterpartyPage({
       accrual_date: t.accrual_date, note: t.note, status: t.status, account_id: t.account_id,
       transfer_account_id: t.transfer_account_id, transfer_amount: t.transfer_amount, transfer_currency: t.transfer_currency,
       category_id: t.category_id, counterparty_id: t.counterparty_id,
-      project_id: t.project_id, import_batch_id: t.import_batch_id,
+      project_id: t.project_id, import_batch_id: t.import_batch_id, version: t.version,
       accountName: t.account?.name ?? null, toAccountName: t.to_account?.name ?? null,
       categoryName: t.category?.name ?? null, counterpartyName: t.counterparty?.name ?? null,
       projectName: t.project?.name ?? null,

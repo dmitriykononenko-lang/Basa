@@ -112,12 +112,16 @@ export default async function CashflowPage({
 
   // Внутренние части операций (split): месячные ИТОГО считаем по полной сумме,
   // а разбивку по измерению (статья/проект/контрагент/вид) — по частям.
+  // MANAGEMENT LAYER: разбивка берётся из канонического представления
+  // transaction_lines (одно правило на всю систему, SPLIT-01). Месячные ИТОГО
+  // остаются CASH LAYER — они считаются по самой операции ровно один раз.
   const splitAll: { transaction_id: string; amount: number; category_id: string | null; project_id: string | null; counterparty_id: string | null }[] = [];
   for (let off = 0; ; off += PAGE) {
-    const { data, error } = await supabase.from("transaction_splits")
-      .select("transaction_id, amount, category_id, project_id, counterparty_id").eq("team_id", team.id).range(off, off + PAGE - 1);
+    const { data, error } = await supabase.from("transaction_lines")
+      .select("transaction_id, amount, category_id, project_id, counterparty_id, is_split")
+      .eq("team_id", team.id).eq("status", "actual").eq("is_split", true).range(off, off + PAGE - 1);
     if (error || !data?.length) break;
-    splitAll.push(...(data as typeof splitAll));
+    splitAll.push(...(data as unknown as typeof splitAll));
     if (data.length < PAGE) break;
   }
   const [{ data: catRows2 }, { data: prRows2 }, { data: cpRows2 }] = await Promise.all([

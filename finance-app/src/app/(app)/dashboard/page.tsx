@@ -106,8 +106,11 @@ export default async function DashboardPage() {
   ]);
 
   // Годовые/полугодовые выборки — постранично (операций за период может быть >1000)
+  // MANAGEMENT LAYER: разбивка расходов по статьям — из строк аналитики
+  // (разнесённая операция даёт свои части). Месячные итоги ниже (histTx) и
+  // остатки счетов остаются CASH LAYER — там считается сама операция один раз.
   const yearExp = await fetchAllRows((from, to) =>
-    supabase.from("transactions").select("category_id, amount, currency, occurred_on").eq("team_id", team.id).eq("type", "expense").eq("status", "actual").gte("occurred_on", yearStart).order("occurred_on", { ascending: true }).range(from, to)
+    supabase.from("transaction_lines").select("category_id, amount, currency, occurred_on").eq("team_id", team.id).eq("type", "expense").eq("status", "actual").gte("occurred_on", yearStart).order("occurred_on", { ascending: true }).range(from, to)
   );
   const histTx = await fetchAllRows((from, to) =>
     supabase.from("transactions").select("type, amount, currency, occurred_on").eq("team_id", team.id).eq("status", "actual").gte("occurred_on", sixStart).order("occurred_on", { ascending: true }).range(from, to)

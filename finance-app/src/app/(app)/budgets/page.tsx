@@ -61,10 +61,13 @@ export default async function BudgetsPage() {
         .select("currency, rate, rate_date")
         .eq("team_id", team.id),
     ]);
-  // Расходы за год — постранично (может быть >1000)
+  // Расходы за год — MANAGEMENT LAYER: суммы берём из строк аналитики, чтобы
+  // разнесённая операция попадала в бюджеты статей своими частями, а не целиком
+  // в одну статью (SPLIT-01). Сумма строк одной операции всегда равна её сумме,
+  // поэтому двойного счёта здесь быть не может.
   const expenses = await fetchAllRows((from, to) =>
     supabase
-      .from("transactions")
+      .from("transaction_lines")
       .select("category_id, amount, currency, occurred_on")
       .eq("team_id", team.id)
       .eq("type", "expense")
