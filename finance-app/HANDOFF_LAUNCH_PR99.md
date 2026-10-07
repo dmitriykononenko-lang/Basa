@@ -9,7 +9,7 @@
 | Что | Значение |
 |---|---|
 | Репозиторий | `github.com/dmitriykononenko-lang/Basa`, приложение в `finance-app/` (Next.js + Supabase) |
-| PR | **#99**, ветка `claude/intelligent-ramanujan-Jdbbu`, HEAD **`3e74f3e`**, база `main` (`c5d75d9`) |
+| PR | **#99**, ветка `claude/intelligent-ramanujan-Jdbbu`, HEAD — последний коммит ветки (код не менялся с **`3e74f3e`**, после него — только этот документ), база `main` (`c5d75d9`) |
 | Production | Vercel `basa-16bf` (`prj_zTKK4bugvnR8HQYmMt1xjTLirv9g`, team `team_gnmhQvHvDRJ7eLwsBWtW66yV`), домен **https://basefinance.pro** |
 | Текущий прод-деплой | `dpl_GSoPbNicTYUKDAoMdzALdw1pMCRp` из ветки `maintenance-lock` (`67e9a79`) = `main` + замок импорта |
 | База | Supabase `basa-finance`, ref **`kmvsjozxjosmkhvphzdz`**, PostgreSQL 17.6, **Free plan — бэкапов и PITR нет** |
