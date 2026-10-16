@@ -23,7 +23,7 @@ import { NextResponse } from "next/server";
 // Благодаря этому заморозка переживает деплой PR #99 — модуль лежит и здесь.
 // Снятие замка — отдельный коммит (LOCK_DEFAULT = false) и отдельный деплой,
 // то есть осознанный контролируемый шаг, а не побочный эффект.
-const LOCK_DEFAULT = true;
+const LOCK_DEFAULT = false;
 
 const OFF = new Set(["false", "0", "no", "off"]);
 
