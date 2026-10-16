@@ -79,12 +79,12 @@ psql --version
 ## 6. Какие значения нужны
 
 Из строки вида
-`postgresql://postgres.kmvsjozxjosmkhvphzdz:[YOUR-PASSWORD]@aws-0-eu-central-1.pooler.supabase.com:5432/postgres`
+`postgresql://postgres.kmvsjozxjosmkhvphzdz:[YOUR-PASSWORD]@aws-1-eu-central-1.pooler.supabase.com:5432/postgres`
 вам нужны:
 
 | Что | Где взять | Пример |
 |---|---|---|
-| хост | из этой же строки | `aws-0-eu-central-1.pooler.supabase.com` |
+| хост | из этой же строки | `aws-1-eu-central-1.pooler.supabase.com` |
 | порт | из этой же строки | `5432` |
 | пользователь | из этой же строки | `postgres.kmvsjozxjosmkhvphzdz` |
 | база | из этой же строки | `postgres` |

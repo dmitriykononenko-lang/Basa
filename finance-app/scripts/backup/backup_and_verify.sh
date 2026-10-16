@@ -127,14 +127,32 @@ prod_guard(){
       die "внутренняя защита: в запросе к production найдено изменяющее ключевое слово" ;;
   esac
 }
+# Нестабильная сеть (VPN) рвёт отдельные соединения. Все обращения к production —
+# только чтение, поэтому их безопасно повторить. Вывод неудачной попытки
+# отбрасывается: наружу уходит только stdout успешной.
+PROD_TRIES=${PROD_TRIES:-6}
+export PGCONNECT_TIMEOUT=${PGCONNECT_TIMEOUT:-15}
+prod_retry(){
+  local i tmp err
+  tmp=$(mktemp "$OUT/.retry.XXXXXX"); err=$(mktemp "$OUT/.retry.XXXXXX")
+  for i in $(seq 1 "$PROD_TRIES"); do
+    if "$@" > "$tmp" 2> "$err"; then cat "$err" >&2; cat "$tmp"; rm -f "$tmp" "$err"; return 0; fi
+    cat "$err" >&2
+    # неверный пароль сетью не лечится, а серия неудачных входов грозит баном в пулере
+    if grep -q 'password authentication failed' "$err"; then rm -f "$tmp" "$err"; die "неверный пароль БД — повторять не буду"; fi
+    echo "  [сеть] попытка $i/$PROD_TRIES не удалась, повтор через 5 с" >&2
+    sleep 5
+  done
+  rm -f "$tmp" "$err"; return 1
+}
 prod_ro(){
   prod_guard "$1"
-  "$(P psql)" "$DB_URL" -X -q -At -F'=' -v ON_ERROR_STOP=1 \
+  prod_retry "$(P psql)" "$DB_URL" -X -q -At -F'=' -v ON_ERROR_STOP=1 \
     -c "begin transaction read only" -c "$1" -c "commit"
 }
 prod_ro_csv(){
   prod_guard "$1"
-  "$(P psql)" "$DB_URL" -X -q -At --csv -v ON_ERROR_STOP=1 \
+  prod_retry "$(P psql)" "$DB_URL" -X -q -At --csv -v ON_ERROR_STOP=1 \
     -c "begin transaction read only" -c "$1" -c "commit"
 }
 
@@ -239,9 +257,13 @@ echo "  ролей: $(wc -l < "$OUT/env_roles_$TS.txt" | tr -d ' ') · расш�
 # ── 3. дамп ─────────────────────────────────────────────────────────────────
 echo "── снимаю дамп ──"
 STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-"$(P pg_dump)" "$DB_URL" --format=custom --compress=9 --verbose \
+dump_once(){
+  rm -f "$DUMP"
+  "$(P pg_dump)" "$DB_URL" --format=custom --compress=9 --verbose \
      --schema=public --schema=supabase_migrations \
-     --file="$DUMP" 2> "$OUT/pg_dump_$TS.log" || die "pg_dump упал, см. $OUT/pg_dump_$TS.log"
+     --file="$DUMP" 2> "$OUT/pg_dump_$TS.log"
+}
+prod_retry dump_once || die "pg_dump упал $PROD_TRIES раз подряд, см. $OUT/pg_dump_$TS.log"
 FINISHED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 [ -s "$DUMP" ] || die "дамп пустой"
 
@@ -303,7 +325,8 @@ echo "  роли созданы"
 # расширения в тех же схемах
 while IFS='=' read -r ext nsp; do [ -n "$ext" ] || continue
   case "$ext" in plpgsql) continue;; esac
-  vsql -c "create schema if not exists \"$nsp\"" >/dev/null
+  # системные схемы (pg_cron на Supabase лежит в pg_catalog) уже есть и создаваться не могут
+  case "$nsp" in pg_*) ;; *) vsql -c "create schema if not exists \"$nsp\"" >/dev/null;; esac
   if vsql -c "create extension if not exists \"$ext\" schema \"$nsp\"" >/dev/null 2>&1
     then echo "  расширение $ext → схема $nsp"
     else echo "  расширение $ext недоступно локально — пропущено (объекты, которые на него опираются, могут не восстановиться)"; fi
