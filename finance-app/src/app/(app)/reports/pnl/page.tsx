@@ -106,10 +106,15 @@ export default async function PnlPage({
   );
   const settledTx = new Set((payRows ?? []).map((p) => p.transaction_id as string));
 
-  // Внутренние части операций (split): если у операции есть части — считаем по ним.
-  const splitRows = await fetchAllRows<{ transaction_id: string; amount: number; category_id: string | null; project_id: string | null; counterparty_id: string | null }>((from, to) =>
-    supabase.from("transaction_splits").select("transaction_id, amount, category_id, project_id, counterparty_id").eq("team_id", team.id).order("transaction_id", { ascending: true }).range(from, to)
+  // MANAGEMENT LAYER: строки аналитики берём из канонического представления
+  // transaction_lines — одно правило на всю систему (SPLIT-01). Для операции с
+  // частями это её части, для операции без частей — она сама. Сумма строк одной
+  // операции всегда равна её сумме, поэтому двойного счёта быть не может.
+  const lineRows = await fetchAllRows<{ transaction_id: string; amount: number; category_id: string | null; project_id: string | null; counterparty_id: string | null; is_split: boolean }>((from, to) =>
+    supabase.from("transaction_lines").select("transaction_id, amount, category_id, project_id, counterparty_id, is_split")
+      .eq("team_id", team.id).eq("status", "actual").order("transaction_id", { ascending: true }).range(from, to)
   );
+  const splitRows = (lineRows ?? []).filter((l) => l.is_split);
   const [{ data: catRows }, { data: prRows }, { data: cpRows }] = await Promise.all([
     supabase.from("categories").select("id, name, cf_activity, pnl_treatment").eq("team_id", team.id),
     supabase.from("projects").select("id, name").eq("team_id", team.id),

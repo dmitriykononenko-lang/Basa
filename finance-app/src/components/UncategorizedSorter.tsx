@@ -52,7 +52,9 @@ export default function UncategorizedSorter({ rows, categories }: { rows: Row[];
     setBusy(ids[0]);
     setError(null);
     const supabase = createClient();
-    const { error: e } = await supabase.from("transactions").update({ category_id: categoryId }).in("id", ids);
+    const { error: e } = await supabase.rpc("transactions_bulk_patch", {
+      p_ids: ids, p_patch: { category_id: categoryId }, p_request_id: crypto.randomUUID(),
+    }).then((r) => ({ error: r.error }));
     setBusy(null);
     if (e) {
       setError(e.message);

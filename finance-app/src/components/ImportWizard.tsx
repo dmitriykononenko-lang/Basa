@@ -380,58 +380,78 @@ export default function ImportWizard({
       if (toInsert.length === 0 && reconciles.length === 0)
         throw new Error("Нет строк для импорта");
 
-      // 1) батч
-      const { data: batch, error: bErr } = await supabase
-        .from("import_batches")
-        .insert({ team_id: teamId, created_by: userId, file_name: fileName, account_id: accountId, bank, row_count: toInsert.length })
-        .select("id").single();
-      if (bErr) throw bErr;
-      const batchId = (batch as { id: string }).id;
+      // Одна транзакция БД: батч, контрагенты и операции. Раньше это были три
+      // независимых запроса с ручной компенсацией (delete батча при ошибке) —
+      // при сбое оставались осиротевшие батчи и созданные контрагенты (аудит, T6).
+      // origin='bank_csv' + канонический отпечаток события в БД не дают повторно
+      // записать то, что уже импортировано из банка (первопричина FIN-03).
 
-      // 2) реконсиляция встречных (existing → перевод)
+      // Реконсиляция встречных операций (existing → перевод) — через узкий RPC:
+      // он проверяет права, принадлежность счёта команде и двигает version.
       for (const r of reconciles) {
-        await supabase.from("transactions").update(r.insert!).eq("id", r.reconcileId!);
+        const ins = (r.insert ?? {}) as Record<string, unknown>;
+        const { error: rcErr } = await supabase.rpc("transactions_convert_to_transfer", {
+          p_ids: [r.reconcileId!],
+          p_transfer_account: ins.transfer_account_id as string,
+          p_account: (ins.account_id as string) ?? null,
+          p_request_id: crypto.randomUUID(),
+        });
+        if (rcErr) throw rcErr;
       }
 
-      // 2.5) создать недостающих контрагентов (по плательщику/получателю)
-      let createdCps = 0;
+      type Ins = Record<string, unknown>;
+      const cpKeyOf = (r: { cpCreate?: { name: string; inn: string; kind: string } | null; insert?: Ins }) =>
+        r.cpCreate ? `name:${r.cpCreate.name.toLowerCase()}` : null;
+
+      const cps = new Map<string, { key: string; name: string; inn: string | null; kind: string }>();
       if (createCps) {
-        const uniq = new Map<string, { name: string; inn: string; kind: string }>();
         for (const r of toInsert) {
-          if (r.cpCreate) {
-            const k = r.cpCreate.name.toLowerCase();
-            if (!uniq.has(k)) uniq.set(k, r.cpCreate);
-          }
-        }
-        if (uniq.size > 0) {
-          const payload = [...uniq.values()].map((c) => ({ team_id: teamId, name: c.name, inn: c.inn || null, kind: c.kind, kinds: [c.kind] }));
-          const { data: created, error: cErr } = await supabase.from("counterparties").insert(payload).select("id, name");
-          if (cErr) { await supabase.from("import_batches").delete().eq("id", batchId); throw cErr; }
-          createdCps = created?.length ?? 0;
-          const nameToId = new Map((created ?? []).map((c) => [(c.name as string).toLowerCase(), c.id]));
-          for (const r of toInsert) {
-            if (r.cpCreate && r.insert && !r.insert.counterparty_id) {
-              r.insert.counterparty_id = nameToId.get(r.cpCreate.name.toLowerCase()) ?? null;
-            }
-          }
+          const key = cpKeyOf(r);
+          if (!key || !r.cpCreate || cps.has(key)) continue;
+          cps.set(key, { key, name: r.cpCreate.name, inn: r.cpCreate.inn || null, kind: r.cpCreate.kind });
         }
       }
 
-      // 3) вставка операций батча
-      if (toInsert.length > 0) {
-        const payload = toInsert.map((r) => ({ ...r.insert, import_batch_id: batchId }));
-        const { error: iErr } = await supabase.from("transactions").insert(payload);
-        if (iErr) { await supabase.from("import_batches").delete().eq("id", batchId); throw iErr; }
-      } else {
-        // батч без вставок (только реконсиляция) — удалим пустой батч
-        await supabase.from("import_batches").delete().eq("id", batchId);
+      const rows = toInsert.map((r) => {
+        const i = (r.insert ?? {}) as Ins;
+        return {
+          type: i.type,
+          amount: i.amount,
+          currency: i.currency,
+          account_id: i.account_id ?? accountId,
+          transfer_account_id: i.transfer_account_id ?? null,
+          category_id: i.category_id ?? null,
+          project_id: i.project_id ?? null,
+          counterparty_id: i.counterparty_id ?? null,
+          counterparty_key: i.counterparty_id ? null : cpKeyOf(r),
+          occurred_on: i.occurred_on,
+          note: i.note ?? null,
+          origin: "bank_csv",
+        };
+      });
+
+      let inserted = 0, skippedExisting = 0, createdCps = 0;
+      if (rows.length > 0) {
+        const { data: res, error: iErr } = await supabase.rpc("bank_import_commit", {
+          p_team: teamId,
+          p_batch: { file_name: fileName, bank, account_id: accountId, status: "imported" },
+          p_rows: rows,
+          p_counterparties: [...cps.values()],
+          p_request_id: crypto.randomUUID(),
+        });
+        if (iErr) throw iErr;
+        const rr = (res ?? {}) as { imported?: number; skipped_by_event_id?: number; skipped_by_fingerprint?: number; counterparties?: number };
+        inserted = rr.imported ?? 0;
+        skippedExisting = (rr.skipped_by_event_id ?? 0) + (rr.skipped_by_fingerprint ?? 0);
+        createdCps = rr.counterparties ?? 0;
       }
 
       setResultMsg(
-        `Импортировано: ${toInsert.length}` +
+        `Импортировано: ${inserted}` +
+        (skippedExisting ? `, пропущено как уже учтённые: ${skippedExisting}` : "") +
         (createdCps ? `, создано контрагентов: ${createdCps}` : "") +
         (reconciles.length ? `, переводов реконсилировано: ${reconciles.length}` : "") +
-        (skipDup && counts.dup ? `, пропущено дублей: ${counts.dup}` : "") +
+        (skipDup && counts.dup ? `, пропущено дублей в файле: ${counts.dup}` : "") +
         (counts.error ? `, ошибок: ${counts.error}` : "")
       );
       setStep("done");

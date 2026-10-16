@@ -106,10 +106,14 @@ export default async function EmployeePage({
   const scheduledOblIds = new Set(
     ((scheduledRows ?? []) as { obligation_id: string | null }[]).map((r) => r.obligation_id).filter(Boolean) as string[]
   );
-  // Фактические выплаты — расходные операции этому контрагенту, независимо от начислений
+  // Фактические выплаты — MANAGEMENT LAYER: берём строки аналитики, а не сами
+  // операции. Если операция разнесена на части, сотруднику принадлежит ЕГО часть,
+  // а не вся операция целиком (SPLIT-01). Начисления при этом живут отдельно
+  // (obligation_balances выше) — разнесение фактической оплаты не создаёт
+  // второго начисления, это разные экономические события.
   const { data: payouts } = await supabase
-    .from("transactions")
-    .select("id, occurred_on, amount, currency, project_id, note, account:accounts!transactions_account_id_fkey(name)")
+    .from("transaction_lines")
+    .select("transaction_id, occurred_on, amount, currency, project_id, note, account_id, is_split")
     .eq("team_id", team.id)
     .eq("counterparty_id", id)
     .eq("type", "expense")
@@ -159,10 +163,20 @@ export default async function EmployeePage({
     .map(([ym, v]) => ({ ym, accrued: v.accrued, paid: v.paid }));
   const initials = String(emp.name).split(/\s+/).filter(Boolean).slice(0, 2).map((s: string) => s[0]).join("").toUpperCase() || "?";
 
-  const payoutRows = (payouts ?? []) as unknown as {
-    id: string; occurred_on: string; amount: number; currency: string;
-    project_id: string | null; note: string | null; account: { name: string } | null;
-  }[];
+  const accNameById = new Map(((accounts ?? []) as { id: string; name: string }[]).map((a) => [a.id, a.name]));
+  const payoutRows = ((payouts ?? []) as unknown as {
+    transaction_id: string; occurred_on: string; amount: number; currency: string;
+    project_id: string | null; note: string | null; account_id: string | null; is_split: boolean;
+  }[]).map((p) => ({
+    id: p.transaction_id,
+    occurred_on: p.occurred_on,
+    amount: p.amount,
+    currency: p.currency,
+    project_id: p.project_id,
+    note: p.note,
+    isSplit: p.is_split,
+    account: p.account_id ? { name: accNameById.get(p.account_id) ?? "—" } : null,
+  }));
   let totalPaidActual = 0;
   const paidByCur = new Map<string, number>();
   for (const p of payoutRows) {

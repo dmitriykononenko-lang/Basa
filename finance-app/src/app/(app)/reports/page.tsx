@@ -7,16 +7,19 @@ import { fetchAllRows } from "@/lib/supabase/paginate";
 import RatesEditor from "@/components/RatesEditor";
 import ExportButton from "@/components/ExportButton";
 
+// MANAGEMENT LAYER: строка аналитики (часть операции либо операция целиком).
 type Tx = {
+  transaction_id: string;
   type: "income" | "expense" | "transfer";
   amount: number;
   currency: string;
   occurred_on: string;
   note: string | null;
-  category: { name: string } | null;
-  counterparty: { name: string } | null;
-  project: { id: string; name: string } | null;
-  account: { name: string } | null;
+  is_split: boolean;
+  category_id: string | null;
+  counterparty_id: string | null;
+  project_id: string | null;
+  account_id: string | null;
 };
 
 const MONTHS_RU = [
@@ -60,22 +63,30 @@ export default async function ReportsPage({
   const start = periodStart(period);
 
   const { data: fxRows } = await supabase.from("fx_rates").select("currency, rate, rate_date").eq("team_id", team.id);
+  // Отчёт — управленческий, поэтому источник строк — канонический слой
+  // аналитики: разнесённая операция даёт свои части (SPLIT-01). Итоги по
+  // месяцам при этом не меняются: сумма строк операции всегда равна её сумме.
   const txs = await fetchAllRows((from, to) =>
     supabase
-      .from("transactions")
-      .select(
-        `type, amount, currency, occurred_on, note,
-         account:accounts!transactions_account_id_fkey(name),
-         category:categories(name),
-         counterparty:counterparties(name),
-         project:projects(id, name)`
-      )
+      .from("transaction_lines")
+      .select("transaction_id, type, amount, currency, occurred_on, note, is_split, category_id, counterparty_id, project_id, account_id")
       .eq("team_id", team.id)
       .eq("status", "actual")
       .gte("occurred_on", start)
       .order("occurred_on", { ascending: false })
       .range(from, to)
   );
+  // Справочники для названий (у представления нет FK-связей для вложенных выборок)
+  const [{ data: catDict }, { data: cpDict }, { data: prjDict }, { data: accDict }] = await Promise.all([
+    supabase.from("categories").select("id, name").eq("team_id", team.id),
+    supabase.from("counterparties").select("id, name").eq("team_id", team.id),
+    supabase.from("projects").select("id, name").eq("team_id", team.id),
+    supabase.from("accounts").select("id, name").eq("team_id", team.id),
+  ]);
+  const catName = new Map(((catDict ?? []) as { id: string; name: string }[]).map((c) => [c.id, c.name]));
+  const cpName  = new Map(((cpDict ?? []) as { id: string; name: string }[]).map((c) => [c.id, c.name]));
+  const prjName = new Map(((prjDict ?? []) as { id: string; name: string }[]).map((c) => [c.id, c.name]));
+  const accName = new Map(((accDict ?? []) as { id: string; name: string }[]).map((c) => [c.id, c.name]));
 
   const rows = (txs ?? []) as unknown as Tx[];
   const rates = buildRateMap(fxRows ?? [], base);
@@ -89,8 +100,8 @@ export default async function ReportsPage({
   // Прибыль по проектам: ключ — id проекта (или "none"), чтобы строки были кликабельны.
   const byProject = new Map<string, { name: string; val: number }>();
   const addProject = (t: Tx, delta: number) => {
-    const id = t.project?.id ?? "none";
-    const name = t.project?.name ?? "Без проекта";
+    const id = t.project_id ?? "none";
+    const name = (t.project_id ? prjName.get(t.project_id) : null) ?? "Без проекта";
     const cur = byProject.get(id) ?? { name, val: 0 };
     cur.val += delta;
     byProject.set(id, cur);
@@ -108,7 +119,7 @@ export default async function ReportsPage({
     } else {
       expense += val;
       m.expense += val;
-      const cn = t.category?.name ?? "Без категории";
+      const cn = (t.category_id ? catName.get(t.category_id) : null) ?? "Без категории";
       byCategory.set(cn, (byCategory.get(cn) ?? 0) + val);
       addProject(t, -val);
     }
@@ -124,16 +135,21 @@ export default async function ReportsPage({
   const catMax = Math.max(1, ...categories.map(([, v]) => v));
   const projects = [...byProject.entries()].sort((a, b) => b[1].val - a[1].val);
 
+  // Выгрузка — тоже управленческая: одна строка на часть операции. Сумма по
+  // колонке «Сумма» равна обороту периода (двойного счёта нет), а колонки
+  // «Операция» и «Часть» дают трассировку до исходной банковской операции.
   const exportRows = rows.map((t) => [
     t.occurred_on,
     t.type === "income" ? "Доход" : t.type === "expense" ? "Расход" : "Перевод",
-    t.category?.name ?? "",
-    t.counterparty?.name ?? "",
-    t.project?.name ?? "",
-    t.account?.name ?? "",
+    (t.category_id ? catName.get(t.category_id) : null) ?? "",
+    (t.counterparty_id ? cpName.get(t.counterparty_id) : null) ?? "",
+    (t.project_id ? prjName.get(t.project_id) : null) ?? "",
+    (t.account_id ? accName.get(t.account_id) : null) ?? "",
     (t.amount / 100).toFixed(2).replace(".", ","),
     t.currency,
     t.note ?? "",
+    t.transaction_id,
+    t.is_split ? "часть" : "",
   ]);
 
   const PERIODS: [string, string][] = [
@@ -157,6 +173,7 @@ export default async function ReportsPage({
           <ExportButton
             headers={[
               "Дата", "Тип", "Категория", "Контрагент", "Проект", "Счёт", "Сумма", "Валюта", "Комментарий",
+              "Операция", "Часть",
             ]}
             rows={exportRows}
             filename={`basa-finance-${period}.csv`}

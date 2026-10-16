@@ -57,21 +57,21 @@ export default function AgentPayouts({
     setBusy(true); setError(null);
     const supabase = createClient();
     const today = new Date().toISOString().slice(0, 10);
+    // Раньше выплата была двумя независимыми insert'ами (операция + разнесение):
+    // при сбое второго деньги списаны, а обязательство осталось открытым.
+    // Теперь это один RPC = одна транзакция. Ключ идемпотентности — id
+    // обязательства, поэтому повторное «выплатить всё» не создаёт вторую выплату.
     for (const p of outstanding) {
       const acc = accounts.find((a) => a.currency === p.currency);
-      let txId: string | null = null;
-      if (acc) {
-        const { data: tx, error: txErr } = await supabase.from("transactions").insert({
-          team_id: teamId, type: "expense", amount: p.outstanding, currency: p.currency,
-          account_id: acc.id, counterparty_id: agentId, occurred_on: today, note: "Агентская выплата", created_by: userId,
-        }).select("id").single();
-        if (txErr) { setBusy(false); setError(txErr.message); return; }
-        txId = (tx as { id: string }).id;
-      }
-      const { error: pErr } = await supabase.from("obligation_payments").insert({
-        obligation_id: p.id, amount: p.outstanding, paid_on: today, transaction_id: txId, created_by: userId,
+      const { error: payErr } = await supabase.rpc("obligation_pay", {
+        p_obligation: p.id,
+        p_account: acc?.id ?? null,
+        p_amount: p.outstanding,
+        p_occurred_on: today,
+        p_note: "Агентская выплата",
+        p_request_id: p.id,
       });
-      if (pErr) { setBusy(false); setError(pErr.message); return; }
+      if (payErr) { setBusy(false); setError(payErr.message); return; }
     }
     setBusy(false);
     toast.success(`Выплачено комиссий: ${outstanding.length}`);

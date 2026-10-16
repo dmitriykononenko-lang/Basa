@@ -89,15 +89,22 @@ export default function AllocatePaymentButton({
 
     setBusy(true);
     const supabase = createClient();
-    const { error } = await supabase.from("obligation_payments").insert({
-      obligation_id: selected.id,
-      amount,
-      paid_on: occurredOn,
-      transaction_id: paymentId,
-      created_by: userId,
+    // Атомарное разнесение: RPC блокирует строку обязательства (FOR UPDATE),
+    // пересчитывает уже разнесённое и отклоняет переплату. Проверка выше —
+    // только подсказка в интерфейсе: она не защищает от второго клиента,
+    // который в этот же момент разносит на то же обязательство (аудит, T4).
+    // request_id защищает от double submit и от ретрая после таймаута.
+    const { data, error } = await supabase.rpc("obligation_allocate", {
+      p_obligation: selected.id,
+      p_transaction: paymentId,
+      p_amount: amount,
+      p_paid_on: occurredOn,
+      p_request_id: crypto.randomUUID(),
     });
     setBusy(false);
     if (error) return void toast.error(error.message);
+    const res = data as { ok?: boolean } | null;
+    if (!res?.ok) return void toast.error("Не удалось разнести выплату");
 
     toast.success(`Разнесено ${formatMoney(amount, baseCurrency)}`);
     const newRemaining = remaining - amount;

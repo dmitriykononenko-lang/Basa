@@ -83,25 +83,19 @@ export default function OperationsTable({
     return pairs.filter((p) => !dismissed.has(p.key));
   }, [items, dismissed]);
 
+  // Склейка расход+приход в перевод — одна транзакция БД (RPC). Раньше это были
+  // insert нового перевода и delete двух исходных строк отдельными запросами:
+  // сбой между ними оставлял деньги учтёнными дважды (аудит, T9).
   async function mergePair(exp: TxData, inc: TxData) {
     setMergeBusy(true);
     setErr(null);
     const supabase = createClient();
-    const { error: insErr } = await supabase.from("transactions").insert({
-      team_id: teamId,
-      type: "transfer",
-      amount: exp.amount,
-      currency: exp.currency,
-      account_id: exp.account_id,
-      transfer_account_id: inc.account_id,
-      occurred_on: exp.occurred_on,
-      status: exp.status,
-      created_by: userId,
+    const { data, error } = await supabase.rpc("transactions_merge_transfer", {
+      p_expense: exp.id, p_income: inc.id, p_request_id: crypto.randomUUID(),
     });
-    if (insErr) { setMergeBusy(false); return setErr(insErr.message); }
-    const { error: delErr } = await supabase.from("transactions").delete().in("id", [exp.id, inc.id]);
     setMergeBusy(false);
-    if (delErr) return setErr(delErr.message);
+    if (error) return setErr(error.message);
+    if (!(data as { ok?: boolean } | null)?.ok) return setErr("Не удалось объединить операции");
     toast.success("Объединено в перевод");
     router.refresh();
   }
@@ -112,14 +106,11 @@ export default function OperationsTable({
     setErr(null);
     const supabase = createClient();
     for (const p of transferCandidates) {
-      const { error: insErr } = await supabase.from("transactions").insert({
-        team_id: teamId, type: "transfer", amount: p.exp.amount, currency: p.exp.currency,
-        account_id: p.exp.account_id, transfer_account_id: p.inc.account_id,
-        occurred_on: p.exp.occurred_on, status: p.exp.status, created_by: userId,
+      const { data, error } = await supabase.rpc("transactions_merge_transfer", {
+        p_expense: p.exp.id, p_income: p.inc.id, p_request_id: crypto.randomUUID(),
       });
-      if (insErr) { setMergeBusy(false); return setErr(insErr.message); }
-      const { error: delErr } = await supabase.from("transactions").delete().in("id", [p.exp.id, p.inc.id]);
-      if (delErr) { setMergeBusy(false); return setErr(delErr.message); }
+      if (error) { setMergeBusy(false); return setErr(error.message); }
+      if (!(data as { ok?: boolean } | null)?.ok) { setMergeBusy(false); return setErr("Не удалось объединить операции"); }
     }
     setMergeBusy(false);
     toast.success(`Создано переводов: ${transferCandidates.length}`);
@@ -148,34 +139,31 @@ export default function OperationsTable({
     return pairs.filter((p) => !dismissed.has(p.key));
   }, [items, dismissed]);
 
-  function plannedPatch(plan: TxData, act: TxData): Record<string, unknown> {
-    return {
-      category_id: act.category_id ?? plan.category_id,
-      project_id: act.project_id ?? plan.project_id,
-      counterparty_id: act.counterparty_id ?? plan.counterparty_id,
-      note: act.note || plan.note,
-    };
-  }
+  // Сверка план↔факт тоже атомарна: перенос аналитики на фактическую операцию и
+  // удаление плановой — одна транзакция (RPC transaction_match_planned).
   async function mergePlanned(plan: TxData, act: TxData) {
     setMergeBusy(true); setErr(null);
     const supabase = createClient();
-    const { error: upErr } = await supabase.from("transactions").update(plannedPatch(plan, act)).eq("id", act.id);
-    if (upErr) { setMergeBusy(false); return setErr(upErr.message); }
-    const { error: delErr } = await supabase.from("transactions").delete().eq("id", plan.id);
+    const { data, error } = await supabase.rpc("transaction_match_planned", {
+      p_planned: plan.id, p_actual: act.id, p_request_id: crypto.randomUUID(),
+    });
     setMergeBusy(false);
-    if (delErr) return setErr(delErr.message);
+    if (error) return setErr(error.message);
+    if (!(data as { ok?: boolean } | null)?.ok) return setErr("Не удалось объединить план и факт");
     toast.success("Плановый платёж объединён с поступившим");
     router.refresh();
   }
+
   async function mergeAllPlanned() {
     if (!confirm(`Объединить плановые платежи с поступившими (${plannedCandidates.length})?`)) return;
     setMergeBusy(true); setErr(null);
     const supabase = createClient();
     for (const p of plannedCandidates) {
-      const { error: upErr } = await supabase.from("transactions").update(plannedPatch(p.plan, p.act)).eq("id", p.act.id);
-      if (upErr) { setMergeBusy(false); return setErr(upErr.message); }
-      const { error: delErr } = await supabase.from("transactions").delete().eq("id", p.plan.id);
-      if (delErr) { setMergeBusy(false); return setErr(delErr.message); }
+      const { data, error } = await supabase.rpc("transaction_match_planned", {
+        p_planned: p.plan.id, p_actual: p.act.id, p_request_id: crypto.randomUUID(),
+      });
+      if (error) { setMergeBusy(false); return setErr(error.message); }
+      if (!(data as { ok?: boolean } | null)?.ok) { setMergeBusy(false); return setErr("Не удалось объединить план и факт"); }
     }
     setMergeBusy(false);
     toast.success(`Объединено план↔факт: ${plannedCandidates.length}`);
@@ -214,9 +202,16 @@ export default function OperationsTable({
     if (Object.keys(patch).length === 0) return setErr("Выберите хотя бы одно поле");
     setBusy(true);
     const supabase = createClient();
-    const { error } = await supabase.from("transactions").update(patch).in("id", selected);
+    // Массовая правка идёт через узкий RPC: он меняет только аналитические
+    // поля (сумму/дату/тип/валюту через этот путь изменить нельзя), проверяет
+    // право на каждую строку и двигает version (аудит, T8).
+    const { data, error } = await supabase.rpc("transactions_bulk_patch", {
+      p_ids: selected, p_patch: patch, p_request_id: crypto.randomUUID(),
+    });
     setBusy(false);
     if (error) { toast.error(error.message); return setErr(error.message); }
+    const bp = data as { updated?: number; skipped_forbidden?: number } | null;
+    if (bp?.skipped_forbidden) toast.info(`Пропущено без прав: ${bp.skipped_forbidden}`);
     setBCat(""); setBProj(""); setBCp(""); setBAcc(""); setBStatus("keep");
     clear();
     toast.success(`Обновлено операций: ${selected.length}`);
@@ -243,21 +238,14 @@ export default function OperationsTable({
     setBusy(true);
     setErr(null);
     const supabase = createClient();
-    const { error: insErr } = await supabase.from("transactions").insert({
-      team_id: teamId,
-      type: "transfer",
-      amount: e.amount,
-      currency: e.currency,
-      account_id: e.account_id,
-      transfer_account_id: i.account_id,
-      occurred_on: e.occurred_on,
-      status: e.status,
-      created_by: userId,
+    // Третий путь склейки (ручной выбор двух операций) — тоже через атомарный
+    // RPC: insert перевода и delete двух исходных строк в одной транзакции.
+    const { data, error } = await supabase.rpc("transactions_merge_transfer", {
+      p_expense: e.id, p_income: i.id, p_request_id: crypto.randomUUID(),
     });
-    if (insErr) { setBusy(false); return setErr(insErr.message); }
-    const { error: delErr } = await supabase.from("transactions").delete().in("id", [e.id, i.id]);
     setBusy(false);
-    if (delErr) return setErr(delErr.message);
+    if (error) return setErr(error.message);
+    if (!(data as { ok?: boolean } | null)?.ok) return setErr("Не удалось создать перевод");
     clear();
     toast.success("Создан перевод между счетами");
     router.refresh();

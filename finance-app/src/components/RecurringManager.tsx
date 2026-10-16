@@ -155,8 +155,17 @@ export default function RecurringManager({
       }
     }
     if (inserts.length > 0) {
+      // Уникальный индекс transactions_recurring_slot_uniq (миграция 0091)
+      // не даёт создать два плановых платежа на один слот правила: при
+      // одновременном нажатии второй вызов получит 23505 вместо дублей.
       const { error } = await supabase.from("transactions").insert(inserts);
-      if (error) { setBusy(false); setError(error.message); return; }
+      if (error) {
+        setBusy(false);
+        setError(error.code === "23505"
+          ? "Плановые операции уже создаются в другой вкладке — обновите страницу"
+          : error.message);
+        return;
+      }
     }
     setBusy(false);
     setMsg(`Создано плановых операций: ${inserts.length}`);

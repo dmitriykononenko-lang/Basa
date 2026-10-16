@@ -22,6 +22,7 @@ type P = {
   categoryName: string | null;
   counterpartyName: string | null;
   projectName: string | null;
+  version: number;
 };
 
 type ActualRow = {
@@ -30,7 +31,7 @@ type ActualRow = {
 };
 
 const SELECT =
-  `id, type, amount, currency, occurred_on, note, account_id, transfer_account_id, counterparty_id,
+  `id, type, amount, currency, occurred_on, note, version, account_id, transfer_account_id, counterparty_id,
    account:accounts!transactions_account_id_fkey(name),
    to_account:accounts!transactions_transfer_account_id_fkey(name),
    category:categories(name), counterparty:counterparties(name), project:projects(name)`;
@@ -145,8 +146,19 @@ export default function PlannedReview({
     setBusy(true);
     if (dateChanged) {
       const supabase = createClient();
-      const { error } = await supabase.from("transactions").update({ occurred_on: editDate }).eq("id", cur.id);
+      // Правка даты планового платежа — через CAS: если операцию успел изменить
+      // другой пользователь, ничего не перезаписываем (аудит, T8).
+      const { data, error } = await supabase.rpc("transaction_save", {
+        p_transaction: cur.id,
+        p_patch: { occurred_on: editDate },
+        p_expected_version: cur.version ?? null,
+        p_request_id: crypto.randomUUID(),
+      });
       if (error) { setBusy(false); return toast.error(error.message); }
+      if ((data as { conflict?: boolean } | null)?.conflict) {
+        setBusy(false);
+        return toast.error("Операцию изменил другой пользователь — обновите список");
+      }
       changedRef.current = true;
     }
     setStats((s) => ({ ...s, confirmed: s.confirmed + 1 }));
@@ -158,9 +170,17 @@ export default function PlannedReview({
     if (!cur) return;
     setBusy(true);
     const supabase = createClient();
-    const { error } = await supabase.from("transactions")
-      .update({ status: "actual", occurred_on: editDate || cur.occurred_on }).eq("id", cur.id);
+    const { data, error } = await supabase.rpc("transaction_save", {
+      p_transaction: cur.id,
+      p_patch: { status: "actual", occurred_on: editDate || cur.occurred_on },
+      p_expected_version: cur.version ?? null,
+      p_request_id: crypto.randomUUID(),
+    });
     if (error) { setBusy(false); return toast.error(error.message); }
+    if ((data as { conflict?: boolean } | null)?.conflict) {
+      setBusy(false);
+      return toast.error("Операцию изменил другой пользователь — обновите список");
+    }
     changedRef.current = true;
     setStats((s) => ({ ...s, conducted: s.conducted + 1 }));
     setBusy(false);
@@ -172,8 +192,14 @@ export default function PlannedReview({
     if (!cur) return;
     setBusy(true);
     const supabase = createClient();
-    const { error } = await supabase.from("transactions").delete().eq("id", cur.id);
+    const { data, error } = await supabase.rpc("transaction_delete", {
+      p_transaction: cur.id, p_expected_version: cur.version ?? null, p_request_id: crypto.randomUUID(),
+    });
     if (error) { setBusy(false); return toast.error(error.message); }
+    if ((data as { conflict?: boolean } | null)?.conflict) {
+      setBusy(false);
+      return toast.error("Операцию изменил другой пользователь — удаление отменено");
+    }
     changedRef.current = true;
     setStats((s) => ({ ...s, deleted: s.deleted + 1 }));
     setBusy(false);

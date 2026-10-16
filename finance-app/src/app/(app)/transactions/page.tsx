@@ -21,6 +21,7 @@ type TxRow = {
   accrual_date: string | null;
   note: string | null;
   status: string;
+  version: number;
   account_id: string | null;
   transfer_account_id: string | null;
   transfer_amount: number | null;
@@ -117,7 +118,7 @@ export default async function TransactionsPage({
     supabase
       .from("transactions")
       .select(
-        `id, type, amount, currency, occurred_on, accrual_date, note, status,
+        `id, type, amount, currency, occurred_on, accrual_date, note, status, version,
          account_id, transfer_account_id, transfer_amount, transfer_currency, category_id, counterparty_id, project_id, created_by, import_batch_id,
          account:accounts!transactions_account_id_fkey(name),
          to_account:accounts!transactions_transfer_account_id_fkey(name),
@@ -293,7 +294,7 @@ export default async function TransactionsPage({
               accrual_date: t.accrual_date, note: t.note, status: t.status, account_id: t.account_id, transfer_account_id: t.transfer_account_id,
               transfer_amount: t.transfer_amount, transfer_currency: t.transfer_currency,
               category_id: t.category_id, counterparty_id: t.counterparty_id, project_id: t.project_id,
-              import_batch_id: t.import_batch_id,
+              import_batch_id: t.import_batch_id, version: t.version,
               accountName: t.account?.name ?? null, toAccountName: t.to_account?.name ?? null,
               categoryName: t.category?.name ?? null, counterpartyName: t.counterparty?.name ?? null,
               projectName: t.project?.name ?? null,

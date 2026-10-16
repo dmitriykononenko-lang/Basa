@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useRef } from "react";
 import Combobox from "@/components/Combobox";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -42,6 +42,8 @@ export default function AddTransactionForm({
   const [accrualDate, setAccrualDate] = useState("");
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(false);
+  // Ключ идемпотентности: один на попытку отправки, переиздаётся после успеха.
+  const requestIdRef = useRef<string>(crypto.randomUUID());
   const [error, setError] = useState<string | null>(null);
 
   // локальные списки (чтобы можно было создавать «на лету»)
@@ -129,28 +131,33 @@ export default function AddTransactionForm({
 
     setLoading(true);
     const supabase = createClient();
-    const { error } = await supabase.from("transactions").insert({
-      team_id: teamId,
-      type,
-      amount: minor,
-      currency: account.currency,
-      account_id: accountId,
-      transfer_account_id: type === "transfer" ? transferAccountId : null,
-      transfer_amount: type === "transfer" ? creditMinor : null,
-      transfer_currency: type === "transfer" && creditMinor != null ? (toAccount?.currency ?? null) : null,
-      category_id: type === "transfer" ? null : categoryId || null,
-      counterparty_id: counterpartyId || null,
-      project_id: projectId || null,
-      occurred_on: date,
-      accrual_date: type !== "transfer" ? accrualDate || null : null,
-      note: note || null,
-      status: planned ? "planned" : "actual",
-      created_by: userId,
-    });
+    // Создание через RPC с ключом идемпотентности: повторная отправка формы
+    // (двойной клик, ретрай после таймаута) не создаёт вторую операцию.
+    const { error } = await supabase.rpc("transaction_insert", {
+      p_payload: {
+        team_id: teamId,
+        type,
+        amount: minor,
+        currency: account.currency,
+        account_id: accountId,
+        transfer_account_id: type === "transfer" ? transferAccountId : null,
+        transfer_amount: type === "transfer" ? creditMinor : null,
+        transfer_currency: type === "transfer" && creditMinor != null ? (toAccount?.currency ?? null) : null,
+        category_id: type === "transfer" ? null : categoryId || null,
+        counterparty_id: counterpartyId || null,
+        project_id: projectId || null,
+        occurred_on: date,
+        accrual_date: type !== "transfer" ? accrualDate || null : null,
+        note: note || null,
+        status: planned ? "planned" : "actual",
+      },
+      p_request_id: requestIdRef.current,
+    }).then((r) => ({ error: r.error }));
 
     if (error) {
       setError(error.message);
       setLoading(false);
+    requestIdRef.current = crypto.randomUUID();  // следующая операция — новый ключ
       return;
     }
 

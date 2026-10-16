@@ -90,7 +90,9 @@ export default function CategorizeWizard({
     const supabase = createClient();
     const patch: Record<string, string | null> = { category_id: categoryId };
     if (byProject) patch.project_id = projectId || null;
-    const { error } = await supabase.from("transactions").update(patch).eq("id", op.id);
+    const { error } = await supabase.rpc("transactions_bulk_patch", {
+      p_ids: [op.id], p_patch: patch, p_request_id: crypto.randomUUID(),
+    }).then((r) => ({ error: r.error }));
     setBusy(false);
     if (error) { toast.error(error.message); return; }
     setAssigned((prev) => new Set(prev).add(op.id));
@@ -110,7 +112,7 @@ export default function CategorizeWizard({
     setCats((prev) => [...prev, data as WizardCat]);
     const patch: Record<string, string | null> = { category_id: data.id };
     if (byProject) patch.project_id = projectId || null;
-    await supabase.from("transactions").update(patch).eq("id", op.id);
+    await supabase.rpc("transactions_bulk_patch", { p_ids: [op.id], p_patch: patch, p_request_id: crypto.randomUUID() });
     setBusy(false);
     setAssigned((prev) => new Set(prev).add(op.id));
     setQ("");
@@ -138,7 +140,7 @@ export default function CategorizeWizard({
     setBusy(true);
     const supabase = createClient();
     for (const [catId, list] of groups) {
-      await supabase.from("transactions").update({ category_id: catId }).in("id", list);
+      await supabase.rpc("transactions_bulk_patch", { p_ids: list, p_patch: { category_id: catId }, p_request_id: crypto.randomUUID() });
     }
     setBusy(false);
     setAssigned((prev) => { const n = new Set(prev); ids.forEach((i) => n.add(i)); return n; });
@@ -159,7 +161,7 @@ export default function CategorizeWizard({
     setBusy(true);
     const supabase = createClient();
     for (const [pid, list] of groups) {
-      await supabase.from("transactions").update({ project_id: pid }).in("id", list);
+      await supabase.rpc("transactions_bulk_patch", { p_ids: list, p_patch: { project_id: pid }, p_request_id: crypto.randomUUID() });
     }
     setBusy(false);
     toast.success(`Привязано проектов: ${ids.length}`);
