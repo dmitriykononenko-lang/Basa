@@ -109,8 +109,14 @@ export DB_URL='postgresql://postgres.kmvsjozxjosmkhvphzdz@<ВАШ-ХОСТ>:5432
 в историю** (вы его печатаете, а не вводите в командную строку):
 
 ```bash
-read -rsp 'Пароль БД: ' PGPASSWORD && export PGPASSWORD && echo
+read -rs "PGPASSWORD?Пароль БД: " && export PGPASSWORD && echo
+echo "длина пароля: ${#PGPASSWORD}"
 ```
+
+Это синтаксис **zsh** — оболочки macOS по умолчанию. Вариант `read -rsp '…'` работает
+только в bash, а в zsh падает с `read: -p: no coprocess` (пароль при этом не задаётся).
+Если вы в bash: `read -rsp 'Пароль БД: ' PGPASSWORD && export PGPASSWORD && echo`.
+Вторая строка выводит только длину пароля, не сам пароль — она должна быть больше нуля.
 
 Это **единственный** способ, который поддерживает скрипт: он проверяет, что
 `PGPASSWORD` задан, и отказывается работать без него. Файл `~/.pgpass` для этого
@@ -285,7 +291,8 @@ age -p -o "$F.age" "$F" && rm -P "$F"
 |---|---|
 | `не найден pg_dump версии 17+` | повторите `export PATH="/opt/homebrew/opt/postgresql@17/bin:$PATH"` |
 | `в DB_URL вписан пароль` | уберите `:пароль` из `DB_URL`, пароль только через `PGPASSWORD` |
-| `нужен PGPASSWORD` | выполните команду `read -rsp ...` из шага 7 в этом же окне |
+| `нужен PGPASSWORD` | выполните команду `read -rs "PGPASSWORD?…"` из шага 7 в этом же окне |
+| `read: -p: no coprocess` | это zsh: используйте `read -rs "PGPASSWORD?Пароль БД: "` из шага 7, а не `read -rsp` |
 | `connection ... timed out` | взяли Direct connection вместо Session pooler — вернитесь к шагам 5–7 |
 | `pg_dump: error: server version mismatch` | стоит старый клиент, см. шаг 3 |
 | `initdb: cannot be run as root` | не запускайте через `sudo` |

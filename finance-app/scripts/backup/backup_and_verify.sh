@@ -77,7 +77,7 @@ abs_dir(){ mkdir -p -- "$1" && (cd -- "$1" && pwd -P); }
 # <<< pure-helpers
 
 : "${DB_URL:?нужен DB_URL (строка подключения БЕЗ пароля)}"
-: "${PGPASSWORD:?нужен PGPASSWORD — задайте через: read -rsp \"пароль: \" PGPASSWORD; export PGPASSWORD}"
+: "${PGPASSWORD:?нужен PGPASSWORD — в zsh (macOS): read -rs \"PGPASSWORD?Пароль БД: \" \&\& export PGPASSWORD; в bash: read -rsp \"Пароль БД: \" PGPASSWORD \&\& export PGPASSWORD}"
 
 case "$DB_URL" in
   *://*:*@*) die "в DB_URL вписан пароль. Уберите его: пароль передаётся только через PGPASSWORD.

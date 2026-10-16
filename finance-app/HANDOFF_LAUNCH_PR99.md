@@ -54,7 +54,7 @@ FIN-03 cleanup (126 дублей), `opening_balance`, FX, SEC-011, нормал�
 Запустить `finance-app/scripts/backup/backup_and_verify.sh` там, где есть клиент **PostgreSQL 17** и сетевой доступ к БД (Session pooler, порт 5432; не Transaction pooler 6543). Инструкция — `BACKUP_RUNBOOK_MACOS.md`.
 ```bash
 export DB_URL='postgresql://postgres.kmvsjozxjosmkhvphzdz@<POOLER_HOST>:5432/postgres?sslmode=require'
-read -rsp 'Пароль БД: ' PGPASSWORD && export PGPASSWORD && echo
+read -rs "PGPASSWORD?Пароль БД: " && export PGPASSWORD && echo   # zsh (macOS); в bash: read -rsp 'Пароль БД: ' PGPASSWORD
 bash scripts/backup/backup_and_verify.sh 2>&1 | tee ~/basa-verify-log.txt
 ```
 PASS = все строки: `ошибок restore: 0`; `[restore] … расхождений: 0`; 7 миграций `ok`; `[postmig] финансовых расхождений: 0`; 8 шагов отката `ok`; `ОТКАТ ЧИСТЫЙ`; `ВСЁ ПРОШЛО УСПЕШНО`.
