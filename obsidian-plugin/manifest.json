@@ -1,0 +1,9 @@
+{
+  "id": "basa-sync",
+  "name": "Basa Sync",
+  "version": "0.1.0",
+  "minAppVersion": "1.4.0",
+  "description": "Двусторонняя синхронизация Базы знаний Basa с Obsidian (markdown).",
+  "author": "Basa",
+  "isDesktopOnly": false
+}
