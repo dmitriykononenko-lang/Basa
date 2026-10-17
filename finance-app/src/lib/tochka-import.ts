@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { fetchOperationsWindowed, type TochkaOperation } from "@/lib/tochka";
+import { fetchOperationsWindowed } from "@/lib/tochka";
+import { buildTochkaRows, normalizeAccountNumber } from "@/lib/tochka-import-rows";
 
 export type ImportResult = {
   imported: number;
@@ -30,8 +31,8 @@ export async function importTochkaStatement(
     teamId: string;
     token: string;
     apiVersion: string;
-    ownNumbers: Set<string>;
-    acctMap: Map<string, string>;
+    ownNumbers: Set<string>;          // номера счетов из getAccounts (их выписки импортируются)
+    acctMap: Map<string, string>;     // все свои счета Basa: номер → id (loadOwnAccountMap)
     targetAccountId: string | null;
     accountId: string;
     defaultIncomeCat: string | null;
@@ -49,68 +50,16 @@ export async function importTochkaStatement(
 
   const ops = await fetchOperationsWindowed({ token, apiVersion, accountId, from, to });
 
-  // Перевод между своими счетами учитываем один раз — только исходящую (Debit)
-  // ногу. Это и есть каноническое представление внутреннего перевода: ОДНА
-  // строка type='transfer'. CSV-импорт обязан приводить перевод к тому же виду.
-  const isInternal = (o: { counterpartyAccount: string | null }) => !!o.counterpartyAccount && ownNumbers.has(o.counterpartyAccount);
-  const keep = ops.filter((o) => o.amountMinor > 0 && !(isInternal(o) && o.direction === "income"));
-
-  const byId = new Map(keep.map((o) => [o.transactionId, o]));
-  const list = [...byId.values()];
-  if (list.length === 0) return { imported: 0, skipped: 0, transfers: 0, counterparties: 0, total: 0 };
-
-  // Контрагенты: ключ — ИНН, иначе имя. Сопоставление с существующими и
-  // создание отсутствующих делает RPC в той же транзакции.
-  const cpKey = (o: TochkaOperation): string | null => {
-    const inn = o.counterpartyInn?.trim();
-    const name = o.counterpartyName?.trim();
-    if (inn) return `inn:${inn}`;
-    if (name) return `name:${name.toLowerCase()}`;
-    return null;
-  };
-  const cpMap = new Map<string, { key: string; name: string; inn: string | null; kpp: string | null; kind: string }>();
-  for (const o of list) {
-    const key = cpKey(o);
-    if (!key || cpMap.has(key)) continue;
-    const isTransfer = isInternal(o);
-    cpMap.set(key, {
-      key,
-      name: o.counterpartyName?.trim() || `ИНН ${o.counterpartyInn}`,
-      inn: o.counterpartyInn?.trim() || null,
-      kpp: o.counterpartyKpp,
-      kind: isTransfer ? "other" : o.direction === "income" ? "client" : "supplier",
-    });
-  }
-
-  let transfers = 0;
-  const rows = list.map((o) => {
-    const isInternalAcc = isInternal(o);
-    const isOwnFunds = /перевод\s+собственных\s+средств/i.test(o.description ?? "");
-    const isTransfer = isInternalAcc || isOwnFunds;
-    if (isTransfer) transfers++;
-    const type = isTransfer ? "transfer" : o.direction;
-    const category_id = isTransfer ? null : type === "income" ? defaultIncomeCat : defaultExpenseCat;
-    const transfer_account_id = isInternalAcc ? (o.counterpartyAccount && acctMap.get(o.counterpartyAccount)) || null : null;
-    const noteParts = [
-      o.description,
-      o.docNumber && `${o.docType ?? "Документ"} №${o.docNumber}`,
-      isInternalAcc && !transfer_account_id && `Перевод между своими счетами (${o.counterpartyAccount})`,
-    ].filter(Boolean);
-    return {
-      type,
-      amount: o.amountMinor,
-      currency: o.currency,
-      account_id: targetAccountId,
-      transfer_account_id,
-      category_id,
-      counterparty_key: isTransfer ? null : cpKey(o),
-      occurred_on: o.date,
-      note: noteParts.join(" · ") || null,
-      external_id: o.transactionId,
-      provider: "tochka",
-      origin: "bank",
-    };
+  // Перевод между своими счетами учитываем один раз, с направлением из банка.
+  // CSV-импорт обязан приводить перевод к тому же виду (см. tochka-import-rows.ts).
+  const { rows, counterparties, transfers } = buildTochkaRows(ops, {
+    statementNumbers: ownNumbers,
+    ownAccounts: acctMap,
+    targetAccountId,
+    defaultIncomeCat,
+    defaultExpenseCat,
   });
+  if (rows.length === 0) return { imported: 0, skipped: 0, transfers: 0, counterparties: 0, total: 0 };
 
   const { data, error } = await supabase.rpc("bank_import_commit", {
     p_team: teamId,
@@ -121,7 +70,7 @@ export async function importTochkaStatement(
       status: "imported",
     },
     p_rows: rows,
-    p_counterparties: [...cpMap.values()],
+    p_counterparties: counterparties,
     p_request_id: requestId ?? null,
   });
   if (error) throw new Error(error.message);
@@ -142,4 +91,33 @@ export async function importTochkaStatement(
     batchId: r.batch_id ?? null,
     promoted: r.promoted ?? 0,
   };
+}
+
+// Свои счета команды: номер → id счёта Basa. Источники — привязки
+// bank_account_links и реквизит accounts.number. Второй нужен для счетов, которых
+// нет в getAccounts (архивные, без привязки): без него входящий перевод с такого
+// счёта не распознавался как свой (миграция 0095, архивный фонд …183872).
+// Привязка важнее реквизита; номер, указанный у нескольких счетов, не используем.
+export async function loadOwnAccountMap(supabase: SupabaseClient, teamId: string): Promise<Map<string, string>> {
+  const [{ data: accRows, error: accErr }, { data: linkRows, error: linkErr }] = await Promise.all([
+    supabase.from("accounts").select("id, number").eq("team_id", teamId).not("number", "is", null),
+    supabase.from("bank_account_links").select("external_account, account_id").eq("team_id", teamId).eq("provider", "tochka"),
+  ]);
+  if (accErr) throw new Error(accErr.message);
+  if (linkErr) throw new Error(linkErr.message);
+
+  const map = new Map<string, string>();
+  const ambiguous = new Set<string>();
+  for (const a of accRows ?? []) {
+    const n = normalizeAccountNumber(a.number);
+    if (!n) continue;
+    if (map.has(n) && map.get(n) !== a.id) ambiguous.add(n);
+    else map.set(n, a.id);
+  }
+  for (const n of ambiguous) map.delete(n);
+  for (const l of linkRows ?? []) {
+    const n = normalizeAccountNumber(l.external_account);
+    if (n && l.account_id) map.set(n, l.account_id);
+  }
+  return map;
 }
