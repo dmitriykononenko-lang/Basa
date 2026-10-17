@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canEditFinance } from "@/lib/team";
 import { decryptSecret } from "@/lib/crypto";
 import { getAccounts, fetchStatementRaw } from "@/lib/tochka";
-import { importTochkaStatement } from "@/lib/tochka-import";
+import { importTochkaStatement, loadOwnAccountMap } from "@/lib/tochka-import";
 import { financialImportsLocked, financialImportsLockedResponse } from "@/lib/maintenance";
 
 // Загрузка крупной выписки идёт окнами с «шагами назад» — может занять до минут.
@@ -57,13 +57,10 @@ export async function POST(request: Request) {
   }
 
   // Сопоставление счетов Точки со счетами Basa (номер → account_id Basa).
-  const { data: linkRows } = await supabase
-    .from("bank_account_links")
-    .select("external_account, account_id")
-    .eq("team_id", current.team.id)
-    .eq("provider", "tochka");
-  const acctMap = new Map<string, string>();
-  for (const l of linkRows ?? []) if (l.account_id) acctMap.set(l.external_account, l.account_id);
+  // Привязки + accounts.number: так распознаются и архивные свои счета.
+  let acctMap: Map<string, string>;
+  try { acctMap = await loadOwnAccountMap(supabase, current.team.id); }
+  catch (e) { return NextResponse.json({ error: e instanceof Error ? e.message : "Ошибка счетов" }, { status: 500 }); }
   // Счёт Basa для импортируемой выписки: маппинг → иначе дефолтный.
   const targetAccountId = (sourceNumber && acctMap.get(sourceNumber)) || conn.default_account_id;
 
