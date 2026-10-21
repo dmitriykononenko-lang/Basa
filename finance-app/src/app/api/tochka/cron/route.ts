@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decryptSecret } from "@/lib/crypto";
 import { getAccounts } from "@/lib/tochka";
-import { importTochkaStatement } from "@/lib/tochka-import";
+import { importTochkaStatement, loadOwnAccountMap } from "@/lib/tochka-import";
 import { financialImportsLocked, financialImportsLockedResponse } from "@/lib/maintenance";
 
 // Фоновый автоимпорт выписок Точки по расписанию (Vercel Cron).
@@ -62,12 +62,7 @@ export async function GET(request: Request) {
       const accounts = await getAccounts({ token, apiVersion: conn.api_version });
       const ownNumbers = new Set(accounts.map((a) => a.accountNumber).filter(Boolean) as string[]);
 
-      const { data: linkRows } = await supabase
-        .from("bank_account_links")
-        .select("external_account, account_id")
-        .eq("team_id", teamId).eq("provider", "tochka");
-      const acctMap = new Map<string, string>();
-      for (const l of linkRows ?? []) if (l.account_id) acctMap.set(l.external_account, l.account_id);
+      const acctMap = await loadOwnAccountMap(supabase, teamId);
 
       for (const a of accounts) {
         const targetAccountId = (a.accountNumber && acctMap.get(a.accountNumber)) || conn.default_account_id;
