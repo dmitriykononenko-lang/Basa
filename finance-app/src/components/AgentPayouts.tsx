@@ -125,11 +125,8 @@ export default function AgentPayouts({
                   <td className="px-3 py-2 text-right">
                     <PayObligationButton
                       obligationId={p.id}
-                      userId={userId}
                       outstanding={p.outstanding}
                       currency={p.currency}
-                      teamId={teamId}
-                      counterpartyId={agentId}
                       accounts={accounts}
                       ops={ops}
                     />

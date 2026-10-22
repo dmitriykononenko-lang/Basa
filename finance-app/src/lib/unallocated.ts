@@ -1,9 +1,11 @@
 // Нераспределённые выплаты: фактические операции контрагентам, у которых есть
 // открытые обязательства, но операция ещё не полностью «разнесена» по ним.
-// Остаток считаем в базовой валюте (obligation_payments.amount хранится в валюте
-// обязательства — для команд с базовой валютой это она же).
+// После 0099 остаток операции = t.amount − Σ payment_amount (в валюте операции,
+// без FX); до миграции / для строк без payment_amount — прежний расчёт в базовой
+// валюте (obligation_payments.amount считаем базовой). См. unallocated-calc.ts.
 
 import { toBase, type RateMap } from "@/lib/fx";
+import { calcUnallocated, hasUnallocatedRemainder, type AllocationLink } from "@/lib/unallocated-calc";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type UnallocatedPayment = {
@@ -19,6 +21,7 @@ export type UnallocatedPayment = {
   allocatedBase: number; // минорные, базовая валюта
   paidBase: number; // минорные, базовая валюта
   remainingBase: number; // минорные, базовая валюта
+  remaining: number | null; // минорные, валюта операции; null — нет payment_amount (до 0099)
 };
 
 export async function loadUnallocatedPayments(
@@ -62,28 +65,42 @@ export async function loadUnallocatedPayments(
   );
   if (relevant.length === 0) return [];
 
-  // 3. Уже разнесённые суммы по этим операциям
+  // 3. Уже разнесённые части по этим операциям. payment_amount появляется в 0099;
+  //    пока колонки нет (42703) — читаем без неё, расчёт уйдёт в прежний fallback.
   const ids = relevant.map((t) => t.id);
-  const allocByTx = new Map<string, number>();
+  const linksByTx = new Map<string, AllocationLink[]>();
+  let withPaymentAmount = true;
   for (let i = 0; i < ids.length; i += 500) {
     const chunk = ids.slice(i, i + 500);
-    const { data: pays } = await supabase
-      .from("obligation_payments")
-      .select("transaction_id, amount")
-      .in("transaction_id", chunk);
-    for (const p of (pays ?? []) as { transaction_id: string | null; amount: number }[]) {
+    let pays: unknown[] | null = null;
+    if (withPaymentAmount) {
+      const res = await supabase
+        .from("obligation_payments")
+        .select("transaction_id, amount, payment_amount")
+        .in("transaction_id", chunk);
+      if (res.error?.code === "42703") withPaymentAmount = false;
+      else pays = res.data;
+    }
+    if (!withPaymentAmount) {
+      const res = await supabase
+        .from("obligation_payments")
+        .select("transaction_id, amount")
+        .in("transaction_id", chunk);
+      pays = res.data;
+    }
+    for (const p of (pays ?? []) as { transaction_id: string | null; amount: number; payment_amount?: number | null }[]) {
       if (!p.transaction_id) continue;
-      allocByTx.set(p.transaction_id, (allocByTx.get(p.transaction_id) ?? 0) + p.amount);
+      const list = linksByTx.get(p.transaction_id) ?? [];
+      list.push({ amount: Number(p.amount), payment_amount: p.payment_amount ?? null });
+      linksByTx.set(p.transaction_id, list);
     }
   }
 
-  // 4. Остаток в базовой валюте
+  // 4. Остаток: по payment_amount в валюте операции, в базовой — для сумм и сортировки
   const out: UnallocatedPayment[] = [];
   for (const t of relevant) {
-    const paidBase = toBase(t.amount, t.currency, rates);
-    const allocatedBase = allocByTx.get(t.id) ?? 0;
-    const remainingBase = paidBase - allocatedBase;
-    if (remainingBase <= 0) continue;
+    const calc = calcUnallocated(t, linksByTx.get(t.id) ?? [], (m, c) => toBase(m, c, rates));
+    if (!hasUnallocatedRemainder(calc)) continue;
     out.push({
       id: t.id,
       occurred_on: t.occurred_on,
@@ -94,9 +111,10 @@ export async function loadUnallocatedPayments(
       counterparty_id: t.counterparty_id,
       counterpartyName: t.counterparty?.name ?? "—",
       oblType: t.type === "expense" ? "payable" : "receivable",
-      allocatedBase,
-      paidBase,
-      remainingBase,
+      allocatedBase: calc.allocatedBase,
+      paidBase: calc.paidBase,
+      remainingBase: calc.remainingBase,
+      remaining: calc.remaining,
     });
   }
   return out.sort((a, b) => b.remainingBase - a.remainingBase);
