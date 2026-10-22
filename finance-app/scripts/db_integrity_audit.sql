@@ -37,7 +37,9 @@ with checks(name, bad) as (
   ('obligation overpaid',                (select count(*) from (select o.id from obligations o join obligation_payments p on p.obligation_id=o.id group by o.id, o.amount having sum(p.amount)>o.amount) x)),
   -- NB: a FAIL here can also be a legitimate manual accrual sitting next to the auto one —
   -- compare amount/note/created_at before treating it as a duplicate.
-  ('dup auto accrual(cp,type,part,month)',(select coalesce(sum(c-1),0) from (select count(*) c from obligations where pay_part='fixed' and period_month is not null group by counterparty_id, type, pay_part, period_month having count(*)>1) x)),
+  -- аванс и остаток за один месяц — две законные строки с разными сроками (0087, 0098);
+  -- дубль — две строки оклада на один и тот же срок (как уникальный индекс obligations_auto_accrual_uniq)
+  ('dup auto accrual(cp,type,part,month,due)',(select coalesce(sum(c-1),0) from (select count(*) c from obligations where pay_part='fixed' and period_month is not null group by counterparty_id, type, pay_part, period_month, due_date having count(*)>1) x)),
   ('splits sum<>tx.amount',              (select count(*) from (select s.transaction_id from transaction_splits s join transactions t on t.id=s.transaction_id group by s.transaction_id having sum(s.amount)<>max(t.amount)) x)),
   -- FIN-03: the same transfer recorded twice — a `transfer` row PLUS a manual expense+income pair
   -- with identical date/amount/currency/accounts and the same note prefix. Double-counts balances.

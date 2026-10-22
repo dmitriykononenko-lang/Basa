@@ -193,7 +193,7 @@ union all select 'split_sum_mismatch', count(*)::text from (select s.transaction
 union all select 'import_batches', count(*)::text from import_batches
 union all select 'accounts',    count(*)::text from accounts
 union all select 'counterparties', count(*)::text from counterparties
-union all select 'dup_auto_accrual', coalesce(sum(c-1),0)::text from (select count(*) c from obligations where pay_part='fixed' and period_month is not null group by counterparty_id,type,pay_part,period_month having count(*)>1) x
+union all select 'dup_auto_accrual', coalesce(sum(c-1),0)::text from (select count(*) c from obligations where pay_part='fixed' and period_month is not null group by counterparty_id,type,pay_part,period_month,due_date having count(*)>1) x
 union all select 'rub_flow',    coalesce(sum(case when type='income' then amount when type='expense' then -amount else 0 end),0)::text from transactions where status='actual' and currency='RUB'
 union all select 'usdt_flow',   coalesce(sum(case when type='income' then amount when type='expense' then -amount else 0 end),0)::text from transactions where status='actual' and currency='USDT'
 union all select 'opening_sum', coalesce(sum(coalesce(opening_balance,0)),0)::text from accounts

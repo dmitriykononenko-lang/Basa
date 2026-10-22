@@ -73,7 +73,7 @@ production появились «необъяснимые» изменения.
   с `name` = имя файла без `.sql`; (5) md5 текста в `supabase_migrations.schema_migrations`
   = `md5 -q` файла; (6) сверка показателей и integrity audit.
 - Финансовые показатели для сверки до/после и integrity audit: `finance-app/scripts/backup/backup_and_verify.sh`
-  (`EXPECT_SQL`) и `finance-app/scripts/db_integrity_audit.sql`. Известный FAIL: `dup auto accrual = 1`.
+  (`EXPECT_SQL`) и `finance-app/scripts/db_integrity_audit.sql`. Ожидается 0 FAIL (с 2026-10-22 дубль оклада считается по сроку: аванс и остаток — не дубль).
 
 ## Бэкапы
 

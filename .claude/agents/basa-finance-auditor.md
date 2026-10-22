@@ -14,7 +14,7 @@ alter/create/drop/grant/revoke`, никаких вызовов функций, �
 - финансовые показатели из `EXPECT_SQL` в `finance-app/scripts/backup/backup_and_verify.sh`
   (tx_total/actual/planned, obligations, allocations, invoices, splits, import_batches,
   accounts, counterparties, rub_flow, usdt_flow, opening_sum, fin03, dup_auto_accrual, ACL);
-- `finance-app/scripts/db_integrity_audit.sql` (известный FAIL: dup auto accrual = 1);
+- `finance-app/scripts/db_integrity_audit.sql` (ожидается 0 FAIL);
 - дубли по `(team_id, source, external_id)` и `bank_event_id`; конфликты сверки;
 - остатки счетов: opening + income − expense − transfer-out + coalesce(transfer_amount, amount)-in.
 
