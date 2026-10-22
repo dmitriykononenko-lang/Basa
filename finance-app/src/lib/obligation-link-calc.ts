@@ -50,15 +50,28 @@ export function crossRate(payRubPerUnit: number, oblRubPerUnit: number): number 
 }
 
 /**
- * Подсказка сумм для разновалютной привязки (обе валюты — в сотых):
- *   amount = min(round(available × rate), outstanding);
- *   если урезали до outstanding — payment = round(amount / rate) (не больше available).
+ * Суммы по курсу ЦБ для заданного списания из операции (обе валюты — в сотых):
+ *   amount = min(round(payment × rate), outstanding);
+ *   если упёрлись в долг — payment пересчитывается обратно: round(outstanding / rate)
+ *   (не больше введённого и не меньше 1). Такая пара проходит проверку RPC для CBR:
+ *   |amount − payment × rate| ≤ max(rate, 1).
  */
+export function cbrFromPayment(payment: number, outstanding: number, rate: number): { amount: number; payment: number; capped: boolean } {
+  const full = Math.round(payment * rate);
+  if (full <= outstanding) return { amount: full, payment, capped: false };
+  const back = Math.min(payment, Math.max(1, Math.round(outstanding / rate)));
+  return { amount: outstanding, payment: back, capped: true };
+}
+
+/** Подсказка по умолчанию: списать весь доступный остаток операции (с урезанием до долга). */
 export function fxDefaults(available: number, outstanding: number, rate: number): { amount: number; payment: number } {
-  const full = Math.round(available * rate);
-  if (full <= outstanding) return { amount: full, payment: available };
-  const payment = Math.min(available, Math.max(1, Math.round(outstanding / rate)));
-  return { amount: outstanding, payment };
+  const { amount, payment } = cbrFromPayment(available, outstanding, rate);
+  return { amount, payment };
+}
+
+/** Согласованность пары с курсом ЦБ — та же проверка, что делает RPC obligation_link для CBR. */
+export function withinCbrTolerance(amount: number, payment: number, rate: number): boolean {
+  return Math.abs(amount - payment * rate) <= Math.max(rate, 1);
 }
 
 /** Сумма в валюте начисления по сумме операции и курсу. */

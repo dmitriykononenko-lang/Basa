@@ -27,20 +27,29 @@
 --   2. Заполнение: IDENTITY (та же валюта) и LEGACY (по явному списку 19 операций с
 --      ожидаемыми суммами). amount не меняется; сверка count/Σamount до и после.
 --   3. BEFORE-триггер obligation_payments_fill_fx: для ЛЮБОГО пути записи проверяет команду,
---      тип, статус операции и заполняет IDENTITY; разные валюты — только из obligation_link.
---   4. Кэп по операции: отложенные constraint-триггеры на obligation_payments и transactions
---      (Σ payment_amount ≤ t.amount, валюта, статус/тип) с блокировкой строки операции.
+--      тип, статус и контрагента операции (с частями; кроме собственной привязки settle) и
+--      заполняет IDENTITY; разные валюты — только из obligation_link.
+--   4. Инварианты операции (assert_tx_allocation): Σ payment_amount ≤ t.amount; по каждому
+--      контрагенту Σ ≤ его доля в операции (части); валюта, команда, статус, тип. Проверяются
+--      отложенными constraint-триггерами на obligation_payments, transactions (amount, currency,
+--      type, status, team_id, counterparty_id) и transaction_splits, с блокировкой строки операции.
+--   4b. Инварианты начисления: при привязках к операциям нельзя менять currency/type/team_id;
+--      смена counterparty_id допустима только если все привязанные операции остаются согласованы
+--      (так работает merge_counterparties); amount не ниже Σ привязок. Кэп 0086 блокирует строку
+--      начисления (FOR NO KEY UPDATE).
 --   5. settle_obligation_on_tx (0079) и obligation_pay — при разных валютах понятная ошибка.
---   6. RPC obligation_link (контракт q09_contract.md); obligation_allocate — тонкая обёртка.
---   7. Политика obligation_payments_insert — плюс проверка команды операции.
---   8. Гранты и самопроверка.
+--   6. RPC obligation_link (контракт q09_contract.md, правка после ревью: p_fx_rate);
+--      obligation_allocate — тонкая обёртка.
+--   7. op_begin: повтор ключа возвращает результат только той же команде и тому же пользователю.
+--   8. Политика obligation_payments_insert — плюс проверка команды операции.
+--   9. Гранты и самопроверка.
 -- Прямой insert в obligation_payments остаётся (старый фронт до деплоя) — закрывается в 0100.
 --
 -- КАК ПРОВЕРИТЬ.
 --   select count(*) from obligation_payments where transaction_id is not null and fx_method is null; -- 0
 --   select fx_method, count(*), sum(amount), sum(payment_amount) from obligation_payments group by 1;
 --     -- IDENTITY 72, LEGACY 34 (на 22.10); Σ amount = как до миграции
---   has_function_privilege('anon', 'public.obligation_link(uuid,uuid,bigint,bigint,text,date,uuid)', 'execute') = false
+--   has_function_privilege('anon', 'public.obligation_link(uuid,uuid,bigint,bigint,text,date,uuid,numeric)', 'execute') = false
 --   psql -f scripts/db_integrity_audit.sql — 0 FAIL (новые проверки Q-09).
 --
 -- КАК ОТКАТИТЬ. Сначала откатить код приложения (новый фронт зовёт obligation_link и читает
@@ -208,6 +217,19 @@ begin
     select t.id from obligation_payments p join transactions t on t.id = p.transaction_id
      group by t.id, t.amount having sum(p.payment_amount) > t.amount) x;
   if _n > 0 then raise exception '0099 guard: у % операций Σ payment_amount больше суммы операции', _n; end if;
+  -- доля контрагента: Σ payment_amount привязок к начислениям контрагента X ≤ доля X в операции (с частями)
+  select count(*) into _n from (
+    select p.transaction_id, o.counterparty_id, sum(p.payment_amount) s
+      from obligation_payments p join obligations o on o.id = p.obligation_id
+      join transactions t on t.id = p.transaction_id
+     where t.obligation_id is distinct from p.obligation_id
+     group by 1, 2) x
+   where x.s > (select case when exists (select 1 from transaction_splits s where s.transaction_id = t.id)
+                            then (select coalesce(sum(s.amount), 0) from transaction_splits s
+                                   where s.transaction_id = t.id and coalesce(s.counterparty_id, t.counterparty_id) = x.counterparty_id)
+                            when t.counterparty_id = x.counterparty_id then t.amount else 0 end
+                  from transactions t where t.id = x.transaction_id);
+  if _n > 0 then raise exception '0099 guard: у % пар (операция, контрагент) привязано больше доли контрагента', _n; end if;
 
   select count(*), coalesce(sum(amount), 0) into _cnt1, _sum1 from obligation_payments;
   if _cnt1 <> _cnt0 or _sum1 <> _sum0 then
@@ -227,7 +249,24 @@ do $$ begin
          and fx_rate is not null and fx_method is not null));
 exception when duplicate_object then null; end $$;
 
--- ─── 3. BEFORE-триггер: проверка операции и заполнение валюты для всех путей ──
+-- ─── 3. Доля контрагента в операции (с учётом частей) ───────────────────────
+-- Части есть — сумма частей контрагента _cp (контрагент части по умолчанию = контрагент
+-- операции, как в transaction_lines); частей нет — вся сумма, если контрагент операции = _cp.
+create or replace function public.tx_counterparty_share(_tx uuid, _cp uuid)
+returns bigint language plpgsql stable security definer set search_path = public as $$
+declare _t record; _share bigint;
+begin
+  select id, amount, counterparty_id into _t from transactions where id = _tx;
+  if not found or _cp is null then return 0; end if;
+  if exists (select 1 from transaction_splits where transaction_id = _tx) then
+    select coalesce(sum(s.amount), 0) into _share from transaction_splits s
+     where s.transaction_id = _tx and coalesce(s.counterparty_id, _t.counterparty_id) = _cp;
+    return _share;
+  end if;
+  return case when _t.counterparty_id = _cp then _t.amount else 0 end;
+end $$;
+
+-- ─── 3b. BEFORE-триггер: проверка операции и заполнение валюты для всех путей ─
 create or replace function public.obligation_payments_fill_fx()
 returns trigger language plpgsql security definer set search_path = public as $$
 declare _t record; _o record;
@@ -252,13 +291,13 @@ begin
     return new;
   end if;
 
-  select team_id, type, status, currency, occurred_on into _t from transactions where id = new.transaction_id;
+  select team_id, type, status, currency, occurred_on, obligation_id into _t from transactions where id = new.transaction_id;
   if not found then raise exception 'Операция не найдена' using errcode = '42704'; end if;
-  select team_id, type, currency into _o from obligations where id = new.obligation_id;
+  select team_id, type, currency, counterparty_id into _o from obligations where id = new.obligation_id;
   if not found then raise exception 'Начисление не найдено' using errcode = '42704'; end if;
 
   if _t.team_id <> _o.team_id then
-    raise exception 'Операция из другой команды' using errcode = '42501';
+    raise exception 'Операция не найдена' using errcode = '42704';   -- чужая команда = «не найдено»
   end if;
   if _t.status <> 'actual' then
     raise exception 'Плановую операцию привязать к начислению нельзя — сначала проведите её' using errcode = '22023';
@@ -268,6 +307,11 @@ begin
   end if;
   if not ((_o.type = 'payable' and _t.type = 'expense') or (_o.type = 'receivable' and _t.type = 'income')) then
     raise exception 'Начисление к выплате закрывается расходом, к получению — приходом' using errcode = '22023';
+  end if;
+  -- контрагент: кроме собственной привязки settle (операция создана под это начисление)
+  if _t.obligation_id is distinct from new.obligation_id
+     and public.tx_counterparty_share(new.transaction_id, _o.counterparty_id) <= 0 then
+    raise exception 'Операция другого контрагента — привязать её к этому начислению нельзя' using errcode = '22023';
   end if;
 
   if _t.currency = _o.currency then
@@ -286,7 +330,12 @@ begin
     raise exception 'Привязка между валютами: нужны сумма в валюте операции и способ курса (CBR/MANUAL)' using errcode = '22023';
   end if;
   new.payment_currency := _t.currency;
-  new.fx_rate := round(new.amount::numeric / new.payment_amount, 10);
+  if new.fx_method = 'MANUAL' or new.fx_rate is null then
+    new.fx_rate := round(new.amount::numeric / new.payment_amount, 10);
+  end if;
+  if new.fx_rate < 0.000001 or new.fx_rate > 1000000 then
+    raise exception 'Курс % вне допустимого диапазона (0,000001 … 1 000 000) — проверьте суммы', new.fx_rate using errcode = '22023';
+  end if;
   return new;
 end $$;
 
@@ -294,15 +343,16 @@ drop trigger if exists obligation_payments_fill_fx on public.obligation_payments
 create trigger obligation_payments_fill_fx before insert or update on public.obligation_payments
   for each row execute function public.obligation_payments_fill_fx();
 
--- ─── 4. Кэп по операции (отложенный, с блокировкой строки операции) ─────────
+-- ─── 4. Инварианты операции (отложенно, с блокировкой строки операции) ──────
 -- FOR NO KEY UPDATE сериализует параллельные привязки к одной операции (второй коммит
 -- ждёт первый и видит его строку) и не конфликтует с KEY SHARE от внешних ключей.
 create or replace function public.assert_tx_allocation(_tx uuid)
 returns void language plpgsql security definer set search_path = public as $$
-declare _t record; _sum bigint; _bad int;
+declare _t record; _sum bigint; _bad int; _r record;
 begin
   if _tx is null then return; end if;
-  select id, team_id, type, status, currency, amount into _t from transactions where id = _tx for no key update;
+  select id, team_id, type, status, currency, amount, obligation_id into _t
+    from transactions where id = _tx for no key update;
   if not found then return; end if;                       -- операция удалена в этой же транзакции
   if not exists (select 1 from obligation_payments where transaction_id = _tx) then return; end if;
 
@@ -313,9 +363,13 @@ begin
     raise exception 'Операция привязана к начислению — сделать её переводом нельзя, сначала отвяжите' using errcode = '23514';
   end if;
   select count(*) into _bad from obligation_payments p join obligations o on o.id = p.obligation_id
+   where p.transaction_id = _tx and o.team_id <> _t.team_id;
+  if _bad > 0 then
+    raise exception 'Операция привязана к начислению другой команды — сначала отвяжите' using errcode = '23514';
+  end if;
+  select count(*) into _bad from obligation_payments p join obligations o on o.id = p.obligation_id
    where p.transaction_id = _tx
-     and (o.team_id <> _t.team_id
-          or not ((o.type = 'payable' and _t.type = 'expense') or (o.type = 'receivable' and _t.type = 'income')));
+     and not ((o.type = 'payable' and _t.type = 'expense') or (o.type = 'receivable' and _t.type = 'income'));
   if _bad > 0 then
     raise exception 'Тип операции не соответствует привязанным начислениям — сначала отвяжите' using errcode = '23514';
   end if;
@@ -329,6 +383,21 @@ begin
       to_char(_sum / 100.0, 'FM999999999990.00'), _t.currency,
       to_char(_t.amount / 100.0, 'FM999999999990.00'), _t.currency using errcode = '23514';
   end if;
+  -- по каждому контрагенту начислений: Σ ≤ его доля в операции (собственная привязка settle —
+  -- к начислению из transactions.obligation_id — не проверяется, её контрагент задаёт операция)
+  for _r in
+    select o.counterparty_id cp, sum(p.payment_amount) s
+      from obligation_payments p join obligations o on o.id = p.obligation_id
+     where p.transaction_id = _tx and p.obligation_id is distinct from _t.obligation_id
+     group by o.counterparty_id
+  loop
+    if _r.s > public.tx_counterparty_share(_tx, _r.cp) then
+      raise exception 'К начислениям контрагента привязано % %, а его доля в операции % % — сначала отвяжите',
+        to_char(_r.s / 100.0, 'FM999999999990.00'), _t.currency,
+        to_char(public.tx_counterparty_share(_tx, _r.cp) / 100.0, 'FM999999999990.00'), _t.currency
+        using errcode = '23514';
+    end if;
+  end loop;
 end $$;
 
 create or replace function public.obligation_payments_tx_cap()
@@ -348,6 +417,18 @@ begin
   return null;
 end $$;
 
+create or replace function public.transaction_splits_alloc_guard()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if tg_op in ('UPDATE','DELETE') then
+    perform public.assert_tx_allocation(old.transaction_id);
+  end if;
+  if tg_op in ('INSERT','UPDATE') and (tg_op = 'INSERT' or new.transaction_id is distinct from old.transaction_id) then
+    perform public.assert_tx_allocation(new.transaction_id);
+  end if;
+  return null;
+end $$;
+
 drop trigger if exists obligation_payments_tx_cap_ck on public.obligation_payments;
 create constraint trigger obligation_payments_tx_cap_ck
   after insert or update on public.obligation_payments
@@ -356,12 +437,84 @@ create constraint trigger obligation_payments_tx_cap_ck
 
 drop trigger if exists transactions_alloc_ck on public.transactions;
 create constraint trigger transactions_alloc_ck
-  after update of amount, currency, type, status on public.transactions
+  after update of amount, currency, type, status, team_id, counterparty_id on public.transactions
   deferrable initially deferred
   for each row
   when (old.amount is distinct from new.amount or old.currency is distinct from new.currency
-        or old.type is distinct from new.type or old.status is distinct from new.status)
+        or old.type is distinct from new.type or old.status is distinct from new.status
+        or old.team_id is distinct from new.team_id or old.counterparty_id is distinct from new.counterparty_id)
   execute function public.transactions_alloc_guard();
+
+drop trigger if exists transaction_splits_alloc_ck on public.transaction_splits;
+create constraint trigger transaction_splits_alloc_ck
+  after insert or update or delete on public.transaction_splits
+  deferrable initially deferred
+  for each row execute function public.transaction_splits_alloc_guard();
+
+-- ─── 4b. Инварианты начисления ──────────────────────────────────────────────
+create or replace function public.obligations_alloc_guard()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare _o record; _paid bigint; _tx uuid;
+begin
+  select id, amount, counterparty_id into _o from obligations where id = new.id for no key update;
+  if not found then return null; end if;                  -- начисление удалено в этой же транзакции
+  if not exists (select 1 from obligation_payments where obligation_id = new.id) then return null; end if;
+
+  if exists (select 1 from obligation_payments where obligation_id = new.id and transaction_id is not null) then
+    if old.currency is distinct from new.currency then
+      raise exception 'Начисление оплачено операциями — сменить валюту нельзя, сначала отвяжите оплаты' using errcode = '23514';
+    end if;
+    if old.type is distinct from new.type then
+      raise exception 'Начисление оплачено операциями — сменить тип нельзя, сначала отвяжите оплаты' using errcode = '23514';
+    end if;
+    if old.team_id is distinct from new.team_id then
+      raise exception 'Начисление оплачено операциями — перенести в другую команду нельзя, сначала отвяжите оплаты' using errcode = '23514';
+    end if;
+    if old.counterparty_id is distinct from new.counterparty_id then
+      -- допустимо, только если операции остаются согласованы (merge_counterparties переносит
+      -- и операции, и начисления); иначе assert_tx_allocation даёт 23514
+      for _tx in select distinct transaction_id from obligation_payments
+                  where obligation_id = new.id and transaction_id is not null loop
+        perform public.assert_tx_allocation(_tx);
+      end loop;
+    end if;
+  end if;
+
+  select coalesce(sum(amount), 0) into _paid from obligation_payments where obligation_id = new.id;
+  if _o.amount < _paid then
+    raise exception 'По начислению уже погашено % — уменьшить сумму до % нельзя, сначала отвяжите оплаты',
+      to_char(_paid / 100.0, 'FM999999999990.00'), to_char(_o.amount / 100.0, 'FM999999999990.00')
+      using errcode = '23514';
+  end if;
+  return null;
+end $$;
+
+drop trigger if exists obligations_alloc_ck on public.obligations;
+create constraint trigger obligations_alloc_ck
+  after update of currency, type, counterparty_id, team_id, amount on public.obligations
+  deferrable initially deferred
+  for each row
+  when (old.currency is distinct from new.currency or old.type is distinct from new.type
+        or old.counterparty_id is distinct from new.counterparty_id or old.team_id is distinct from new.team_id
+        or old.amount is distinct from new.amount)
+  execute function public.obligations_alloc_guard();
+
+-- кэп 0086 (тело production) + блокировка строки начисления: параллельные прямые insert
+-- на одно начисление выстраиваются, второй видит строку первого
+create or replace function public.assert_obligation_not_overpaid()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare _obl uuid; _paid bigint; _amount bigint;
+begin
+  _obl := coalesce(new.obligation_id, old.obligation_id);
+  select amount into _amount from obligations where id = _obl for no key update;
+  if _amount is null then return null; end if;
+  select coalesce(sum(amount),0) into _paid from obligation_payments where obligation_id = _obl;
+  if _paid > _amount then
+    raise exception 'Обязательство %: разнесено % при сумме % — переплата', _obl, _paid, _amount
+      using errcode = '23514';
+  end if;
+  return null;
+end $$;
 
 -- ─── 5a. settle_obligation_on_tx (тело production + отказ при разных валютах) ─
 create or replace function public.settle_obligation_on_tx()
@@ -450,8 +603,10 @@ end $$;
 -- ─── 6a. obligation_link — единственный путь привязки операции к начислению ──
 -- p_amount         — в валюте НАЧИСЛЕНИЯ; null = максимум (только при одной валюте)
 -- p_payment_amount — в валюте ОПЕРАЦИИ; обязателен при разных валютах
--- p_fx_method      — 'CBR' (подсказку ЦБ не меняли) | 'MANUAL' (по умолчанию); только при разных валютах
--- p_fx_rate_date   — дата курса ЦБ из подсказки (для CBR обязательна)
+-- p_fx_method      — 'CBR' (курс ЦБ из подсказки) | 'MANUAL' (по умолчанию); только при разных валютах
+-- p_fx_rate_date   — дата курса ЦБ (для CBR обязательна, от occurred_on − 15 дней до occurred_on)
+-- p_fx_rate        — курс ЦБ (для CBR обязателен; единиц валюты начисления за 1 единицу валюты операции)
+drop function if exists public.obligation_link(uuid, uuid, bigint, bigint, text, date, uuid);
 create or replace function public.obligation_link(
   p_obligation uuid,
   p_transaction uuid,
@@ -459,7 +614,8 @@ create or replace function public.obligation_link(
   p_payment_amount bigint default null,
   p_fx_method text default null,
   p_fx_rate_date date default null,
-  p_request_id uuid default null)
+  p_request_id uuid default null,
+  p_fx_rate numeric default null)
 returns jsonb language plpgsql security definer set search_path = public as $$
 declare
   _team uuid; _o obligations; _t transactions; _dup jsonb; _id uuid;
@@ -470,14 +626,17 @@ begin
     raise exception 'Укажите начисление и операцию' using errcode = '22023';
   end if;
   select team_id into _team from obligations where id = p_obligation;
-  if _team is null then raise exception 'Начисление не найдено' using errcode = '42704'; end if;
+  -- не участник команды — «не найдено» (существование чужих строк не раскрывается)
+  if _team is null or not coalesce(public.is_team_member(_team), false) then
+    raise exception 'Начисление не найдено' using errcode = '42704';
+  end if;
   if not coalesce(public.can_edit_finance(_team), false) then
     raise exception 'Недостаточно прав' using errcode = '42501';
   end if;
 
-  -- порядок блокировок: операция → начисление (как transaction_save → settle);
-  -- FOR NO KEY UPDATE начисления не конфликтует с KEY SHARE внешних ключей
-  select * into _t from transactions where id = p_transaction and team_id = _team for update;
+  -- порядок блокировок: операция → начисление; FOR NO KEY UPDATE не конфликтует с KEY SHARE
+  -- внешних ключей и сериализует привязки к одной операции/начислению
+  select * into _t from transactions where id = p_transaction and team_id = _team for no key update;
   if _t.id is null then raise exception 'Операция не найдена' using errcode = '42704'; end if;
   select * into _o from obligations where id = p_obligation and team_id = _team for no key update;
   if _o.id is null then raise exception 'Начисление не найдено' using errcode = '42704'; end if;
@@ -495,13 +654,7 @@ begin
     raise exception 'Начисление к выплате закрывается расходом, к получению — приходом' using errcode = '22023';
   end if;
 
-  -- доля операции, приходящаяся на контрагента начисления (с учётом частей)
-  if exists (select 1 from transaction_splits where transaction_id = _t.id) then
-    select coalesce(sum(s.amount), 0) into _cp_share from transaction_splits s
-     where s.transaction_id = _t.id and coalesce(s.counterparty_id, _t.counterparty_id) = _o.counterparty_id;
-  else
-    _cp_share := case when _t.counterparty_id = _o.counterparty_id then _t.amount else 0 end;
-  end if;
+  _cp_share := public.tx_counterparty_share(_t.id, _o.counterparty_id);
   if coalesce(_cp_share, 0) <= 0 then
     raise exception 'Операция другого контрагента — привязать её к этому начислению нельзя' using errcode = '22023';
   end if;
@@ -556,8 +709,31 @@ begin
     if _method not in ('CBR','MANUAL') then
       raise exception 'Способ курса: CBR (курс ЦБ) или MANUAL (суммы вручную)' using errcode = '22023';
     end if;
-    if _method = 'CBR' and p_fx_rate_date is null then
-      raise exception 'Для курса ЦБ укажите дату курса' using errcode = '22023';
+    if _method = 'CBR' then
+      if p_fx_rate is null or p_fx_rate_date is null then
+        raise exception 'Для курса ЦБ укажите курс и его дату' using errcode = '22023';
+      end if;
+      if p_fx_rate < 0.000001 or p_fx_rate > 1000000 then
+        raise exception 'Курс % вне допустимого диапазона (0,000001 … 1 000 000)', p_fx_rate using errcode = '22023';
+      end if;
+      if p_fx_rate_date < _t.occurred_on - 15 or p_fx_rate_date > _t.occurred_on then
+        raise exception 'Дата курса ЦБ % должна быть не позже даты операции % и не раньше чем за 15 дней до неё',
+          to_char(p_fx_rate_date, 'DD.MM.YYYY'), to_char(_t.occurred_on, 'DD.MM.YYYY') using errcode = '22023';
+      end if;
+      -- согласованность: суммы расходятся с курсом не больше чем на одну минорную единицу платежа
+      if abs(p_amount - p_payment_amount * p_fx_rate) > greatest(p_fx_rate, 1) then
+        raise exception 'Суммы не соответствуют курсу ЦБ %: % × курс ≠ % — пересчитайте или выберите «вручную»',
+          p_fx_rate, to_char(p_payment_amount / 100.0, 'FM999999999990.00'),
+          to_char(p_amount / 100.0, 'FM999999999990.00') using errcode = '22023';
+      end if;
+      _rate := p_fx_rate;
+      _rate_date := p_fx_rate_date;
+    else
+      _rate := round(p_amount::numeric / p_payment_amount, 10);
+      if _rate < 0.000001 or _rate > 1000000 then
+        raise exception 'Неявный курс % вне допустимого диапазона (0,000001 … 1 000 000) — проверьте суммы', _rate using errcode = '22023';
+      end if;
+      _rate_date := coalesce(p_fx_rate_date, _t.occurred_on);
     end if;
     if p_payment_amount > _rem then
       raise exception 'Сумма % % больше нераспределённого остатка операции % %',
@@ -570,8 +746,6 @@ begin
         to_char(_out / 100.0, 'FM999999999990.00'), _o.currency using errcode = '23514';
     end if;
     _amt := p_amount; _pay := p_payment_amount;
-    _rate := round(p_amount::numeric / p_payment_amount, 10);
-    _rate_date := coalesce(p_fx_rate_date, _t.occurred_on);
   end if;
 
   -- метка для obligation_payments_fill_fx: кросс-валютная строка пришла из этого RPC
@@ -606,7 +780,8 @@ begin
   end if;
 
   if p_transaction is not null then
-    return public.obligation_link(p_obligation, p_transaction, p_amount, null, null, null, p_request_id);
+    return public.obligation_link(p_obligation => p_obligation, p_transaction => p_transaction,
+                                  p_amount => p_amount, p_request_id => p_request_id);
   end if;
 
   select team_id, amount into _team, _amount from obligations where id = p_obligation for update;
@@ -631,8 +806,35 @@ begin
                        'outstanding', _amount - (_paid + p_amount)));
 end $$;
 
--- ─── 7. Политика прямого insert: + команда операции = команда начисления ────
--- Тип/статус/валюта операции проверяет obligation_payments_fill_fx (для всех путей).
+-- ─── 7. op_begin: повтор ключа — только той же команде и тому же пользователю ─
+-- Раньше любой вызов с чужим request_id получал сохранённый результат чужой команды/пользователя.
+-- Повтор от того же пользователя той же команды (AgentPayouts/PayrollRowActions с id начисления
+-- как ключом, банковский импорт от service_role с created_by = null) работает как раньше.
+create or replace function public.op_begin(_request_id uuid, _team uuid, _command text)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare _res jsonb; _r_team uuid; _r_by uuid;
+begin
+  if _request_id is null then
+    return null; -- вызов без ключа идемпотентности (обратная совместимость)
+  end if;
+  begin
+    insert into operation_requests (request_id, team_id, command, created_by)
+    values (_request_id, _team, _command, auth.uid());
+    return null;
+  exception when unique_violation then
+    -- Параллельный/повторный вызов: INSERT ждал первую транзакцию, она
+    -- закоммитилась — возвращаем её результат, ничего не выполняя.
+    select team_id, created_by, result into _r_team, _r_by, _res
+      from operation_requests where request_id = _request_id;
+    if _r_team is distinct from _team or _r_by is distinct from auth.uid() then
+      raise exception 'Ключ запроса уже использован другим пользователем или командой' using errcode = '23505';
+    end if;
+    return coalesce(_res, jsonb_build_object('ok', true, 'duplicate', true));
+  end;
+end $$;
+
+-- ─── 8. Политика прямого insert: + команда операции = команда начисления ────
+-- Тип/статус/валюта/контрагент операции проверяет obligation_payments_fill_fx (для всех путей).
 -- Полностью прямой insert закрывается в 0100 после деплоя нового фронта.
 drop policy if exists obligation_payments_insert on public.obligation_payments;
 create policy obligation_payments_insert on public.obligation_payments
@@ -645,9 +847,9 @@ create policy obligation_payments_insert on public.obligation_payments
                                 where t.id = obligation_payments.transaction_id
                                   and t.team_id = o.team_id))));
 
--- ─── 8. Гранты ──────────────────────────────────────────────────────────────
-revoke all on function public.obligation_link(uuid, uuid, bigint, bigint, text, date, uuid) from public, anon;
-grant execute on function public.obligation_link(uuid, uuid, bigint, bigint, text, date, uuid) to authenticated, service_role;
+-- ─── 9. Гранты ──────────────────────────────────────────────────────────────
+revoke all on function public.obligation_link(uuid, uuid, bigint, bigint, text, date, uuid, numeric) from public, anon;
+grant execute on function public.obligation_link(uuid, uuid, bigint, bigint, text, date, uuid, numeric) to authenticated, service_role;
 
 revoke all on function public.obligation_allocate(uuid, uuid, bigint, date, uuid) from public, anon;
 grant execute on function public.obligation_allocate(uuid, uuid, bigint, date, uuid) to authenticated, service_role;
@@ -655,28 +857,37 @@ revoke all on function public.obligation_pay(uuid, uuid, bigint, date, text, uui
 grant execute on function public.obligation_pay(uuid, uuid, bigint, date, text, uuid) to authenticated, service_role;
 
 -- триггерные и внутренние — без EXECUTE у клиентских ролей (триггерам EXECUTE не нужен)
-revoke all on function public.obligation_payments_fill_fx() from public, anon, authenticated;
-revoke all on function public.obligation_payments_tx_cap() from public, anon, authenticated;
-revoke all on function public.transactions_alloc_guard() from public, anon, authenticated;
-revoke all on function public.assert_tx_allocation(uuid) from public, anon, authenticated;
-revoke all on function public.settle_obligation_on_tx() from public, anon, authenticated;
-grant execute on function public.obligation_payments_fill_fx() to service_role;
-grant execute on function public.obligation_payments_tx_cap() to service_role;
-grant execute on function public.transactions_alloc_guard() to service_role;
-grant execute on function public.assert_tx_allocation(uuid) to service_role;
-grant execute on function public.settle_obligation_on_tx() to service_role;
+do $$
+declare f text;
+begin
+  foreach f in array array[
+    'public.obligation_payments_fill_fx()', 'public.obligation_payments_tx_cap()',
+    'public.transactions_alloc_guard()', 'public.transaction_splits_alloc_guard()',
+    'public.obligations_alloc_guard()', 'public.assert_tx_allocation(uuid)',
+    'public.tx_counterparty_share(uuid, uuid)', 'public.settle_obligation_on_tx()',
+    'public.assert_obligation_not_overpaid()', 'public.op_begin(uuid, uuid, text)'
+  ] loop
+    execute format('revoke all on function %s from public, anon, authenticated', f);
+    execute format('grant execute on function %s to service_role', f);
+  end loop;
+end $$;
 
 -- ─── Самопроверка ───────────────────────────────────────────────────────────
 do $$
 declare f text; _n int;
 begin
+  if to_regprocedure('public.obligation_link(uuid,uuid,bigint,bigint,text,date,uuid)') is not null then
+    raise exception '0099 self-check: осталась старая сигнатура obligation_link';
+  end if;
   foreach f in array array[
-    'public.obligation_link(uuid,uuid,bigint,bigint,text,date,uuid)',
+    'public.obligation_link(uuid,uuid,bigint,bigint,text,date,uuid,numeric)',
     'public.obligation_allocate(uuid,uuid,bigint,date,uuid)',
     'public.obligation_pay(uuid,uuid,bigint,date,text,uuid)',
     'public.obligation_payments_fill_fx()', 'public.obligation_payments_tx_cap()',
-    'public.transactions_alloc_guard()', 'public.assert_tx_allocation(uuid)',
-    'public.settle_obligation_on_tx()'
+    'public.transactions_alloc_guard()', 'public.transaction_splits_alloc_guard()',
+    'public.obligations_alloc_guard()', 'public.assert_tx_allocation(uuid)',
+    'public.tx_counterparty_share(uuid,uuid)', 'public.settle_obligation_on_tx()',
+    'public.assert_obligation_not_overpaid()', 'public.op_begin(uuid,uuid,text)'
   ] loop
     if has_function_privilege('anon', f, 'execute') then
       raise exception '0099 self-check: у anon есть EXECUTE на %', f;
@@ -688,14 +899,16 @@ begin
   end loop;
   foreach f in array array[
     'public.obligation_payments_fill_fx()', 'public.obligation_payments_tx_cap()',
-    'public.transactions_alloc_guard()', 'public.assert_tx_allocation(uuid)',
-    'public.settle_obligation_on_tx()'
+    'public.transactions_alloc_guard()', 'public.transaction_splits_alloc_guard()',
+    'public.obligations_alloc_guard()', 'public.assert_tx_allocation(uuid)',
+    'public.tx_counterparty_share(uuid,uuid)', 'public.settle_obligation_on_tx()',
+    'public.assert_obligation_not_overpaid()', 'public.op_begin(uuid,uuid,text)'
   ] loop
     if has_function_privilege('authenticated', f, 'execute') then
       raise exception '0099 self-check: у authenticated есть EXECUTE на внутреннюю %', f;
     end if;
   end loop;
-  if not has_function_privilege('authenticated', 'public.obligation_link(uuid,uuid,bigint,bigint,text,date,uuid)', 'execute') then
+  if not has_function_privilege('authenticated', 'public.obligation_link(uuid,uuid,bigint,bigint,text,date,uuid,numeric)', 'execute') then
     raise exception '0099 self-check: у authenticated нет EXECUTE на obligation_link';
   end if;
   select count(*) into _n from obligation_payments where transaction_id is not null and fx_method is null;

@@ -4,7 +4,8 @@
 -- ПОРЯДОК: сначала откатить код приложения на деплой до Q-09 (новый фронт зовёт
 -- obligation_link и читает payment_amount), потом этот файл.
 --
--- Тела settle_obligation_on_tx / obligation_pay / obligation_allocate, список колонок
+-- Тела settle_obligation_on_tx / obligation_pay / obligation_allocate / op_begin /
+-- assert_obligation_not_overpaid, список колонок
 -- trg_settle_obligation и политика obligation_payments_insert — сняты с production
 -- 2026-10-22 до 0099 (pg_get_functiondef / pg_get_triggerdef / pg_policies), а не из исходников.
 --
@@ -21,10 +22,59 @@
 drop trigger if exists obligation_payments_fill_fx on public.obligation_payments;
 drop trigger if exists obligation_payments_tx_cap_ck on public.obligation_payments;
 drop trigger if exists transactions_alloc_ck on public.transactions;
+drop trigger if exists transaction_splits_alloc_ck on public.transaction_splits;
+drop trigger if exists obligations_alloc_ck on public.obligations;
 drop function if exists public.obligation_payments_fill_fx();
 drop function if exists public.obligation_payments_tx_cap();
 drop function if exists public.transactions_alloc_guard();
+drop function if exists public.transaction_splits_alloc_guard();
+drop function if exists public.obligations_alloc_guard();
 drop function if exists public.assert_tx_allocation(uuid);
+
+-- ─── op_begin — тело production до 0099 ─────────────────────────────────────
+create or replace function public.op_begin(_request_id uuid, _team uuid, _command text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare _res jsonb;
+begin
+  if _request_id is null then
+    return null; -- вызов без ключа идемпотентности (обратная совместимость)
+  end if;
+  begin
+    insert into operation_requests (request_id, team_id, command, created_by)
+    values (_request_id, _team, _command, auth.uid());
+    return null;
+  exception when unique_violation then
+    -- Параллельный/повторный вызов: INSERT ждал первую транзакцию, она
+    -- закоммитилась — возвращаем её результат, ничего не выполняя.
+    select coalesce(result, jsonb_build_object('ok', true, 'duplicate', true))
+      into _res from operation_requests where request_id = _request_id;
+    return coalesce(_res, jsonb_build_object('ok', true, 'duplicate', true));
+  end;
+end $function$;
+
+-- ─── assert_obligation_not_overpaid (кэп 0086) — тело production до 0099 ─────
+create or replace function public.assert_obligation_not_overpaid()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare _obl uuid; _paid bigint; _amount bigint;
+begin
+  _obl := coalesce(new.obligation_id, old.obligation_id);
+  select amount into _amount from obligations where id = _obl;
+  if _amount is null then return null; end if;
+  select coalesce(sum(amount),0) into _paid from obligation_payments where obligation_id = _obl;
+  if _paid > _amount then
+    raise exception 'Обязательство %: разнесено % при сумме % — переплата', _obl, _paid, _amount
+      using errcode = '23514';
+  end if;
+  return null;
+end $function$;
 
 -- ─── obligation_allocate — тело production до 0099 (сначала, т.к. зовёт obligation_link) ─
 create or replace function public.obligation_allocate(p_obligation uuid, p_transaction uuid, p_amount bigint, p_paid_on date DEFAULT NULL::date, p_request_id uuid DEFAULT NULL::uuid)
@@ -72,7 +122,9 @@ begin
                        'outstanding', _amount - (_paid + p_amount)));
 end $function$;
 
+drop function if exists public.obligation_link(uuid, uuid, bigint, bigint, text, date, uuid, numeric);
 drop function if exists public.obligation_link(uuid, uuid, bigint, bigint, text, date, uuid);
+drop function if exists public.tx_counterparty_share(uuid, uuid);
 
 -- ─── obligation_pay — тело production до 0099 ───────────────────────────────
 create or replace function public.obligation_pay(p_obligation uuid, p_account uuid, p_amount bigint, p_occurred_on date DEFAULT NULL::date, p_note text DEFAULT NULL::text, p_request_id uuid DEFAULT NULL::uuid)
@@ -168,6 +220,10 @@ revoke all on function public.obligation_pay(uuid, uuid, bigint, date, text, uui
 grant execute on function public.obligation_pay(uuid, uuid, bigint, date, text, uuid) to authenticated, service_role;
 revoke all on function public.settle_obligation_on_tx() from public, anon, authenticated;
 grant execute on function public.settle_obligation_on_tx() to service_role;
+revoke all on function public.op_begin(uuid, uuid, text) from public, anon, authenticated;
+grant execute on function public.op_begin(uuid, uuid, text) to service_role;
+revoke all on function public.assert_obligation_not_overpaid() from public, anon, authenticated;
+grant execute on function public.assert_obligation_not_overpaid() to service_role;
 
 -- ─── колонки: архив → удаление ──────────────────────────────────────────────
 do $$
@@ -206,3 +262,26 @@ alter table public.obligation_payments
   drop column if exists fx_rate_date,
   drop column if exists fx_method;
 comment on column public.obligation_payments.amount is null;
+
+-- ─── самопроверка после отката ──────────────────────────────────────────────
+do $$
+declare f text;
+begin
+  foreach f in array array[
+    'public.obligation_allocate(uuid,uuid,bigint,date,uuid)', 'public.obligation_pay(uuid,uuid,bigint,date,text,uuid)',
+    'public.settle_obligation_on_tx()', 'public.op_begin(uuid,uuid,text)', 'public.assert_obligation_not_overpaid()'
+  ] loop
+    if has_function_privilege('anon', f, 'execute') then
+      raise exception '0099_down self-check: у anon есть EXECUTE на %', f;
+    end if;
+  end loop;
+  if exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace
+              and proname in ('obligation_link','obligation_payments_fill_fx','obligation_payments_tx_cap','transactions_alloc_guard',
+                              'transaction_splits_alloc_guard','obligations_alloc_guard','assert_tx_allocation','tx_counterparty_share')) then
+    raise exception '0099_down self-check: остались функции 0099';
+  end if;
+  if exists (select 1 from pg_trigger where tgname in ('obligation_payments_fill_fx','obligation_payments_tx_cap_ck',
+              'transactions_alloc_ck','transaction_splits_alloc_ck','obligations_alloc_ck')) then
+    raise exception '0099_down self-check: остались триггеры 0099';
+  end if;
+end $$;

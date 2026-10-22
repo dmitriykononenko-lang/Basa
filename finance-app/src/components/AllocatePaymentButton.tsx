@@ -92,12 +92,11 @@ export default function AllocatePaymentButton({
 
   function applied(o: Obl, res: LinkResult | null, amount: number, payment: number) {
     toast.success(`Разнесено ${formatMoney(res?.amount ?? amount, o.currency)}`);
-    const newOut = res?.obligation_outstanding ?? o.outstanding - amount;
     const newRemaining = res?.transaction_remaining ?? (remaining ?? 0) - payment;
     setDirty(true);
-    setObls((list) =>
-      newOut <= 0 ? list.filter((x) => x.id !== o.id) : list.map((x) => (x.id === o.id ? { ...x, outstanding: newOut } : x)),
-    );
+    // Пара «операция — начисление» уникальна (вторую привязку БД отклонит), поэтому
+    // начисление убираем из списка даже при частичном разнесении.
+    setObls((list) => list.filter((x) => x.id !== o.id));
     setRemaining(newRemaining);
     setSelected(null);
     if (newRemaining <= 0) {
@@ -128,7 +127,7 @@ export default function AllocatePaymentButton({
     setBusy(true);
     const { data, error } = await obligationLink(createClient(), {
       obligationId: selected.id, transactionId: tx.id, amount: v.amount, requestId: reqId.current,
-      fx: { paymentAmount: v.paymentAmount, method: v.method, rateDate: v.rateDate },
+      fx: { paymentAmount: v.paymentAmount, method: v.method, rate: v.rate, rateDate: v.rateDate },
     });
     setBusy(false);
     if (error) return void toast.error(error);

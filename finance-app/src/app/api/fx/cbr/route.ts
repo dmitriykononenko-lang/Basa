@@ -4,6 +4,7 @@ import {
   CbrUnavailableError,
   getCbrRate,
   isValidCbrDate,
+  maxCbrDate,
   normalizeCbrCurrency,
 } from "@/lib/cbr";
 
@@ -32,6 +33,10 @@ export async function GET(request: NextRequest) {
       { error: "Некорректная дата: нужен формат YYYY-MM-DD, не раньше 2000-01-01" },
       { status: 400 },
     );
+  }
+  const maxDate = maxCbrDate();
+  if (date > maxDate) {
+    return NextResponse.json({ error: `Дата позже ${maxDate}: курса ЦБ ещё нет` }, { status: 400 });
   }
 
   try {

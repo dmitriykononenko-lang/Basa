@@ -148,7 +148,7 @@ export async function obligationLink(
   supabase: SupabaseClient,
   p: {
     obligationId: string; transactionId: string; amount: number; requestId: string;
-    fx?: { paymentAmount: number; method: "CBR" | "MANUAL"; rateDate: string | null };
+    fx?: { paymentAmount: number; method: "CBR" | "MANUAL"; rate: number | null; rateDate: string | null };
   },
 ): Promise<{ data: LinkResult | null; error: string | null }> {
   const args: Record<string, unknown> = {
@@ -161,6 +161,8 @@ export async function obligationLink(
     args.p_payment_amount = p.fx.paymentAmount;
     args.p_fx_method = p.fx.method;
     args.p_fx_rate_date = p.fx.rateDate;
+    // Для CBR RPC требует курс из подсказки и сверяет с ним пару сумм; для MANUAL курс = amount / payment.
+    if (p.fx.method === "CBR") args.p_fx_rate = p.fx.rate;
   }
   const { data, error } = await supabase.rpc("obligation_link", args);
   if (error) return { data: null, error: error.message || "Не удалось привязать операцию" };

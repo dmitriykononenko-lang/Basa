@@ -84,7 +84,7 @@ export default function LinkPaymentButton({
     setBusy(true);
     const { data, error } = await obligationLink(createClient(), {
       obligationId, transactionId: t.id, amount: v.amount, requestId: reqId(t.id),
-      fx: { paymentAmount: v.paymentAmount, method: v.method, rateDate: v.rateDate },
+      fx: { paymentAmount: v.paymentAmount, method: v.method, rate: v.rate, rateDate: v.rateDate },
     });
     setBusy(false);
     if (error) { toast.error(error); return; }

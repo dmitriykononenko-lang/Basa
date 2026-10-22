@@ -15,12 +15,14 @@ export default function PayObligationButton({
   obligationId,
   outstanding,
   currency,
+  oblType = "payable",
   accounts = [],
   ops = [],
 }: {
   obligationId: string;
   outstanding: number;
   currency: string;
+  oblType?: "receivable" | "payable"; // payable закрывается расходом, receivable — приходом (в RPC)
   accounts?: Account[];
   ops?: PayOp[];
 }) {
@@ -78,7 +80,7 @@ export default function PayObligationButton({
         p_account: matching.length > 0 && accountId ? accountId : null,
         p_amount: minor,
         p_occurred_on: todayInTz(),
-        p_note: "Выплата по обязательству",
+        p_note: oblType === "receivable" ? "Оплата по обязательству" : "Выплата по обязательству",
         p_request_id: reqId.current,
       });
       if (payErr) { setError(payErr.message); setLoading(false); return; }

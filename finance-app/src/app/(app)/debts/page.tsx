@@ -432,6 +432,7 @@ export default async function DebtsPage({
                             obligationId={o.id}
                             outstanding={o.outstanding}
                             currency={o.currency}
+                            oblType={o.type}
                             accounts={accounts ?? []}
                           />
                         </div>

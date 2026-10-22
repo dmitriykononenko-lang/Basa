@@ -24,6 +24,12 @@ export type UnallocatedPayment = {
   remaining: number | null; // минорные, валюта операции; null — нет payment_amount (до 0099)
 };
 
+// Ошибку чтения не глотаем: пустая выборка привязок завысила бы остаток
+// («всё не разнесено»). Бросаем — страница покажет ошибку вместо неверных сумм.
+function unallocatedError(what: string, e: { code?: string; message?: string }): Error {
+  return new Error(`Нераспределённые выплаты: не удалось прочитать ${what} (${e.code ?? "?"}): ${e.message ?? ""}`);
+}
+
 export async function loadUnallocatedPayments(
   supabase: SupabaseClient,
   teamId: string,
@@ -31,11 +37,12 @@ export async function loadUnallocatedPayments(
 ): Promise<UnallocatedPayment[]> {
   // 1. Контрагенты с открытыми обязательствами по типу
   //    payable (мы должны) закрывается расходами, receivable (нам должны) — доходами.
-  const { data: obl } = await supabase
+  const { data: obl, error: oblErr } = await supabase
     .from("obligation_balances")
     .select("type, outstanding, counterparty_id")
     .eq("team_id", teamId)
     .gt("outstanding", 0);
+  if (oblErr) throw unallocatedError("обязательства", oblErr);
   const payableCps = new Set<string>();
   const receivableCps = new Set<string>();
   for (const o of (obl ?? []) as { type: string; counterparty_id: string | null }[]) {
@@ -47,7 +54,7 @@ export async function loadUnallocatedPayments(
   if (allCps.length === 0) return [];
 
   // 2. Фактические доходы/расходы этим контрагентам
-  const { data: txs } = await supabase
+  const { data: txs, error: txErr } = await supabase
     .from("transactions")
     .select("id, type, amount, currency, occurred_on, note, counterparty_id, counterparty:counterparties(name)")
     .eq("team_id", teamId)
@@ -55,6 +62,7 @@ export async function loadUnallocatedPayments(
     .in("type", ["income", "expense"])
     .in("counterparty_id", allCps)
     .order("occurred_on", { ascending: false });
+  if (txErr) throw unallocatedError("операции", txErr);
   const rows = (txs ?? []) as unknown as {
     id: string; type: "income" | "expense"; amount: number; currency: string;
     occurred_on: string; note: string | null; counterparty_id: string;
@@ -79,6 +87,7 @@ export async function loadUnallocatedPayments(
         .select("transaction_id, amount, payment_amount")
         .in("transaction_id", chunk);
       if (res.error?.code === "42703") withPaymentAmount = false;
+      else if (res.error) throw unallocatedError("привязки", res.error);
       else pays = res.data;
     }
     if (!withPaymentAmount) {
@@ -86,6 +95,7 @@ export async function loadUnallocatedPayments(
         .from("obligation_payments")
         .select("transaction_id, amount")
         .in("transaction_id", chunk);
+      if (res.error) throw unallocatedError("привязки", res.error);
       pays = res.data;
     }
     for (const p of (pays ?? []) as { transaction_id: string | null; amount: number; payment_amount?: number | null }[]) {
