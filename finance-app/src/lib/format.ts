@@ -36,3 +36,10 @@ export function formatDate(iso: string): string {
     year: "numeric",
   });
 }
+
+// «Сегодня» как YYYY-MM-DD в часовом поясе команды (по умолчанию Москва),
+// а не по UTC: на сервере Vercel new Date().toISOString() до 03:00 МСК даёт вчера.
+export function todayInTz(timeZone = "Europe/Moscow"): string {
+  // en-CA форматирует дату как 2026-10-22
+  return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+}

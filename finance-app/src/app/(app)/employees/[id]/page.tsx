@@ -3,8 +3,9 @@ import { Manrope } from "next/font/google";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentTeam, canEditFinance } from "@/lib/team";
-import { formatMoney, formatDate } from "@/lib/format";
-import { buildRateMap, toBase } from "@/lib/fx";
+import { formatMoney, formatDate, todayInTz } from "@/lib/format";
+import { buildRateMap, toBaseStrict, missingRates, latestRates } from "@/lib/fx";
+import { fetchAllRows } from "@/lib/supabase/paginate";
 import { EMPLOYMENT_TYPE_LABELS } from "@/lib/constants";
 import AddAccrualForm from "@/components/AddAccrualForm";
 import SalaryEditor from "@/components/SalaryEditor";
@@ -15,6 +16,22 @@ import EmployeeProductCard from "@/components/employee/EmployeeProductCard";
 import AccrualsTable, { type AccrualRow } from "@/components/employee/AccrualsTable";
 import { effectiveDue, businessDaysBetween, workdaysLabel } from "@/lib/workdays";
 import { levelColor, levelName, DEFAULT_BAND } from "@/lib/assess";
+
+// Правило владельца: какая фактическая расходная строка по сотруднику — «выплата сотруднику».
+// Выплата, если выполнено ХОТЯ БЫ ОДНО:
+//   (а) операция привязана (obligation_payments) к начислениям ЭТОГО сотрудника — любая статья;
+//   (б) статья строки «зарплатная»: используется хотя бы в одном начислении команды
+//       (obligations.category_id) ИЛИ её родительская статья называется «ФОТ».
+// Остальное (без статьи, сервисы, лицензии, вывод собственнику…) — «прочие расходы»:
+// в «Выплачено деньгами» и в сверку не входят.
+type PayoutRule = { linkedTxIds: Set<string>; salaryCategoryIds: Set<string> };
+function isEmployeePayout(line: { transaction_id: string; category_id: string | null }, rule: PayoutRule): boolean {
+  if (rule.linkedTxIds.has(line.transaction_id)) return true;
+  return line.category_id !== null && rule.salaryCategoryIds.has(line.category_id);
+}
+const PAYROLL_PARENT_NAME = "фот";
+
+const RATE_STALE_DAYS = 30;
 
 // Шрифт карточки — Manrope (геометрический, с кириллицей и весом 300; Urbanist кириллицу не покрывает)
 const manrope = Manrope({ subsets: ["latin", "cyrillic"], weight: ["300", "400", "500", "600", "700"], display: "swap" });
@@ -49,6 +66,7 @@ export default async function EmployeePage({
     .from("counterparties")
     .select("id, name, kind, employment_type, start_date, end_date, department, auto_accrue, advance_amount, payout_currency, payment_method, legal_status, payee_name, inn, bank_account, bank_name, bik, wallet_address, wallet_network, product_text, functions_text")
     .eq("id", id)
+    .eq("team_id", team.id)
     .maybeSingle();
   if (!emp) notFound();
 
@@ -101,28 +119,90 @@ export default async function EmployeePage({
   const { data: oblMetaRows } = await supabase
     .from("obligations").select("id, category_id").eq("team_id", team.id).eq("counterparty_id", id);
   const oblCatId = new Map(((oblMetaRows ?? []) as { id: string; category_id: string | null }[]).map((o) => [o.id, o.category_id]));
-  const { data: scheduledRows } = await supabase
-    .from("transactions").select("obligation_id").eq("team_id", team.id).eq("status", "planned").not("obligation_id", "is", null);
-  const scheduledOblIds = new Set(
-    ((scheduledRows ?? []) as { obligation_id: string | null }[]).map((r) => r.obligation_id).filter(Boolean) as string[]
-  );
+  // Названия статей начислений (в т.ч. архивных) — для «прочих» начислений без pay_part
+  const oblCatIds = [...new Set([...oblCatId.values()].filter(Boolean) as string[])];
+  const { data: oblCatRows } = oblCatIds.length
+    ? await supabase.from("categories").select("id, name").eq("team_id", team.id).in("id", oblCatIds)
+    : { data: [] as { id: string; name: string }[] };
+  const catNameById = new Map(((oblCatRows ?? []) as { id: string; name: string }[]).map((c) => [c.id, c.name]));
+  // «Уже запланировано» — только по начислениям ЭТОГО сотрудника (пачками, чтобы не упереться в длину URL)
+  const empOblIds = ((bals ?? []) as { id: string }[]).map((b) => b.id);
+  const scheduledOblIds = new Set<string>();
+  for (let i = 0; i < empOblIds.length; i += 150) {
+    const { data: scheduledRows } = await supabase
+      .from("transactions").select("obligation_id")
+      .eq("team_id", team.id).eq("status", "planned")
+      .in("obligation_id", empOblIds.slice(i, i + 150));
+    for (const r of (scheduledRows ?? []) as { obligation_id: string | null }[]) {
+      if (r.obligation_id) scheduledOblIds.add(r.obligation_id);
+    }
+  }
   // Фактические выплаты — MANAGEMENT LAYER: берём строки аналитики, а не сами
   // операции. Если операция разнесена на части, сотруднику принадлежит ЕГО часть,
   // а не вся операция целиком (SPLIT-01). Начисления при этом живут отдельно
   // (obligation_balances выше) — разнесение фактической оплаты не создаёт
   // второго начисления, это разные экономические события.
-  const { data: payouts } = await supabase
-    .from("transaction_lines")
-    .select("transaction_id, occurred_on, amount, currency, project_id, note, account_id, is_split")
-    .eq("team_id", team.id)
-    .eq("counterparty_id", id)
-    .eq("type", "expense")
-    .eq("status", "actual")
-    .order("occurred_on", { ascending: true })
-    .limit(500);
+  // Полная выборка постранично (PostgREST отдаёт ≤1000 строк за запрос), новые сверху.
+  type PayoutLine = {
+    transaction_id: string; split_id: string | null; occurred_on: string; amount: number; currency: string;
+    category_id: string | null; project_id: string | null; note: string | null; account_id: string | null; is_split: boolean;
+  };
+  let payoutsFailed = false;
+  const payoutLines = await fetchAllRows<PayoutLine>(async (from, to) => {
+    const res = await supabase
+      .from("transaction_lines")
+      .select("transaction_id, split_id, occurred_on, amount, currency, category_id, project_id, note, account_id, is_split")
+      .eq("team_id", team.id)
+      .eq("counterparty_id", id)
+      .eq("type", "expense")
+      .eq("status", "actual")
+      .order("occurred_on", { ascending: false })
+      .order("transaction_id", { ascending: true })
+      .order("split_id", { ascending: true, nullsFirst: true })
+      .range(from, to);
+    if (res.error) payoutsFailed = true;
+    return { data: (res.data ?? null) as PayoutLine[] | null, error: res.error };
+  });
+  // Данные для правила «выплата сотруднику» — считаются запросом, без зашитых id.
+  // (а) операции, привязанные к начислениям этого сотрудника
+  const oblIdsForLinks = ((oblMetaRows ?? []) as { id: string }[]).map((o) => o.id);
+  const linkedTxIds = new Set<string>();
+  for (let i = 0; i < oblIdsForLinks.length; i += 150) {
+    const { data: links, error } = await supabase
+      .from("obligation_payments").select("transaction_id")
+      .in("obligation_id", oblIdsForLinks.slice(i, i + 150))
+      .not("transaction_id", "is", null);
+    if (error) payoutsFailed = true;
+    for (const l of (links ?? []) as { transaction_id: string | null }[]) if (l.transaction_id) linkedTxIds.add(l.transaction_id);
+  }
+  // (б) зарплатные статьи: используются в начислениях команды или вложены в «ФОТ»
+  let ruleFailed = false;
+  const teamOblCats = await fetchAllRows<{ category_id: string | null }>(async (from, to) => {
+    const res = await supabase.from("obligations").select("category_id")
+      .eq("team_id", team.id).not("category_id", "is", null)
+      .order("id", { ascending: true }).range(from, to);
+    if (res.error) ruleFailed = true;
+    return { data: (res.data ?? null) as { category_id: string | null }[] | null, error: res.error };
+  });
+  const teamCats = await fetchAllRows<{ id: string; name: string; parent_id: string | null }>(async (from, to) => {
+    const res = await supabase.from("categories").select("id, name, parent_id")
+      .eq("team_id", team.id).order("id", { ascending: true }).range(from, to);
+    if (res.error) ruleFailed = true;
+    return { data: (res.data ?? null) as { id: string; name: string; parent_id: string | null }[] | null, error: res.error };
+  });
+  if (ruleFailed) payoutsFailed = true;
+  const payrollParentIds = new Set(teamCats.filter((c) => c.name.trim().toLowerCase() === PAYROLL_PARENT_NAME).map((c) => c.id));
+  const salaryCategoryIds = new Set<string>([
+    ...(teamOblCats.map((o) => o.category_id).filter(Boolean) as string[]),
+    ...teamCats.filter((c) => c.parent_id && payrollParentIds.has(c.parent_id)).map((c) => c.id),
+  ]);
+  const payoutRule: PayoutRule = { linkedTxIds, salaryCategoryIds };
+  const teamCatName = new Map(teamCats.map((c) => [c.id, c.name]));
+  const payouts = payoutLines.filter((l) => isEmployeePayout(l, payoutRule));
+  const otherExpenses = payoutLines.filter((l) => !isEmployeePayout(l, payoutRule));
   const salaryRows = (salaries ?? []) as { id: string; effective_from: string; amount: number; currency: string }[];
   const positionRows = (positions ?? []) as { id: string; effective_from: string; position: string }[];
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = todayInTz("Europe/Moscow");
   const currentPosition = positionRows.find((p) => p.effective_from <= todayStr)?.position ?? null;
 
   // Реальные курсы валют (USDT→RUB и т.п.) — иначе мультивалютные суммы считались 1:1
@@ -132,29 +212,55 @@ export default async function EmployeePage({
     ((a.period_month ?? a.due_date ?? "") as string).localeCompare((b.period_month ?? b.due_date ?? "") as string)
   );
 
+  // Валюты без курса НЕ пересчитываем 1:1 и не смешиваем с базовой валютой:
+  // такие суммы исключаются из итогов в базовой валюте и выводятся предупреждением.
+  const noRate = missingRates(
+    [...rows.map((o) => o.currency), ...payoutLines.map((p) => p.currency)],
+    rates,
+    base,
+  );
+  const unconvAccrued = new Map<string, number>();
+  const unconvOut = new Map<string, number>();
+  const unconvPaidActual = new Map<string, number>();
+  const addTo = (m: Map<string, number>, cur: string, v: number) => m.set(cur, (m.get(cur) ?? 0) + v);
+
   let totalAccrued = 0, totalPaid = 0, totalOut = 0;
   const fix = { acc: 0, paid: 0 };
   const variable = { acc: 0, paid: 0 };
+  const other = { acc: 0, paid: 0 }; // pay_part не задан — не оклад и не бонус
   const monthMap = new Map<string, { accrued: number; paid: number }>();
-  const variableByProject = new Map<string, { name: string; val: number }>();
+  const byProject = new Map<string, { name: string; val: number }>();
+  const otherCats = new Map<string, number>(); // названия статей «прочих» начислений → сумма
   for (const o of rows) {
-    const a = toBase(o.amount, o.currency, rates);
-    const p = toBase(o.paid, o.currency, rates);
+    const a = toBaseStrict(o.amount, o.currency, rates);
+    const p = toBaseStrict(o.paid, o.currency, rates);
+    const out = toBaseStrict(o.outstanding, o.currency, rates);
+    if (a === null || p === null || out === null) {
+      addTo(unconvAccrued, o.currency, o.amount);
+      addTo(unconvOut, o.currency, o.outstanding);
+      continue;
+    }
     totalAccrued += a;
     totalPaid += p;
-    totalOut += toBase(o.outstanding, o.currency, rates);
+    totalOut += out;
     const ym = (o.period_month ?? o.due_date ?? "—").slice(0, 7);
     const mm = monthMap.get(ym) ?? { accrued: 0, paid: 0 };
     mm.accrued += a; mm.paid += p; monthMap.set(ym, mm);
+    // Свод по проектам — все начисления с проектом (бонусы, комиссии и т.п.), не только pay_part='variable'
+    if (o.project_id) {
+      const cur = byProject.get(o.project_id) ?? { name: projName.get(o.project_id) ?? "Проект", val: 0 };
+      cur.val += a;
+      byProject.set(o.project_id, cur);
+    }
     if (o.pay_part === "variable") {
       variable.acc += a; variable.paid += p;
-      const pkey = o.project_id ?? "";
-      const pn = o.project_id ? projName.get(o.project_id) ?? "Проект" : "Без проекта";
-      const cur = variableByProject.get(pkey) ?? { name: pn, val: 0 };
-      cur.val += a;
-      variableByProject.set(pkey, cur);
-    } else {
+    } else if (o.pay_part === "fixed") {
       fix.acc += a; fix.paid += p;
+    } else {
+      other.acc += a; other.paid += p;
+      const cid = oblCatId.get(o.id);
+      const cn = (cid && catNameById.get(cid)) || "прочее";
+      otherCats.set(cn, (otherCats.get(cn) ?? 0) + a);
     }
   }
   const monthly = [...monthMap.entries()]
@@ -164,11 +270,8 @@ export default async function EmployeePage({
   const initials = String(emp.name).split(/\s+/).filter(Boolean).slice(0, 2).map((s: string) => s[0]).join("").toUpperCase() || "?";
 
   const accNameById = new Map(((accounts ?? []) as { id: string; name: string }[]).map((a) => [a.id, a.name]));
-  const payoutRows = ((payouts ?? []) as unknown as {
-    transaction_id: string; occurred_on: string; amount: number; currency: string;
-    project_id: string | null; note: string | null; account_id: string | null; is_split: boolean;
-  }[]).map((p) => ({
-    id: p.transaction_id,
+  const payoutRows = payouts.map((p) => ({
+    key: p.split_id ?? p.transaction_id,
     occurred_on: p.occurred_on,
     amount: p.amount,
     currency: p.currency,
@@ -180,17 +283,58 @@ export default async function EmployeePage({
   let totalPaidActual = 0;
   const paidByCur = new Map<string, number>();
   for (const p of payoutRows) {
-    totalPaidActual += toBase(p.amount, p.currency, rates);
+    const v = toBaseStrict(p.amount, p.currency, rates);
+    if (v === null) addTo(unconvPaidActual, p.currency, p.amount);
+    else totalPaidActual += v;
     paidByCur.set(p.currency, (paidByCur.get(p.currency) ?? 0) + p.amount);
   }
   const curChips = [...paidByCur.entries()];
+  // Прочие расходы на этого контрагента — не выплата сотруднику (правило isEmployeePayout)
+  const otherExpenseRows = otherExpenses.map((p) => ({
+    key: p.split_id ?? p.transaction_id,
+    occurred_on: p.occurred_on,
+    amount: p.amount,
+    currency: p.currency,
+    category: p.category_id ? teamCatName.get(p.category_id) ?? "—" : "Без статьи",
+    note: p.note,
+    isSplit: p.is_split,
+    account: p.account_id ? accNameById.get(p.account_id) ?? "—" : "—",
+  }));
+  let totalOtherExp = 0;
+  const unconvOtherExp = new Map<string, number>();
+  const otherExpByCur = new Map<string, number>();
+  for (const p of otherExpenseRows) {
+    const v = toBaseStrict(p.amount, p.currency, rates);
+    if (v === null) addTo(unconvOtherExp, p.currency, p.amount);
+    else totalOtherExp += v;
+    addTo(otherExpByCur, p.currency, p.amount);
+  }
+  const unconvLabel = (m: Map<string, number>) => [...m.entries()].map(([c, v]) => formatMoney(v, c)).join(", ");
 
-  const projectRows = [...variableByProject.entries()]
-    .map(([pid, x]) => ({ pid: pid || null, name: x.name, val: x.val }))
+  // Подпись доли «прочих» в структуре: название статьи, если она одна (обычно «Агентская комиссия»)
+  const otherLabel = otherCats.size === 1 ? [...otherCats.keys()][0].toLowerCase() : "комиссии и прочее";
+  // Суммы в исходных валютах (без пересчёта) — рядом с итогами в базовой валюте
+  const byCur = (pick: (o: Bal) => number) => {
+    const m = new Map<string, number>();
+    for (const o of rows) m.set(o.currency, (m.get(o.currency) ?? 0) + pick(o));
+    return [...m.entries()];
+  };
+  const accruedByCur = byCur((o) => o.amount);
+  const outByCur = byCur((o) => o.outstanding).filter(([, v]) => v !== 0);
+  // Курсы, по которым пересчитаны валюты карточки, — с датой и признаком «устарел»
+  const rateInfo = latestRates(fxRows ?? []);
+  const usedForeign = [...new Set([...rows.map((o) => o.currency), ...payoutLines.map((p) => p.currency)])]
+    .filter((c) => c !== base && rateInfo[c]);
+  const ageDays = (d: string) => Math.floor((Date.parse(todayStr) - Date.parse(d)) / 86_400_000);
+  const ratesUsed = usedForeign.map((c) => ({ cur: c, rate: rateInfo[c].rate, date: rateInfo[c].date, stale: ageDays(rateInfo[c].date) > RATE_STALE_DAYS }));
+  const anyStale = ratesUsed.some((r) => r.stale);
+
+  const projectRows = [...byProject.entries()]
+    .map(([pid, x]) => ({ pid, name: x.name, val: x.val }))
     .sort((a, b) => b.val - a.val);
   const manage = canEditFinance(role);
 
-  // сверка «закрыто начислений» vs «выплачено деньгами»
+  // сверка «закрыто начислений» vs «выплачено деньгами» (только пересчитанные суммы)
   const diff = totalPaidActual - totalPaid;
   const reconciled = Math.abs(diff) < 100; // разница < 1 ₽ считаем сходящейся
 
@@ -207,11 +351,12 @@ export default async function EmployeePage({
     due_date: o.due_date,
     note: o.note,
     category_id: oblCatId.get(o.id) ?? null,
+    category_name: (() => { const c = oblCatId.get(o.id); return c ? catNameById.get(c) ?? null : null; })(),
     alreadyScheduled: scheduledOblIds.has(o.id),
   }));
 
   return (
-    <div className={`${manrope.className} p-6 sm:p-8`}>
+    <div className={`${manrope.className} p-4 sm:p-8`}>
       <Link href="/employees" className="text-sm text-slate-400 hover:text-brand">← Сотрудники</Link>
       <header className="mb-6 mt-2 flex flex-wrap items-center justify-between gap-3">
         <div>
@@ -238,6 +383,37 @@ export default async function EmployeePage({
         )}
       </header>
 
+      {/* Нет курса валюты — суммы в ней не пересчитаны и в итоги в базовой валюте не входят */}
+      {noRate.length > 0 && (
+        <div role="alert" className="mb-4 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-800 ring-1 ring-amber-200/70 dark:bg-amber-950/30 dark:text-amber-300 dark:ring-amber-900/40">
+          <b className="font-semibold">Нет курса для {noRate.join(", ")}</b> — суммы в {noRate.length > 1 ? "этих валютах" : "этой валюте"} не пересчитаны в {base} и не входят в итоги ниже.
+          {unconvAccrued.size > 0 && <> Начислено: {unconvLabel(unconvAccrued)}; остаток: {unconvLabel(unconvOut)}.</>}
+          {unconvPaidActual.size > 0 && <> Выплачено деньгами: {unconvLabel(unconvPaidActual)}.</>}
+          {" "}Задайте курс в <Link href="/reports" className="font-medium underline underline-offset-2">отчётах</Link>.
+        </div>
+      )}
+      {ratesUsed.length > 0 && (
+        <p className={`mb-4 rounded-2xl px-4 py-2.5 text-sm ring-1 ${anyStale
+          ? "bg-amber-50 text-amber-800 ring-amber-200/70 dark:bg-amber-950/30 dark:text-amber-300 dark:ring-amber-900/40"
+          : "bg-slate-50 text-slate-600 ring-slate-200/70 dark:bg-white/[0.03] dark:text-neutral-400 dark:ring-white/[0.07]"}`}>
+          Итоги в {base} — пересчёт по курсу:{" "}
+          {ratesUsed.map((r, i) => (
+            <span key={r.cur}>
+              {i > 0 && "; "}
+              {r.cur} = {r.rate.toLocaleString("ru-RU")} {base} от {formatDate(r.date)}
+              {r.stale && <b className="font-semibold"> (курсу больше {RATE_STALE_DAYS} дней)</b>}
+            </span>
+          ))}
+          . Суммы в исходной валюте — в плитках и таблицах.
+          {anyStale && <> Обновите курс в <Link href="/reports" className="font-medium underline underline-offset-2">отчётах</Link>, иначе пересчёт неточен.</>}
+        </p>
+      )}
+      {payoutsFailed && (
+        <div role="alert" className="mb-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700 ring-1 ring-red-200/70 dark:bg-red-950/30 dark:text-red-300 dark:ring-red-900/40">
+          Не удалось загрузить выплаты или данные для их отбора полностью — «Выплачено деньгами» и «Прочие расходы» могут быть неточны. Обновите страницу.
+        </div>
+      )}
+
       {/* Сводка */}
       <div className="mb-4">
         <EmployeeSummary
@@ -250,7 +426,12 @@ export default async function EmployeePage({
           paidByCur={curChips}
           fix={fix}
           variable={variable}
+          other={other}
+          otherLabel={otherLabel}
           monthly={monthly}
+          hasPayouts={payoutRows.length > 0}
+          accruedByCur={accruedByCur}
+          outByCur={outByCur}
         />
       </div>
 
@@ -276,7 +457,7 @@ export default async function EmployeePage({
       )}
 
       {/* Сверка — только если расходится */}
-      {payoutRows.length > 0 && !reconciled && (
+      {payoutRows.length > 0 && !reconciled && !payoutsFailed && (
         <div className="mb-6 rounded-2xl bg-amber-50/60 px-4 py-2.5 text-sm text-amber-800 ring-1 ring-amber-200/60 dark:bg-amber-950/30 dark:text-amber-300 dark:ring-amber-900/40">
           Расхождение {formatMoney(Math.abs(diff), base)}: закрыто начислений {formatMoney(totalPaid, base)}, выплачено деньгами {formatMoney(totalPaidActual, base)}. Обычно это погашения без операции или непривязанные выплаты.
         </div>
@@ -285,6 +466,7 @@ export default async function EmployeePage({
       {/* Начисления (к выплате) — главная рабочая таблица */}
       {accrualRows.length > 0 ? (
         <AccrualsTable
+          id="accruals"
           rows={accrualRows}
           base={base}
           rates={rates}
@@ -298,20 +480,26 @@ export default async function EmployeePage({
           projectRollup={projectRows}
         />
       ) : (
-        <p className="mb-6 rounded-3xl bg-white p-6 text-sm text-slate-500 ring-1 ring-slate-200/70 dark:bg-[#15171c] dark:text-neutral-400 dark:ring-white/[0.07]">
+        <p id="accruals" className="mb-6 rounded-3xl bg-white p-6 text-sm text-slate-500 ring-1 ring-slate-200/70 dark:bg-[#15171c] dark:text-neutral-400 dark:ring-white/[0.07]">
           Нет начислений. Нажмите «Начислить».
         </p>
       )}
 
       {/* Фактические выплаты (операции) */}
+      {payoutRows.length === 0 && !payoutsFailed && (
+        <p id="payouts" className="mb-6 rounded-3xl bg-white p-6 text-sm text-slate-500 ring-1 ring-slate-200/70 dark:bg-[#15171c] dark:text-neutral-400 dark:ring-white/[0.07]">
+          Выплат деньгами пока нет: нет операций «факт», привязанных к начислениям сотрудника или проведённых по зарплатной статье.
+        </p>
+      )}
       {payoutRows.length > 0 && (
-        <section className="mb-6">
-          <div className="mb-3 flex items-baseline justify-between gap-3">
+        <section id="payouts" className="mb-6 scroll-mt-4">
+          <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
             <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">
-              Выплаты (операции)
+              Выплачено деньгами · операции ({payoutRows.length})
             </h2>
             <span className="text-sm font-semibold text-slate-700 dark:text-neutral-200">
               Всего: {formatMoney(totalPaidActual, base)}
+              {unconvPaidActual.size > 0 && <span className="font-normal text-amber-700 dark:text-amber-400"> + {unconvLabel(unconvPaidActual)} без курса</span>}
             </span>
           </div>
           <div className="surface overflow-hidden">
@@ -328,9 +516,9 @@ export default async function EmployeePage({
               <tbody>
                 {payoutRows.map((p) => {
                   const pn = p.project_id ? projName.get(p.project_id) : null;
-                  const eq = p.currency === base ? null : toBase(p.amount, p.currency, rates);
+                  const eq = p.currency === base ? null : toBaseStrict(p.amount, p.currency, rates);
                   return (
-                    <tr key={p.id} className="border-b border-slate-50 last:border-0 dark:border-white/[0.05]">
+                    <tr key={p.key} className="border-b border-slate-50 last:border-0 dark:border-white/[0.05]">
                       <td className="whitespace-nowrap px-5 py-3 text-slate-600 dark:text-neutral-400">{formatDate(p.occurred_on)}</td>
                       <td className="px-5 py-3 text-slate-700 dark:text-neutral-300">
                         {pn && (
@@ -342,11 +530,14 @@ export default async function EmployeePage({
                         )}
                         {p.note && <span className={pn ? "ml-2 text-xs text-slate-400" : ""}>{p.note}</span>}
                         {!pn && !p.note && <span className="text-slate-400">—</span>}
+                        {p.isSplit && <span className="ml-2 rounded-full bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-500 dark:bg-white/[0.06] dark:text-neutral-400">часть операции</span>}
                       </td>
                       <td className="px-5 py-3 text-slate-500 dark:text-neutral-400">{p.account?.name ?? "—"}</td>
                       <td className="whitespace-nowrap px-5 py-3 text-right font-medium text-slate-800 dark:text-neutral-200">
                         {formatMoney(p.amount, p.currency)}
-                        {eq != null && <div className="text-xs font-normal text-slate-400">≈ {formatMoney(eq, base)}</div>}
+                        {p.currency !== base && (eq != null
+                          ? <div className="text-xs font-normal text-slate-400">≈ {formatMoney(eq, base)}</div>
+                          : <div className="text-xs font-normal text-amber-700 dark:text-amber-400">нет курса</div>)}
                       </td>
                     </tr>
                   );
@@ -356,9 +547,71 @@ export default async function EmployeePage({
             </div>
           </div>
           <p className="mt-3 text-xs leading-relaxed text-slate-400 dark:text-neutral-600">
-            Все расходные операции по этому контрагенту со статусом «факт», независимо от начислений — включая прямые выплаты с номинального/расчётного счёта. Суммы в валюте операции; «≈» — эквивалент в {base} по курсу.
+            Расходные операции «факт» по этому сотруднику, от новых к старым, которые считаются выплатой: привязаны к его начислениям или проведены по зарплатной статье (используется в начислениях или входит в «ФОТ»). Остальное — в блоке «Прочие расходы» ниже. Если операция разнесена на части, показана только часть, отнесённая сотруднику. Суммы в валюте операции; «≈» — эквивалент в {base} по последнему курсу.
           </p>
         </section>
+      )}
+
+      {/* Прочие расходы на этого контрагента — не выплата сотруднику, в итоги и сверку не входят */}
+      {otherExpenseRows.length > 0 && (
+        <details id="other-expenses" className="group mb-6 scroll-mt-4">
+          <summary className="flex cursor-pointer list-none flex-wrap items-baseline justify-between gap-x-3 gap-y-1 rounded-xl py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand [&::-webkit-details-marker]:hidden">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-neutral-400">
+              <span className="mr-1 inline-block transition-transform group-open:rotate-90 motion-reduce:transition-none" aria-hidden>›</span>
+              Прочие расходы на этого контрагента ({otherExpenseRows.length})
+            </h2>
+            <span className="text-sm font-semibold text-slate-700 dark:text-neutral-200">
+              {formatMoney(totalOtherExp, base)}
+              {unconvOtherExp.size > 0 && <span className="font-normal text-amber-700 dark:text-amber-400"> + {unconvLabel(unconvOtherExp)} без курса</span>}
+            </span>
+          </summary>
+          {[...otherExpByCur.keys()].some((c) => c !== base) && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {[...otherExpByCur.entries()].map(([cur, sum]) => (
+                <span key={cur} className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium tabular-nums text-slate-600 dark:bg-white/[0.06] dark:text-neutral-300">{formatMoney(sum, cur)}</span>
+              ))}
+            </div>
+          )}
+          <div className="surface mt-3 overflow-hidden">
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[560px] text-sm">
+              <thead>
+                <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wider text-slate-400 dark:border-white/[0.07] dark:text-neutral-500">
+                  <th className="px-5 py-3 font-medium">Дата</th>
+                  <th className="px-5 py-3 font-medium">Статья · описание</th>
+                  <th className="px-5 py-3 font-medium">Счёт</th>
+                  <th className="px-5 py-3 text-right font-medium">Сумма</th>
+                </tr>
+              </thead>
+              <tbody>
+                {otherExpenseRows.map((p) => {
+                  const eq = p.currency === base ? null : toBaseStrict(p.amount, p.currency, rates);
+                  return (
+                    <tr key={p.key} className="border-b border-slate-50 last:border-0 dark:border-white/[0.05]">
+                      <td className="whitespace-nowrap px-5 py-3 text-slate-600 dark:text-neutral-400">{formatDate(p.occurred_on)}</td>
+                      <td className="px-5 py-3 text-slate-700 dark:text-neutral-300">
+                        <span className="font-medium text-slate-800 dark:text-neutral-200">{p.category}</span>
+                        {p.note && <span className="ml-2 text-xs text-slate-400">{p.note}</span>}
+                        {p.isSplit && <span className="ml-2 rounded-full bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-500 dark:bg-white/[0.06] dark:text-neutral-400">часть операции</span>}
+                      </td>
+                      <td className="px-5 py-3 text-slate-500 dark:text-neutral-400">{p.account}</td>
+                      <td className="whitespace-nowrap px-5 py-3 text-right font-medium text-slate-800 dark:text-neutral-200">
+                        {formatMoney(p.amount, p.currency)}
+                        {p.currency !== base && (eq != null
+                          ? <div className="text-xs font-normal text-slate-400">≈ {formatMoney(eq, base)}</div>
+                          : <div className="text-xs font-normal text-amber-700 dark:text-amber-400">нет курса</div>)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            </div>
+          </div>
+          <p className="mt-3 text-xs leading-relaxed text-slate-400 dark:text-neutral-600">
+            Расходы по этому контрагенту, которые не считаются выплатой сотруднику: операция не привязана к его начислениям и статья не зарплатная (не используется в начислениях и не входит в «ФОТ»). В «Выплачено деньгами» и сверку не входят.
+          </p>
+        </details>
       )}
 
       {/* Проекты в работе */}

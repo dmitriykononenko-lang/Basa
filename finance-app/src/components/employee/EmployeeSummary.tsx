@@ -2,9 +2,10 @@ import type { ReactNode } from "react";
 import { formatMoney } from "@/lib/format";
 
 const MONTHS_RU = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
-function mLabel(ym: string) {
-  const [, m] = ym.split("-");
-  return MONTHS_RU[parseInt(m) - 1] ?? ym;
+function mLabel(ym: string, withYear: boolean) {
+  const [y, m] = ym.split("-");
+  const mon = MONTHS_RU[parseInt(m) - 1] ?? ym;
+  return withYear ? `${mon} ${y}` : mon;
 }
 
 export type MonthPoint = { ym: string; accrued: number; paid: number };
@@ -30,12 +31,13 @@ function Arrow() {
     </svg>
   );
 }
-function Corner() {
+// Стрелка в углу плитки — якорь к блоку с подробностями ниже на странице.
+function Corner({ href, label }: { href: string; label: string }) {
   return (
-    <button type="button" aria-label="Открыть детали"
-      className="absolute right-4 top-4 grid h-7 w-7 cursor-pointer place-items-center rounded-full bg-black/[0.03] ring-1 ring-black/[0.04] transition hover:bg-black/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3C91E6] motion-reduce:transition-none dark:bg-white/[0.04] dark:ring-white/[0.06]">
+    <a href={href} aria-label={label} title={label}
+      className="absolute right-3 top-3 z-10 grid h-9 w-9 cursor-pointer place-items-center rounded-full bg-black/[0.03] ring-1 ring-black/[0.04] transition hover:bg-black/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3C91E6] motion-reduce:transition-none dark:bg-white/[0.04] dark:ring-white/[0.06]">
       <Arrow />
-    </button>
+    </a>
   );
 }
 function DeltaUp() {
@@ -46,7 +48,7 @@ function DeltaDown() {
 }
 
 export default function EmployeeSummary({
-  base, totalAccrued, totalPaid, totalOut, totalPaidActual, paidByCur, fix, variable, monthly,
+  base, totalAccrued, totalPaid, totalOut, totalPaidActual, paidByCur, fix, variable, other, monthly, hasPayouts, accruedByCur, outByCur, otherLabel,
 }: {
   base: string;
   initials: string;
@@ -57,7 +59,12 @@ export default function EmployeeSummary({
   paidByCur: [string, number][];
   fix: { acc: number; paid: number };
   variable: { acc: number; paid: number };
+  other: { acc: number; paid: number };
   monthly: MonthPoint[];
+  hasPayouts: boolean;
+  accruedByCur: [string, number][];
+  outByCur: [string, number][];
+  otherLabel: string;
 }) {
   const pct = totalAccrued > 0 ? totalPaid / totalAccrued : 0;
   const pctLabel = Math.round(pct * 100);
@@ -82,7 +89,30 @@ export default function EmployeeSummary({
   const payLine = cum.map((c, i) => `${xAt(i).toFixed(1)},${yAt(c.cp).toFixed(1)}`).join(" ");
   const payArea = n ? `14,120 ${payLine} ${xAt(n - 1).toFixed(1)},120` : "";
 
-  const okShare = fix.acc + variable.acc > 0 ? fix.acc / (fix.acc + variable.acc) : 0;
+  // Подписи месяцев: позиция совпадает с точкой линии; год — у первой точки и на смене года;
+  // при большом числе месяцев показываем каждую k-ю (и последнюю), чтобы подписи не слипались.
+  const step = Math.max(1, Math.ceil(n / 6));
+  const ticks = monthly
+    .map((m, i) => ({ m, i }))
+    .filter(({ i }) => i % step === 0 || i === n - 1)
+    .map(({ m, i }, k, arr) => {
+      const prev = k > 0 ? arr[k - 1].m.ym.slice(0, 4) : null;
+      return { ym: m.ym, i, text: mLabel(m.ym, prev === null || prev !== m.ym.slice(0, 4)) };
+    });
+  const firstYm = monthly[0]?.ym;
+  const lastYm = monthly[n - 1]?.ym;
+
+  const structTotal = fix.acc + variable.acc + other.acc;
+  const share = (v: number) => (structTotal > 0 ? v / structTotal : 0);
+  const okShare = share(fix.acc);
+  const varShare = share(variable.acc);
+  const otherShare = share(other.acc);
+  const pctOf = (v: number) => `${Math.round(v * 100)}%`;
+  const structDesc = [
+    `оклад ${pctOf(okShare)}`,
+    `бонусы ${pctOf(varShare)}`,
+    ...(other.acc > 0 ? [`${otherLabel} ${pctOf(otherShare)}`] : []),
+  ].join(" · ");
   const outShare = totalAccrued > 0 ? Math.round((totalOut / totalAccrued) * 100) : 0;
 
   return (
@@ -109,18 +139,25 @@ export default function EmployeeSummary({
           </div>
           <div className="mt-2 grid grid-cols-3 gap-2 border-t border-black/[0.05] pt-4 dark:border-white/[0.06]">
             <Sub label="Начислено" value={formatMoney(totalAccrued, base)} />
-            <Sub label="Выплачено" value={formatMoney(totalPaid, base)} tone="blue" />
+            <Sub label="Погашено начислений" value={formatMoney(totalPaid, base)} tone="blue" />
             <Sub label="Остаток" value={formatMoney(totalOut, base)} tone={totalOut > 0 ? "red" : "green"} />
           </div>
         </div>
 
         {/* Тренд */}
         <div className={`${CARD} p-6`}>
-          <Corner />
-          <div className="flex items-center gap-2"><Pie /><span className={LABEL}>Динамика · начислено / выплачено</span></div>
-          <div className={`mt-2 text-[40px] font-light leading-none tracking-tight ${INK}`}>{formatMoney(totalPaidActual, base)}</div>
-          <div className="mt-1 text-[13px] text-[#9a9e95] dark:text-neutral-500">выплачено деньгами всего</div>
-          <svg viewBox="0 0 300 150" preserveAspectRatio="none" className="mt-3 h-[150px] w-full">
+          <Corner href="#accruals" label="К начислениям по месяцам" />
+          <div className="flex items-center gap-2 pr-10"><Pie /><span className={LABEL}>Динамика начислений · накопительно</span></div>
+          <div className={`mt-2 break-words text-[28px] font-light leading-none tracking-tight tabular-nums sm:text-[40px] ${INK}`}>{formatMoney(totalPaid, base)}</div>
+          <div className="mt-1 text-[13px] text-[#9a9e95] dark:text-neutral-500">погашено начислений из {formatMoney(totalAccrued, base)}</div>
+          {n === 0 ? (
+            <div className="mt-3 grid h-[150px] place-items-center rounded-2xl bg-black/[0.02] text-[13px] text-[#9a9e95] dark:bg-white/[0.03] dark:text-neutral-500">
+              Нет начислений с месяцем — графику не из чего строиться
+            </div>
+          ) : (
+          <>
+          <svg viewBox="0 0 300 150" preserveAspectRatio="none" className="mt-3 h-[150px] w-full" role="img"
+            aria-label={`Накопительно с ${mLabel(firstYm!, true)} по ${mLabel(lastYm!, true)}: начислено ${formatMoney(totalAccrued, base)}, погашено начислений ${formatMoney(totalPaid, base)}`}>
             <defs>
               <linearGradient id="emptrend" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0" stopColor="#3C91E6" stopOpacity="0.13" />
@@ -136,25 +173,40 @@ export default function EmployeeSummary({
             <polyline points={payLine} fill="none" stroke="#3C91E6" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
             {n > 0 && <circle cx={xAt(n - 1)} cy={yAt(cum[n - 1].cp)} r="4.5" fill="#3C91E6" />}
           </svg>
-          <div className="mt-1 flex justify-between text-[11px] font-medium text-[#9a9e95] dark:text-neutral-600">
-            {monthly.map((m) => <span key={m.ym}>{mLabel(m.ym)}</span>)}
+          <div className="relative mt-1 h-4 text-[11px] font-medium text-[#9a9e95] dark:text-neutral-500" aria-hidden>
+            {ticks.map((t) => {
+              const left = (xAt(t.i) / 300) * 100;
+              const align = t.i === 0 && n > 1 ? "translate-x-0" : t.i === n - 1 && n > 1 ? "-translate-x-full" : "-translate-x-1/2";
+              return <span key={t.ym} className={`absolute top-0 whitespace-nowrap ${align}`} style={{ left: `${left}%` }}>{t.text}</span>;
+            })}
           </div>
+          </>
+          )}
           {/* прямые подписи значений (direct labeling) */}
           <div className="mt-2.5 flex flex-wrap gap-x-4 gap-y-1 text-[11.5px] font-medium text-[#83877c] dark:text-neutral-400">
-            <span className="flex items-center gap-1.5"><i className="inline-block h-2 w-2 rounded-full bg-[#3C91E6]" />выплачено <b className="font-semibold text-[#272727] dark:text-neutral-200">{formatMoney(totalPaid, base)}</b></span>
+            <span className="flex items-center gap-1.5"><i className="inline-block h-2 w-2 rounded-full bg-[#3C91E6]" />погашено начислений <b className="font-semibold text-[#272727] dark:text-neutral-200">{formatMoney(totalPaid, base)}</b></span>
             <span className="flex items-center gap-1.5"><i className="inline-block h-2 w-2 rounded-full bg-[#c7c9c1] dark:bg-white/25" />начислено <b className="font-semibold text-[#272727] dark:text-neutral-200">{formatMoney(totalAccrued, base)}</b></span>
           </div>
+          <p className="mt-1.5 text-[11px] leading-snug text-[#9a9e95] dark:text-neutral-500">
+            Точка — накопительный итог на конец месяца начисления (по периоду начисления, не по дате выплаты). Деньги по операциям — в плитке «Выплачено деньгами».
+          </p>
         </div>
       </div>
 
       {/* Ряд 2: карточки-инсайты */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Insight label="Начислено" desc="Всего начислено за период" value={formatMoney(totalAccrued, base)} tint="blue" />
-        <Insight label="Выплачено деньгами" desc="Ушло деньгами по операциям" value={formatMoney(totalPaidActual, base)} tint="green" delta="up"
-          extra={<div className="mt-2 flex flex-wrap gap-1.5">{paidByCur.map(([cur, sum]) => <span key={cur} className="rounded-full bg-[#3C91E6]/10 px-2 py-0.5 text-[11px] font-medium text-[#3C91E6]">{formatMoney(sum, cur)}</span>)}</div>} />
-        <Insight label="Остаток к выплате" desc={`${outShare}% ещё не выплачено`} value={formatMoney(totalOut, base)} tint={totalOut > 0 ? "red" : "green"} delta={totalOut > 0 ? "down" : "up"} />
-        <Insight label="Структура" desc={`оклад ${Math.round(okShare * 100)}% · бонусы ${Math.round((1 - okShare) * 100)}%`} value={formatMoney(fix.acc + variable.acc, base)} tint="blue"
-          extra={<div className="mt-3 flex h-1.5 overflow-hidden rounded-full bg-black/[0.05] dark:bg-white/[0.06]"><div className="bg-[#3C91E6]" style={{ width: `${okShare * 100}%` }} /><div className="bg-[#c7c9c1] dark:bg-white/20" style={{ width: `${(1 - okShare) * 100}%` }} /></div>} />
+        <Insight label="Начислено" desc="Всего начислено за всё время" value={formatMoney(totalAccrued, base)} tint="blue"
+          href="#accruals" hrefLabel="К начислениям" extra={<CurChips list={accruedByCur} base={base} />} />
+        <Insight label="Выплачено деньгами" desc="Ушло деньгами по операциям (факт)" value={formatMoney(totalPaidActual, base)} tint="green" delta="up"
+          href={hasPayouts ? "#payouts" : undefined} hrefLabel="К списку выплат" extra={<CurChips list={paidByCur} base={base} />} />
+        <Insight label="Остаток к выплате" desc={`${outShare}% начисленного ещё не погашено`} value={formatMoney(totalOut, base)} tint={totalOut > 0 ? "red" : "green"} delta={totalOut > 0 ? "down" : "up"}
+          href="#accruals" hrefLabel="К неоплаченным начислениям" extra={<CurChips list={outByCur} base={base} />} />
+        <Insight label="Структура" desc={structDesc} value={formatMoney(structTotal, base)} tint="blue"
+          extra={<div className="mt-3 flex h-1.5 overflow-hidden rounded-full bg-black/[0.05] dark:bg-white/[0.06]" aria-hidden>
+            <div className="bg-[#3C91E6]" style={{ width: `${okShare * 100}%` }} />
+            <div className="bg-[#c7c9c1] dark:bg-white/20" style={{ width: `${varShare * 100}%` }} />
+            <div className="bg-[#f2a65a]" style={{ width: `${otherShare * 100}%` }} />
+          </div>} />
       </div>
     </div>
   );
@@ -165,13 +217,26 @@ function Sub({ label, value, tone }: { label: string; value: string; tone?: "blu
   return (
     <div className="text-center">
       <div className="text-[10px] font-semibold uppercase tracking-wider text-[#a7aba2] dark:text-neutral-600">{label}</div>
-      <div className={`mt-1 text-[15px] font-medium ${c}`}>{value}</div>
+      <div className={`mt-1 break-words text-[13px] font-medium tabular-nums sm:text-[15px] ${c}`}>{value}</div>
     </div>
   );
 }
 
-function Insight({ label, desc, value, tint, delta, extra }: {
+// Суммы в исходных валютах — показываем, только если есть что-то кроме базовой валюты.
+function CurChips({ list, base }: { list: [string, number][]; base: string }) {
+  if (!list.some(([cur]) => cur !== base)) return null;
+  return (
+    <div className="relative mt-2 flex flex-wrap gap-1.5">
+      {list.map(([cur, sum]) => (
+        <span key={cur} className="rounded-full bg-[#3C91E6]/10 px-2 py-0.5 text-[11px] font-medium tabular-nums text-[#2f74b8] dark:text-[#7db8f0]">{formatMoney(sum, cur)}</span>
+      ))}
+    </div>
+  );
+}
+
+function Insight({ label, desc, value, tint, delta, extra, href, hrefLabel }: {
   label: string; desc: string; value: string; tint: "blue" | "green" | "red"; delta?: "up" | "down"; extra?: ReactNode;
+  href?: string; hrefLabel?: string;
 }) {
   const grad = tint === "green"
     ? "from-[#29BF12]/[0.09]"
@@ -181,14 +246,14 @@ function Insight({ label, desc, value, tint, delta, extra }: {
   return (
     <div className={`${CARD} flex min-h-[150px] flex-col overflow-hidden p-5`}>
       <div className={`pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t ${grad} to-transparent`} />
-      <Corner />
-      <div className="relative flex items-center gap-2"><Pie /><span className="text-[13px] font-semibold text-[#3a3d34] dark:text-neutral-200">{label}</span></div>
+      {href && <Corner href={href} label={hrefLabel ?? label} />}
+      <div className="relative flex items-center gap-2 pr-10"><Pie /><span className="text-[13px] font-semibold text-[#3a3d34] dark:text-neutral-200">{label}</span></div>
       <div className="relative mt-1 max-w-[80%] text-[12px] leading-snug text-[#9a9e95] dark:text-neutral-500">{desc}</div>
       {extra}
-      <div className="relative mt-auto flex items-end justify-end gap-1.5 pt-3">
+      <div className="relative mt-auto flex min-w-0 items-end justify-end gap-1.5 pt-3">
         {delta === "up" && <DeltaUp />}
         {delta === "down" && <DeltaDown />}
-        <span className={`text-[34px] font-light leading-none tracking-tight ${INK}`}>{value}</span>
+        <span className={`min-w-0 break-words text-right text-[26px] font-light leading-none tracking-tight tabular-nums sm:text-[30px] xl:text-[26px] 2xl:text-[32px] ${INK}`}>{value}</span>
       </div>
     </div>
   );

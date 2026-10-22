@@ -3,7 +3,7 @@
 import { Fragment, useState } from "react";
 import Link from "next/link";
 import { formatMoney } from "@/lib/format";
-import type { RateMap } from "@/lib/fx";
+import { sumToBase, type RateMap } from "@/lib/fx";
 import EditObligationForm from "@/components/EditObligationForm";
 import PlanObligationButton from "@/components/PlanObligationButton";
 import LinkPaymentButton from "@/components/LinkPaymentButton";
@@ -34,6 +34,7 @@ export type AccrualRow = {
   due_date: string | null;
   note: string | null;
   category_id: string | null;
+  category_name: string | null;
   alreadyScheduled: boolean;
 };
 
@@ -42,8 +43,9 @@ type Proj = { id: string; name: string };
 type Acc = { id: string; name: string; currency: string };
 
 export default function AccrualsTable({
-  rows, base, rates, manage, userId, teamId, counterpartyId, categories, projects, accounts, projectRollup,
+  id, rows, base, rates, manage, userId, teamId, counterpartyId, categories, projects, accounts, projectRollup,
 }: {
+  id?: string;
   rows: AccrualRow[];
   base: string;
   rates: RateMap;
@@ -71,12 +73,12 @@ export default function AccrualsTable({
   const colSpan = manage ? 4 : 3;
 
   return (
-    <section className="mb-4 flex flex-col gap-3">
+    <section id={id} className="mb-4 flex scroll-mt-4 flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-3 px-1">
         <div className={LABEL}>Начисления · к выплате</div>
         <div className="flex items-center gap-2">
           {projectRollup.length > 0 && (
-            <button onClick={() => setRollupOpen((v) => !v)} className={PILL}>
+            <button type="button" onClick={() => setRollupOpen((v) => !v)} aria-expanded={rollupOpen} className={`cursor-pointer ${PILL}`}>
               {rollupOpen ? "Скрыть свод" : "Свод по проектам"}
             </button>
           )}
@@ -92,7 +94,7 @@ export default function AccrualsTable({
 
       {rollupOpen && projectRollup.length > 0 && (
         <div className={`${CARD} overflow-hidden`}>
-          <div className={`${LABEL} border-b border-black/[0.05] px-6 py-3 dark:border-white/[0.06]`}>Переменная оплата по проектам (начислено)</div>
+          <div className={`${LABEL} border-b border-black/[0.05] px-6 py-3 dark:border-white/[0.06]`}>Начислено по проектам · в {base}</div>
           <table className="w-full text-sm">
             <tbody>
               {projectRollup.map((r) => (
@@ -108,6 +110,14 @@ export default function AccrualsTable({
         </div>
       )}
 
+      {display.length === 0 ? (
+        <div className={`${CARD} px-6 py-8 text-center`}>
+          <div className="text-[15px] font-semibold text-[#272727] dark:text-neutral-100">Всё выплачено</div>
+          <div className="mt-1 text-[12.5px] text-[#82867b] dark:text-neutral-500">
+            Неоплаченных начислений нет{paidCount > 0 ? ` · погашенные можно показать переключателем выше (${paidCount})` : ""}.
+          </div>
+        </div>
+      ) : (
       <div className={`${CARD} overflow-hidden`}>
         <div className="overflow-x-auto">
         <table className="w-full min-w-[520px] text-sm">
@@ -121,15 +131,25 @@ export default function AccrualsTable({
           </thead>
           <tbody>
             {groups.map((g, gi) => {
-              const out = g.items.reduce((s, r) => s + r.outstanding, 0);
+              // Остаток месяца: пересчёт в базовую валюту по тем же курсам, что и сводка;
+              // валюты без курса — отдельно, в исходной валюте (не 1:1).
+              const out = sumToBase(g.items.map((r) => ({ amount: r.outstanding, currency: r.currency })), rates);
+              const hasOut = out.base > 0 || out.unconverted.some(([, v]) => v > 0);
               return (
                 <Fragment key={g.ym}>
                   {/* разделитель + шапка месяца */}
                   <tr>
                     <td colSpan={colSpan} className={`bg-black/[0.015] px-6 py-2.5 dark:bg-white/[0.03] ${gi > 0 ? "border-t-4 border-[#fbfcf9] dark:border-[#0f120f]" : ""}`}>
-                      <div className="flex items-center justify-between">
+                      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5">
                         <span className="text-[11px] font-bold uppercase tracking-[0.1em] text-[#6f736c] dark:text-neutral-400">{g.ym === "—" ? "Без месяца" : monthLabel(g.ym)}</span>
-                        {out > 0 && <span className="text-[12px] font-semibold tabular-nums text-[#F4442E]">остаток {formatMoney(out, base)}</span>}
+                        {hasOut && (
+                          <span className="text-right text-[12px] font-semibold tabular-nums text-[#d63a26] dark:text-[#ff7a66]">
+                            остаток {[
+                              ...(out.base > 0 || out.unconverted.length === 0 ? [formatMoney(out.base, base)] : []),
+                              ...out.unconverted.filter(([, v]) => v > 0).map(([c, v]) => `${formatMoney(v, c)} (нет курса)`),
+                            ].join(" + ")}
+                          </span>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -144,19 +164,22 @@ export default function AccrualsTable({
         </table>
         </div>
       </div>
-      <p className="px-1 text-[11.5px] leading-relaxed text-[#9a9e95] dark:text-neutral-600">
-        Показаны неоплаченные. Статус — точка слева. «Погасить» — отметить выплату, «Привязать» — связать с операцией; «⋯» — изменить/запланировать.
+      )}
+      <p className="px-1 text-[11.5px] leading-relaxed text-[#82867b] dark:text-neutral-500">
+        {showPaid ? "Показаны все начисления, включая погашенные." : "Показаны только неоплаченные начисления."}
+        {" "}Остаток месяца — в {base} по курсу сводки; сумма строки — в валюте начисления.
+        {manage && " «Погасить» — отметить выплату, «Привязать» — связать с операцией; «⋯» — изменить/запланировать."}
       </p>
     </section>
   );
 }
 
-function StatusDot({ paid, amount, base }: { paid: number; amount: number; base: string }) {
+function StatusDot({ paid, amount, currency }: { paid: number; amount: number; currency: string }) {
   if (amount > 0 && paid >= amount) {
     return <span className="inline-flex items-center gap-1.5 text-[11.5px] font-medium text-[#82867b]"><span className="h-1.5 w-1.5 rounded-full bg-[#29BF12]" />Погашено</span>;
   }
   if (paid > 0) {
-    return <span className="inline-flex items-center gap-1.5 text-[11.5px] font-medium text-[#6f736c] dark:text-neutral-400"><span className="h-1.5 w-1.5 rounded-full bg-[#3C91E6]" />Частично · {formatMoney(paid, base)}</span>;
+    return <span className="inline-flex items-center gap-1.5 text-[11.5px] font-medium text-[#6f736c] dark:text-neutral-400"><span className="h-1.5 w-1.5 rounded-full bg-[#3C91E6]" />Частично · {formatMoney(paid, currency)}</span>;
   }
   return <span className="inline-flex items-center gap-1.5 text-[11.5px] font-medium text-[#9a9e95] dark:text-neutral-500"><span className="h-1.5 w-1.5 rounded-full bg-[#cfd2c9] dark:bg-neutral-600" />Ожидает</span>;
 }
@@ -177,7 +200,11 @@ function AccrualLine({
 }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const done = o.outstanding <= 0;
-  const typeLabel = o.pay_part === "variable" ? "переменная" : "фиксированная";
+  // pay_part = null — не оклад: это прочие начисления (обычно «Агентская комиссия»), подписываем статьёй
+  const typeLabel = o.pay_part === "variable" ? "переменная" : o.pay_part === "fixed" ? "фиксированная" : (o.category_name ?? "прочее начисление").toLowerCase();
+  const title = o.pay_part === "fixed"
+    ? `Оклад${o.note && o.note.includes("аванс") ? " (аванс)" : ""}`
+    : o.pay_part === "variable" ? "Переменная оплата" : (o.category_name ?? "Прочее начисление");
 
   return (
     <tr className={`border-t border-black/[0.05] transition dark:border-white/[0.05] ${done ? "opacity-60" : "hover:bg-black/[0.015] dark:hover:bg-white/[0.02]"}`}>
@@ -186,10 +213,10 @@ function AccrualLine({
           {o.project_id && o.project_name ? (
             <Link href={`/projects/${o.project_id}`} className="font-semibold text-[#272727] hover:text-[#3C91E6] hover:underline dark:text-neutral-100">{o.project_name}</Link>
           ) : (
-            <span className="font-semibold text-[#272727] dark:text-neutral-100">Оклад{o.note && o.note.includes("аванс") ? " (аванс)" : ""}</span>
+            <span className="font-semibold text-[#272727] dark:text-neutral-100">{title}</span>
           )}
-          <span className="text-[12px] text-[#a7aba2] dark:text-neutral-500">{typeLabel}</span>
-          <StatusDot paid={o.paid} amount={o.amount} base={base} />
+          <span className="text-[12px] text-[#82867b] dark:text-neutral-500">{typeLabel}</span>
+          <StatusDot paid={o.paid} amount={o.amount} currency={o.currency} />
         </div>
       </td>
       <td className="whitespace-nowrap px-6 py-4 text-right font-light tabular-nums text-[#6f736c] dark:text-neutral-400">{formatMoney(o.amount, o.currency)}</td>
