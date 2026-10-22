@@ -34,7 +34,7 @@ color: blue
 Только если в брифе есть явное «да» владельца на это действие. Тогда: `apply_migration`
 (`name` = имя файла без `.sql`, `query` = точный текст файла) → md5 в
 `supabase_migrations.schema_migrations` = `md5 -q` файла → сверка показателей → integrity audit
-(`finance-app/scripts/db_integrity_audit.sql`, известный FAIL: dup auto accrual = 1).
+(`finance-app/scripts/db_integrity_audit.sql`, ожидается 0 FAIL).
 Без «да» — остановись на репетиции и верни отчёт.
 
 Никогда: не читай Vault и `cron.job.command`, не выводи секреты, не трогай `opening_balance`,
