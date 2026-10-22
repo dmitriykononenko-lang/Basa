@@ -40,7 +40,27 @@ with checks(name, bad) as (
   -- аванс и остаток за один месяц — две законные строки с разными сроками (0087, 0098);
   -- дубль — две строки оклада на один и тот же срок (как уникальный индекс obligations_auto_accrual_uniq)
   ('dup auto accrual(cp,type,part,month,due)',(select coalesce(sum(c-1),0) from (select count(*) c from obligations where pay_part='fixed' and period_month is not null group by counterparty_id, type, pay_part, period_month, due_date having count(*)>1) x)),
-  ('splits sum<>tx.amount',              (select count(*) from (select s.transaction_id from transaction_splits s join transactions t on t.id=s.transaction_id group by s.transaction_id having sum(s.amount)<>max(t.amount)) x)),
+  -- Q-09 (0099): валюта привязок. amount — в валюте начисления, payment_amount — в валюте операции.
+  -- Требует колонок 0099 (payment_amount, payment_currency, fx_method); до 0099 скрипт падает на них.
+  ('oblig_payments tx without fx_method', (select count(*) from obligation_payments op where op.transaction_id is not null and op.fx_method is null)),
+  ('oblig_payments Σpayment>tx.amount',  (select count(*) from (select t.id from obligation_payments op join transactions t on t.id=op.transaction_id group by t.id, t.amount having sum(op.payment_amount)>t.amount) x)),
+  ('oblig_payments currency<>tx',        (select count(*) from obligation_payments op join transactions t on t.id=op.transaction_id where op.payment_currency is distinct from t.currency)),
+  ('oblig_payments IDENTITY amt<>pay',   (select count(*) from obligation_payments op where op.fx_method='IDENTITY' and op.payment_amount is distinct from op.amount)),
+  ('oblig_payments IDENTITY oblig cur<>pay cur', (select count(*) from obligation_payments op join obligations o on o.id=op.obligation_id where op.fx_method='IDENTITY' and o.currency<>op.payment_currency)),
+  ('oblig_payments FX method but same currency', (select count(*) from obligation_payments op join obligations o on o.id=op.obligation_id where op.fx_method in ('LEGACY','CBR','MANUAL') and o.currency=op.payment_currency)),
+  ('oblig_payments Σ by counterparty>share',  (select count(*) from (
+      select op.transaction_id, o.counterparty_id, sum(op.payment_amount) s
+        from obligation_payments op join obligations o on o.id=op.obligation_id join transactions t on t.id=op.transaction_id
+       where t.obligation_id is distinct from op.obligation_id
+       group by 1, 2) x
+      join transactions t on t.id=x.transaction_id
+     where x.s > case when exists (select 1 from transaction_splits s where s.transaction_id=t.id)
+                      then (select coalesce(sum(s.amount),0) from transaction_splits s where s.transaction_id=t.id and coalesce(s.counterparty_id,t.counterparty_id)=x.counterparty_id)
+                      when t.counterparty_id=x.counterparty_id then t.amount else 0 end)),
+  -- привязка к операции чужой команды — проверка 'oblig_payments tx cross-team' выше
+  ('oblig_payments to plan/transfer/wrong type', (select count(*) from obligation_payments op join obligations o on o.id=op.obligation_id join transactions t on t.id=op.transaction_id
+      where t.status<>'actual' or t.type='transfer' or not ((o.type='payable' and t.type='expense') or (o.type='receivable' and t.type='income')))),
+  ('splits sum<>tx.amount',             (select count(*) from (select s.transaction_id from transaction_splits s join transactions t on t.id=s.transaction_id group by s.transaction_id having sum(s.amount)<>max(t.amount)) x)),
   -- FIN-03: the same transfer recorded twice — a `transfer` row PLUS a manual expense+income pair
   -- with identical date/amount/currency/accounts and the same note prefix. Double-counts balances.
   ('double-counted transfers (FIN-03)',  (select count(*) from transactions tr

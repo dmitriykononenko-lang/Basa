@@ -225,8 +225,8 @@ function AccrualLine({
         <td className="px-6 py-4 text-right">
           {userId && (
             <div className="flex items-center justify-end gap-1">
-              <LinkPaymentButton obligationId={o.id} oblType="payable" counterpartyId={counterpartyId} currency={o.currency} outstanding={o.outstanding} teamId={teamId} userId={userId} rates={rates} baseCurrency={base} />
-              <PayObligationButton obligationId={o.id} userId={userId} outstanding={o.outstanding} currency={o.currency} teamId={teamId} counterpartyId={counterpartyId} accounts={accounts} />
+              <LinkPaymentButton obligationId={o.id} oblType="payable" counterpartyId={counterpartyId} currency={o.currency} outstanding={o.outstanding} teamId={teamId} />
+              <PayObligationButton obligationId={o.id} outstanding={o.outstanding} currency={o.currency} accounts={accounts} />
               {moreOpen && (
                 <>
                   <EditObligationForm mode="accrual"

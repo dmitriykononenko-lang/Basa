@@ -60,16 +60,18 @@ export default function EditObligationForm({
     const minor = parseMoney(amount);
     if (minor <= 0) return setError("Сумма больше нуля");
     if (minor < obligation.paid)
-      return setError(`Сумма меньше уже выплаченного (${formatMoney(obligation.paid, currency)}). Сначала отмените выплаты.`);
+      return setError(`Сумма меньше уже выплаченного (${formatMoney(obligation.paid, obligation.currency)}). Сначала отвяжите выплаты.`);
 
     setLoading(true);
     const supabase = createClient();
     const patch: Record<string, unknown> = {
       amount: minor,
-      currency,
       category_id: categoryId || null,
       note: note || null,
     };
+    // При выплатах валюту (и тип/контрагента/команду — их форма не меняет) не отправляем:
+    // БД это запрещает (23514), привязки хранятся в валюте начисления.
+    if (!hasPaid) patch.currency = currency;
     if (mode === "accrual") {
       patch.period_month = month ? `${month}-01` : null;
       patch.due_date = month ? `${month}-01` : null;
@@ -81,6 +83,7 @@ export default function EditObligationForm({
     const { error } = await supabase.from("obligations").update(patch).eq("id", obligation.id);
     if (error) {
       setError(error.message);
+      toast.error(error.message);
       setLoading(false);
       return;
     }
@@ -123,10 +126,12 @@ export default function EditObligationForm({
         <form onSubmit={save} className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <Field label="Сумма">
-              <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" className="input" />
+              <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" className="input"
+                aria-describedby={hasPaid ? "obl-paid-hint" : undefined} />
             </Field>
             <Field label="Валюта">
-              <Select value={currency} onChange={setCurrency} options={CURRENCIES.map((c) => ({ value: c, label: c }))} />
+              <Select value={currency} onChange={setCurrency} disabled={hasPaid} options={CURRENCIES.map((c) => ({ value: c, label: c }))} />
+              {hasPaid && <p className="mt-1 text-[11px] text-slate-400">Сначала отвяжите выплаты</p>}
             </Field>
 
             {mode === "accrual" ? (
@@ -160,8 +165,8 @@ export default function EditObligationForm({
           </Field>
 
           {hasPaid && (
-            <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
-              Уже выплачено {formatMoney(obligation.paid, obligation.currency)}. Удаление недоступно; сумму нельзя сделать меньше выплаченного.
+            <p id="obl-paid-hint" className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
+              Уже выплачено {formatMoney(obligation.paid, obligation.currency)}. Удаление и смена валюты недоступны, сумму нельзя сделать меньше выплаченного — сначала отвяжите выплаты.
             </p>
           )}
           {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950/40">{error}</p>}

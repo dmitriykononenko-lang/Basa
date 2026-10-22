@@ -324,12 +324,8 @@ export default async function DebtsPage({
                       {canEditFinance(role) && user ? (
                         <AllocatePaymentButton
                           paymentId={u.id}
-                          occurredOn={u.occurred_on}
-                          remainingBase={u.remainingBase}
-                          baseCurrency={cur}
                           counterpartyId={u.counterparty_id}
                           oblType={u.oblType}
-                          userId={user.id}
                         />
                       ) : null}
                     </td>
@@ -431,17 +427,12 @@ export default async function DebtsPage({
                             currency={o.currency}
                             outstanding={o.outstanding}
                             teamId={team.id}
-                            userId={user.id}
-                            rates={rates}
-                            baseCurrency={cur}
                           />
                           <PayObligationButton
                             obligationId={o.id}
-                            userId={user.id}
                             outstanding={o.outstanding}
                             currency={o.currency}
-                            teamId={team.id}
-                            counterpartyId={o.counterparty_id}
+                            oblType={o.type}
                             accounts={accounts ?? []}
                           />
                         </div>

@@ -457,7 +457,9 @@ export default function ImportWizard({
       setStep("done");
       router.refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Ошибка импорта");
+      // Ошибка RPC (PostgrestError) — не всегда instanceof Error: показываем текст БД (напр. 23514).
+      const msg = e instanceof Error ? e.message : (e as { message?: unknown } | null)?.message;
+      setError(typeof msg === "string" && msg ? msg : "Ошибка импорта");
     } finally {
       setBusy(false);
     }

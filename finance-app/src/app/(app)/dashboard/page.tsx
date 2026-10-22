@@ -161,7 +161,12 @@ export default async function DashboardPage() {
   const cbrUsd = cbr.rates.USD;
 
   // Нераспределённые выплаты (операции контрагентам с открытым долгом, не разнесённые)
-  const unallocatedPayments = await loadUnallocatedPayments(supabase, team.id, rates);
+  // Сбой чтения не должен ронять весь дашборд — показываем предупреждение вместо баннера
+  let unallocatedFailed = false;
+  const unallocatedPayments = await loadUnallocatedPayments(supabase, team.id, rates).catch(() => {
+    unallocatedFailed = true;
+    return [];
+  });
   const unallocatedCount = unallocatedPayments.length;
   const unallocatedAmount = unallocatedPayments.reduce((s, u) => s + u.remainingBase, 0);
 
@@ -470,6 +475,11 @@ export default async function DashboardPage() {
             Открыть долги →
           </span>
         </Link>
+      )}
+      {unallocatedFailed && (
+        <div role="alert" className="mb-6 rounded-3xl bg-amber-50 px-5 py-4 text-sm text-amber-800 ring-1 ring-amber-200 dark:bg-amber-950/30 dark:text-amber-200 dark:ring-amber-900/40">
+          Не удалось посчитать нераспределённые выплаты. Обновите страницу.
+        </div>
       )}
       {unallocatedCount > 0 && (
         <Link

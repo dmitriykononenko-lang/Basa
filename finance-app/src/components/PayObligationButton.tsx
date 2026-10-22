@@ -1,31 +1,28 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Select } from "@/components/ui/select";
 import Combobox from "@/components/Combobox";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { parseMoney, formatMoney, formatDate } from "@/lib/format";
+import { parseMoney, formatMoney, formatDate, todayInTz } from "@/lib/format";
+import { obligationLink } from "@/lib/obligation-link";
 
 type Account = { id: string; name: string; currency: string };
 export type PayOp = { id: string; amount: number; currency: string; occurred_on: string };
 
 export default function PayObligationButton({
   obligationId,
-  userId,
   outstanding,
   currency,
-  teamId,
-  counterpartyId,
+  oblType = "payable",
   accounts = [],
   ops = [],
 }: {
   obligationId: string;
-  userId: string;
   outstanding: number;
   currency: string;
-  teamId?: string;
-  counterpartyId?: string | null;
+  oblType?: "receivable" | "payable"; // payable закрывается расходом, receivable — приходом (в RPC)
   accounts?: Account[];
   ops?: PayOp[];
 }) {
@@ -39,8 +36,11 @@ export default function PayObligationButton({
   const [linkedOpId, setLinkedOpId] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Ключ идемпотентности — один на попытку погашения (сбрасывается после успеха).
+  const reqId = useRef("");
 
   function pickOp(id: string) {
+    reqId.current = ""; // другие параметры — новая попытка
     setLinkedOpId(id);
     const o = opById.get(id);
     if (o) setAmount(String(Math.min(o.amount, outstanding) / 100).replace(".", ","));
@@ -56,6 +56,7 @@ export default function PayObligationButton({
 
   async function pay(e: React.FormEvent) {
     e.preventDefault();
+    if (loading) return;
     setError(null);
     const minor = parseMoney(amount);
     if (minor <= 0) return setError("Сумма больше нуля");
@@ -63,48 +64,28 @@ export default function PayObligationButton({
 
     setLoading(true);
     const supabase = createClient();
-    const today = new Date().toISOString().slice(0, 10);
-    let transactionId: string | null = null;
+    if (!reqId.current) reqId.current = crypto.randomUUID();
 
-    // Привязка к существующей операции — без создания новой (берём её как платёж)
     if (linkedOpId) {
-      transactionId = linkedOpId;
-    } else if (teamId && accountId && matching.length > 0) {
-      const { data: tx, error: txErr } = await supabase
-        .from("transactions")
-        .insert({
-          team_id: teamId,
-          type: "expense",
-          amount: minor,
-          currency,
-          account_id: accountId,
-          counterparty_id: counterpartyId ?? null,
-          occurred_on: today,
-          note: "Выплата по обязательству",
-          created_by: userId,
-        })
-        .select("id")
-        .single();
-      if (txErr) {
-        setError(txErr.message);
-        setLoading(false);
-        return;
-      }
-      transactionId = tx?.id ?? null;
+      // Привязка к существующей операции (та же валюта — список отфильтрован выше).
+      const { error: linkErr } = await obligationLink(supabase, {
+        obligationId, transactionId: linkedOpId, amount: minor, requestId: reqId.current,
+      });
+      if (linkErr) { setError(linkErr); setLoading(false); return; }
+    } else {
+      // Новая операция (счёт в валюте начисления) + разнесение — одной транзакцией в RPC;
+      // без подходящего счёта — отметка погашения без операции.
+      const { error: payErr } = await supabase.rpc("obligation_pay", {
+        p_obligation: obligationId,
+        p_account: matching.length > 0 && accountId ? accountId : null,
+        p_amount: minor,
+        p_occurred_on: todayInTz(),
+        p_note: oblType === "receivable" ? "Оплата по обязательству" : "Выплата по обязательству",
+        p_request_id: reqId.current,
+      });
+      if (payErr) { setError(payErr.message); setLoading(false); return; }
     }
-
-    const { error } = await supabase.from("obligation_payments").insert({
-      obligation_id: obligationId,
-      amount: minor,
-      paid_on: today,
-      transaction_id: transactionId,
-      created_by: userId,
-    });
-    if (error) {
-      setError(error.message);
-      setLoading(false);
-      return;
-    }
+    reqId.current = "";
     setAmount("");
     setOpen(false);
     setLoading(false);
@@ -139,17 +120,18 @@ export default function PayObligationButton({
         inputMode="decimal"
         autoFocus
         value={amount}
-        onChange={(e) => setAmount(e.target.value)}
+        aria-label={`Сумма, ${currency}`}
+        onChange={(e) => { reqId.current = ""; setAmount(e.target.value); }}
         placeholder={formatMoney(outstanding, currency)}
         className="w-24 rounded-full border border-slate-300 px-2.5 py-1 text-xs outline-none focus:border-brand dark:border-neutral-700 dark:bg-neutral-800"
       />
       {!linkedOpId && matching.length > 0 && (
-        <Select variant="pill" value={accountId} onChange={setAccountId} options={matching.map((a) => ({ value: a.id, label: a.name }))} />
+        <Select variant="pill" value={accountId} onChange={(v) => { reqId.current = ""; setAccountId(v); }} options={matching.map((a) => ({ value: a.id, label: a.name }))} />
       )}
       <button type="submit" disabled={loading} className="rounded-full bg-brand px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-60">
         {loading ? "…" : "OK"}
       </button>
-      <button type="button" onClick={() => setOpen(false)} className="px-1 text-xs text-slate-400">✕</button>
+      <button type="button" onClick={() => setOpen(false)} aria-label="Отмена" className="px-1 text-xs text-slate-400">✕</button>
       {error && <span className="w-full text-right text-xs text-red-500">{error}</span>}
     </form>
   );

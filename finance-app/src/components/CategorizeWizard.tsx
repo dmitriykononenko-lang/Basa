@@ -112,8 +112,9 @@ export default function CategorizeWizard({
     setCats((prev) => [...prev, data as WizardCat]);
     const patch: Record<string, string | null> = { category_id: data.id };
     if (byProject) patch.project_id = projectId || null;
-    await supabase.rpc("transactions_bulk_patch", { p_ids: [op.id], p_patch: patch, p_request_id: crypto.randomUUID() });
+    const { error: patchErr } = await supabase.rpc("transactions_bulk_patch", { p_ids: [op.id], p_patch: patch, p_request_id: crypto.randomUUID() });
     setBusy(false);
+    if (patchErr) { toast.error(patchErr.message); return; }
     setAssigned((prev) => new Set(prev).add(op.id));
     setQ("");
     toast.success(`Статья «${data.name}» создана`);
@@ -140,7 +141,8 @@ export default function CategorizeWizard({
     setBusy(true);
     const supabase = createClient();
     for (const [catId, list] of groups) {
-      await supabase.rpc("transactions_bulk_patch", { p_ids: list, p_patch: { category_id: catId }, p_request_id: crypto.randomUUID() });
+      const { error: patchErr } = await supabase.rpc("transactions_bulk_patch", { p_ids: list, p_patch: { category_id: catId }, p_request_id: crypto.randomUUID() });
+      if (patchErr) { setBusy(false); toast.error(patchErr.message); return; }
     }
     setBusy(false);
     setAssigned((prev) => { const n = new Set(prev); ids.forEach((i) => n.add(i)); return n; });
@@ -161,7 +163,8 @@ export default function CategorizeWizard({
     setBusy(true);
     const supabase = createClient();
     for (const [pid, list] of groups) {
-      await supabase.rpc("transactions_bulk_patch", { p_ids: list, p_patch: { project_id: pid }, p_request_id: crypto.randomUUID() });
+      const { error: patchErr } = await supabase.rpc("transactions_bulk_patch", { p_ids: list, p_patch: { project_id: pid }, p_request_id: crypto.randomUUID() });
+      if (patchErr) { setBusy(false); toast.error(patchErr.message); return; }
     }
     setBusy(false);
     toast.success(`Привязано проектов: ${ids.length}`);
