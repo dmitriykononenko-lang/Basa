@@ -48,7 +48,7 @@ function DeltaDown() {
 }
 
 export default function EmployeeSummary({
-  base, totalAccrued, totalPaid, totalOut, totalPaidActual, paidByCur, fix, variable, other, monthly, hasPayouts, accruedByCur, outByCur, otherLabel,
+  base, totalAccrued, totalPaid, totalOut, totalPaidActual, paidByCur, fix, variable, other, monthly, hasPayouts, showCash, accruedByCur, outByCur, otherLabel,
 }: {
   base: string;
   initials: string;
@@ -62,6 +62,7 @@ export default function EmployeeSummary({
   other: { acc: number; paid: number };
   monthly: MonthPoint[];
   hasPayouts: boolean;
+  showCash: boolean;
   accruedByCur: [string, number][];
   outByCur: [string, number][];
   otherLabel: string;
@@ -188,7 +189,7 @@ export default function EmployeeSummary({
             <span className="flex items-center gap-1.5"><i className="inline-block h-2 w-2 rounded-full bg-[#c7c9c1] dark:bg-white/25" />начислено <b className="font-semibold text-[#272727] dark:text-neutral-200">{formatMoney(totalAccrued, base)}</b></span>
           </div>
           <p className="mt-1.5 text-[11px] leading-snug text-[#9a9e95] dark:text-neutral-500">
-            Точка — накопительный итог на конец месяца начисления (по периоду начисления, не по дате выплаты). Деньги по операциям — в плитке «Выплачено деньгами».
+            Точка — накопительный итог на конец месяца начисления (по периоду начисления, не по дате выплаты). {showCash ? "Деньги по операциям — в плитке «Выплачено деньгами»." : ""}
           </p>
         </div>
       </div>
@@ -197,8 +198,12 @@ export default function EmployeeSummary({
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Insight label="Начислено" desc="Всего начислено за всё время" value={formatMoney(totalAccrued, base)} tint="blue"
           href="#accruals" hrefLabel="К начислениям" extra={<CurChips list={accruedByCur} base={base} />} />
-        <Insight label="Выплачено деньгами" desc="Ушло деньгами по операциям (факт)" value={formatMoney(totalPaidActual, base)} tint="green" delta="up"
-          href={hasPayouts ? "#payouts" : undefined} hrefLabel="К списку выплат" extra={<CurChips list={paidByCur} base={base} />} />
+        {showCash ? (
+          <Insight label="Выплачено деньгами" desc="Ушло деньгами по операциям (факт)" value={formatMoney(totalPaidActual, base)} tint="green" delta="up"
+            href={hasPayouts ? "#payouts" : undefined} hrefLabel="К списку выплат" extra={<CurChips list={paidByCur} base={base} />} />
+        ) : (
+          <Insight label="Выплачено деньгами" desc="Доступно финансовой роли" value="—" tint="green" />
+        )}
         <Insight label="Остаток к выплате" desc={`${outShare}% начисленного ещё не погашено`} value={formatMoney(totalOut, base)} tint={totalOut > 0 ? "red" : "green"} delta={totalOut > 0 ? "down" : "up"}
           href="#accruals" hrefLabel="К неоплаченным начислениям" extra={<CurChips list={outByCur} base={base} />} />
         <Insight label="Структура" desc={structDesc} value={formatMoney(structTotal, base)} tint="blue"

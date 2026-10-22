@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Manrope } from "next/font/google";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentTeam, canEditFinance } from "@/lib/team";
+import { getCurrentTeam, canEditFinance, canViewFinance } from "@/lib/team";
 import { formatMoney, formatDate, todayInTz } from "@/lib/format";
 import { buildRateMap, toBaseStrict, missingRates, latestRates } from "@/lib/fx";
 import { fetchAllRows } from "@/lib/supabase/paginate";
@@ -333,6 +333,9 @@ export default async function EmployeePage({
     .map(([pid, x]) => ({ pid, name: x.name, val: x.val }))
     .sort((a, b) => b.val - a.val);
   const manage = canEditFinance(role);
+  // Деньги по операциям («Выплачено деньгами», «Прочие расходы», сверка) — только финансовой роли:
+  // у остальных RLS отдаёт лишь их собственные операции, и суммы были бы неполными.
+  const viewFinance = canViewFinance(role);
 
   // сверка «закрыто начислений» vs «выплачено деньгами» (только пересчитанные суммы)
   const diff = totalPaidActual - totalPaid;
@@ -388,7 +391,7 @@ export default async function EmployeePage({
         <div role="alert" className="mb-4 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-800 ring-1 ring-amber-200/70 dark:bg-amber-950/30 dark:text-amber-300 dark:ring-amber-900/40">
           <b className="font-semibold">Нет курса для {noRate.join(", ")}</b> — суммы в {noRate.length > 1 ? "этих валютах" : "этой валюте"} не пересчитаны в {base} и не входят в итоги ниже.
           {unconvAccrued.size > 0 && <> Начислено: {unconvLabel(unconvAccrued)}; остаток: {unconvLabel(unconvOut)}.</>}
-          {unconvPaidActual.size > 0 && <> Выплачено деньгами: {unconvLabel(unconvPaidActual)}.</>}
+          {viewFinance && unconvPaidActual.size > 0 && <> Выплачено деньгами: {unconvLabel(unconvPaidActual)}.</>}
           {" "}Задайте курс в <Link href="/reports" className="font-medium underline underline-offset-2">отчётах</Link>.
         </div>
       )}
@@ -408,7 +411,7 @@ export default async function EmployeePage({
           {anyStale && <> Обновите курс в <Link href="/reports" className="font-medium underline underline-offset-2">отчётах</Link>, иначе пересчёт неточен.</>}
         </p>
       )}
-      {payoutsFailed && (
+      {viewFinance && payoutsFailed && (
         <div role="alert" className="mb-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700 ring-1 ring-red-200/70 dark:bg-red-950/30 dark:text-red-300 dark:ring-red-900/40">
           Не удалось загрузить выплаты или данные для их отбора полностью — «Выплачено деньгами» и «Прочие расходы» могут быть неточны. Обновите страницу.
         </div>
@@ -429,7 +432,8 @@ export default async function EmployeePage({
           other={other}
           otherLabel={otherLabel}
           monthly={monthly}
-          hasPayouts={payoutRows.length > 0}
+          hasPayouts={viewFinance && payoutRows.length > 0}
+          showCash={viewFinance}
           accruedByCur={accruedByCur}
           outByCur={outByCur}
         />
@@ -457,7 +461,7 @@ export default async function EmployeePage({
       )}
 
       {/* Сверка — только если расходится */}
-      {payoutRows.length > 0 && !reconciled && !payoutsFailed && (
+      {viewFinance && payoutRows.length > 0 && !reconciled && !payoutsFailed && (
         <div className="mb-6 rounded-2xl bg-amber-50/60 px-4 py-2.5 text-sm text-amber-800 ring-1 ring-amber-200/60 dark:bg-amber-950/30 dark:text-amber-300 dark:ring-amber-900/40">
           Расхождение {formatMoney(Math.abs(diff), base)}: закрыто начислений {formatMoney(totalPaid, base)}, выплачено деньгами {formatMoney(totalPaidActual, base)}. Обычно это погашения без операции или непривязанные выплаты.
         </div>
@@ -486,12 +490,17 @@ export default async function EmployeePage({
       )}
 
       {/* Фактические выплаты (операции) */}
-      {payoutRows.length === 0 && !payoutsFailed && (
+      {!viewFinance && (
+        <p id="payouts" className="mb-6 rounded-3xl bg-white p-6 text-sm text-slate-500 ring-1 ring-slate-200/70 dark:bg-[#15171c] dark:text-neutral-400 dark:ring-white/[0.07]">
+          Выплаты деньгами, прочие расходы и сверка с начислениями доступны финансовой роли (владелец, администратор, менеджер).
+        </p>
+      )}
+      {viewFinance && payoutRows.length === 0 && !payoutsFailed && (
         <p id="payouts" className="mb-6 rounded-3xl bg-white p-6 text-sm text-slate-500 ring-1 ring-slate-200/70 dark:bg-[#15171c] dark:text-neutral-400 dark:ring-white/[0.07]">
           Выплат деньгами пока нет: нет операций «факт», привязанных к начислениям сотрудника или проведённых по зарплатной статье.
         </p>
       )}
-      {payoutRows.length > 0 && (
+      {viewFinance && payoutRows.length > 0 && (
         <section id="payouts" className="mb-6 scroll-mt-4">
           <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
             <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-neutral-500">
@@ -553,7 +562,7 @@ export default async function EmployeePage({
       )}
 
       {/* Прочие расходы на этого контрагента — не выплата сотруднику, в итоги и сверку не входят */}
-      {otherExpenseRows.length > 0 && (
+      {viewFinance && otherExpenseRows.length > 0 && (
         <details id="other-expenses" className="group mb-6 scroll-mt-4">
           <summary className="flex cursor-pointer list-none flex-wrap items-baseline justify-between gap-x-3 gap-y-1 rounded-xl py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand [&::-webkit-details-marker]:hidden">
             <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-neutral-400">

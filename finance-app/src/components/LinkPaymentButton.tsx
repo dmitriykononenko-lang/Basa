@@ -51,41 +51,64 @@ export default function LinkPaymentButton({
     // если операция разнесена на части, берём только часть, отнесённую контрагенту,
     // а не всю операцию (SPLIT-01). Любая валюта — остаток считаем в базовой.
     const { data: lines, error: linesErr } = await supabase.from("transaction_lines")
-      .select("transaction_id, split_id, occurred_on, amount, currency, note, is_split")
+      .select("transaction_id, split_id, occurred_on, amount, transaction_amount, currency, note, is_split")
       .eq("team_id", teamId).eq("counterparty_id", counterpartyId).eq("type", txType)
       .eq("status", "actual")
       .order("occurred_on", { ascending: false }).limit(200);
     if (linesErr) { setLoadError("Не удалось загрузить операции. Попробуйте ещё раз."); setLoading(false); return; }
     // Части одной операции этому же контрагенту складываем: привязка хранится по операции
-    const byTx = new Map<string, { id: string; occurred_on: string; amount: number; currency: string; note: string | null; isSplit: boolean }>();
-    for (const l of (lines ?? []) as { transaction_id: string; occurred_on: string; amount: number; currency: string; note: string | null; is_split: boolean }[]) {
+    type TxAgg = { id: string; occurred_on: string; amount: number; txAmount: number; currency: string; note: string | null; isSplit: boolean };
+    const byTx = new Map<string, TxAgg>();
+    for (const l of (lines ?? []) as { transaction_id: string; occurred_on: string; amount: number; transaction_amount: number; currency: string; note: string | null; is_split: boolean }[]) {
       const cur = byTx.get(l.transaction_id);
       if (cur) cur.amount += l.amount;
-      else byTx.set(l.transaction_id, { id: l.transaction_id, occurred_on: l.occurred_on, amount: l.amount, currency: l.currency, note: l.note, isSplit: l.is_split });
+      else byTx.set(l.transaction_id, { id: l.transaction_id, occurred_on: l.occurred_on, amount: l.amount, txAmount: l.transaction_amount, currency: l.currency, note: l.note, isSplit: l.is_split });
     }
     const list = [...byTx.values()].slice(0, 100);
     const ids = list.map((t) => t.id);
-    // Уже привязано из этих операций — только к обязательствам ЭТОГО контрагента
-    // (часть операции другому сотруднику не уменьшает его остаток).
-    const alloc = new Map<string, number>();
-    if (ids.length) {
-      const [{ data: obls, error: oblErr }, { data: pays, error: payErr }] = await Promise.all([
-        supabase.from("obligations").select("id").eq("team_id", teamId).eq("counterparty_id", counterpartyId),
-        supabase.from("obligation_payments").select("transaction_id, obligation_id, amount").in("transaction_id", ids),
-      ]);
-      if (oblErr || payErr) { setLoadError("Не удалось проверить привязки. Попробуйте ещё раз."); setLoading(false); return; }
-      const mine = new Set(((obls ?? []) as { id: string }[]).map((o) => o.id));
-      for (const p of (pays ?? []) as { transaction_id: string | null; obligation_id: string; amount: number }[]) {
-        if (p.transaction_id && mine.has(p.obligation_id)) alloc.set(p.transaction_id, (alloc.get(p.transaction_id) ?? 0) + p.amount);
+    // Привязки этих операций: ВСЕ (к любым обязательствам) и только к обязательствам ЭТОГО контрагента.
+    // Остаток кандидата = min(часть контрагента − его привязки, вся операция − все привязки),
+    // иначе операцию, уже закрывшую начисление другого контрагента, можно привязать повторно.
+    const allocAll = new Map<string, number>();
+    const allocMine = new Map<string, number>();
+    const CHUNK = 100;
+    const pays: { transaction_id: string | null; obligation_id: string; amount: number }[] = [];
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const { data, error } = await supabase.from("obligation_payments")
+        .select("transaction_id, obligation_id, amount").in("transaction_id", ids.slice(i, i + CHUNK));
+      if (error) { setLoadError("Не удалось проверить привязки. Попробуйте ещё раз."); setLoading(false); return; }
+      pays.push(...((data ?? []) as typeof pays));
+    }
+    const payOblIds = [...new Set(pays.map((p) => p.obligation_id))];
+    const mine = new Set<string>();
+    for (let i = 0; i < payOblIds.length; i += CHUNK) {
+      const { data, error } = await supabase.from("obligations")
+        .select("id, counterparty_id").in("id", payOblIds.slice(i, i + CHUNK));
+      if (error) { setLoadError("Не удалось проверить привязки. Попробуйте ещё раз."); setLoading(false); return; }
+      for (const o of (data ?? []) as { id: string; counterparty_id: string | null }[]) {
+        if (o.counterparty_id === counterpartyId) mine.add(o.id);
       }
+    }
+    for (const p of pays) {
+      if (!p.transaction_id) continue;
+      allocAll.set(p.transaction_id, (allocAll.get(p.transaction_id) ?? 0) + p.amount);
+      if (mine.has(p.obligation_id)) allocMine.set(p.transaction_id, (allocMine.get(p.transaction_id) ?? 0) + p.amount);
     }
     let skipped = 0;
     const out: Cand[] = [];
     for (const t of list) {
-      const b = toBaseStrict(t.amount, t.currency, rates);
-      if (b === null) { skipped++; continue; } // нет курса — не пересчитываем 1:1
-      const remainingBase = b - (alloc.get(t.id) ?? 0);
-      if (remainingBase > 0) out.push({ ...t, remainingBase });
+      // Всё в базовой валюте — как и суммы привязок, которые сейчас пишутся в базовой (шаг 2 — H5)
+      const part = toBaseStrict(t.amount, t.currency, rates);
+      const whole = toBaseStrict(t.txAmount, t.currency, rates);
+      if (part === null || whole === null) { skipped++; continue; } // нет курса — не пересчитываем 1:1
+      const remainingBase = Math.min(
+        part - (allocMine.get(t.id) ?? 0),
+        whole - (allocAll.get(t.id) ?? 0),
+      );
+      if (remainingBase > 0) {
+        const { txAmount: _txAmount, ...c } = t;
+        out.push({ ...c, remainingBase });
+      }
     }
     setNoRateCount(skipped);
     setCands(out);
