@@ -40,6 +40,7 @@
 --   5. settle_obligation_on_tx (0079) и obligation_pay — при разных валютах понятная ошибка.
 --   6. RPC obligation_link (контракт q09_contract.md, правка после ревью: p_fx_rate);
 --      obligation_allocate — тонкая обёртка.
+--   6c. bybit_apply_parties: операции с привязками пропускаются (синк Bybit не падает).
 --   7. op_begin: повтор ключа возвращает результат только той же команде и тому же пользователю.
 --   8. Политика obligation_payments_insert — плюс проверка команды операции.
 --   9. Гранты и самопроверка.
@@ -516,6 +517,25 @@ begin
   return null;
 end $$;
 
+-- ─── 4c. bybit_apply_parties (тело production + пропуск привязанных операций) ─
+-- Вызывается из bybit_sync (cron bybit-sync-daily). Смена контрагента у операции с привязками
+-- нарушила бы инвариант доли контрагента, и отложенная проверка уронила бы весь прогон синка
+-- на коммите (исключение вне блока exception в bybit_sync_logged). Такие операции пропускаются
+-- и не входят в возвращаемый счётчик; контрагента у них меняют вручную, после отвязки.
+create or replace function public.bybit_apply_parties()
+returns integer language sql security definer set search_path = public as $$
+  with upd as (
+    update public.transactions t
+    set counterparty_id = m.counterparty_id
+    from public.bybit_tx_party p
+    join public.bybit_party_map m on m.party = p.party
+    where t.source='bybit' and t.external_id = p.external_id
+      and t.counterparty_id is distinct from m.counterparty_id
+      and not exists (select 1 from public.obligation_payments op where op.transaction_id = t.id)
+    returning 1
+  ) select count(*)::int from upd;
+$$;
+
 -- ─── 5a. settle_obligation_on_tx (тело production + отказ при разных валютах) ─
 create or replace function public.settle_obligation_on_tx()
 returns trigger language plpgsql security definer set search_path = public as $$
@@ -865,7 +885,8 @@ begin
     'public.transactions_alloc_guard()', 'public.transaction_splits_alloc_guard()',
     'public.obligations_alloc_guard()', 'public.assert_tx_allocation(uuid)',
     'public.tx_counterparty_share(uuid, uuid)', 'public.settle_obligation_on_tx()',
-    'public.assert_obligation_not_overpaid()', 'public.op_begin(uuid, uuid, text)'
+    'public.assert_obligation_not_overpaid()', 'public.op_begin(uuid, uuid, text)',
+    'public.bybit_apply_parties()'
   ] loop
     execute format('revoke all on function %s from public, anon, authenticated', f);
     execute format('grant execute on function %s to service_role', f);
@@ -887,7 +908,8 @@ begin
     'public.transactions_alloc_guard()', 'public.transaction_splits_alloc_guard()',
     'public.obligations_alloc_guard()', 'public.assert_tx_allocation(uuid)',
     'public.tx_counterparty_share(uuid,uuid)', 'public.settle_obligation_on_tx()',
-    'public.assert_obligation_not_overpaid()', 'public.op_begin(uuid,uuid,text)'
+    'public.assert_obligation_not_overpaid()', 'public.op_begin(uuid,uuid,text)',
+    'public.bybit_apply_parties()'
   ] loop
     if has_function_privilege('anon', f, 'execute') then
       raise exception '0099 self-check: у anon есть EXECUTE на %', f;
@@ -902,7 +924,8 @@ begin
     'public.transactions_alloc_guard()', 'public.transaction_splits_alloc_guard()',
     'public.obligations_alloc_guard()', 'public.assert_tx_allocation(uuid)',
     'public.tx_counterparty_share(uuid,uuid)', 'public.settle_obligation_on_tx()',
-    'public.assert_obligation_not_overpaid()', 'public.op_begin(uuid,uuid,text)'
+    'public.assert_obligation_not_overpaid()', 'public.op_begin(uuid,uuid,text)',
+    'public.bybit_apply_parties()'
   ] loop
     if has_function_privilege('authenticated', f, 'execute') then
       raise exception '0099 self-check: у authenticated есть EXECUTE на внутреннюю %', f;

@@ -5,7 +5,7 @@
 -- obligation_link и читает payment_amount), потом этот файл.
 --
 -- Тела settle_obligation_on_tx / obligation_pay / obligation_allocate / op_begin /
--- assert_obligation_not_overpaid, список колонок
+-- assert_obligation_not_overpaid / bybit_apply_parties, список колонок
 -- trg_settle_obligation и политика obligation_payments_insert — сняты с production
 -- 2026-10-22 до 0099 (pg_get_functiondef / pg_get_triggerdef / pg_policies), а не из исходников.
 --
@@ -55,6 +55,24 @@ begin
     return coalesce(_res, jsonb_build_object('ok', true, 'duplicate', true));
   end;
 end $function$;
+
+-- ─── bybit_apply_parties — тело production до 0099 ──────────────────────────
+create or replace function public.bybit_apply_parties()
+ RETURNS integer
+ LANGUAGE sql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  with upd as (
+    update public.transactions t
+    set counterparty_id = m.counterparty_id
+    from public.bybit_tx_party p
+    join public.bybit_party_map m on m.party = p.party
+    where t.source='bybit' and t.external_id = p.external_id
+      and t.counterparty_id is distinct from m.counterparty_id
+    returning 1
+  ) select count(*)::int from upd;
+$function$;
 
 -- ─── assert_obligation_not_overpaid (кэп 0086) — тело production до 0099 ─────
 create or replace function public.assert_obligation_not_overpaid()
@@ -224,6 +242,8 @@ revoke all on function public.op_begin(uuid, uuid, text) from public, anon, auth
 grant execute on function public.op_begin(uuid, uuid, text) to service_role;
 revoke all on function public.assert_obligation_not_overpaid() from public, anon, authenticated;
 grant execute on function public.assert_obligation_not_overpaid() to service_role;
+revoke all on function public.bybit_apply_parties() from public, anon, authenticated;
+grant execute on function public.bybit_apply_parties() to service_role;
 
 -- ─── колонки: архив → удаление ──────────────────────────────────────────────
 do $$
@@ -269,7 +289,8 @@ declare f text;
 begin
   foreach f in array array[
     'public.obligation_allocate(uuid,uuid,bigint,date,uuid)', 'public.obligation_pay(uuid,uuid,bigint,date,text,uuid)',
-    'public.settle_obligation_on_tx()', 'public.op_begin(uuid,uuid,text)', 'public.assert_obligation_not_overpaid()'
+    'public.settle_obligation_on_tx()', 'public.op_begin(uuid,uuid,text)', 'public.assert_obligation_not_overpaid()',
+    'public.bybit_apply_parties()'
   ] loop
     if has_function_privilege('anon', f, 'execute') then
       raise exception '0099_down self-check: у anon есть EXECUTE на %', f;
