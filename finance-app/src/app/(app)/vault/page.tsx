@@ -4,8 +4,15 @@ import { vaultKeyConfigured } from "@/lib/vault-crypto";
 import VaultManager from "@/components/vault/VaultManager";
 import type { VaultEntry, VaultGrant, VaultLogRow, VaultProject } from "@/lib/vault";
 import { ensureVisible } from "@/lib/visibility-guard";
+import VaultIntakePanel, { type IntakeRequestRow, type TeamKeyRow } from "@/components/vault/VaultIntakePanel";
+import { intakeAgencyConfig } from "@/lib/intake-config";
 
-export default async function VaultPage() {
+export default async function VaultPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string; new?: string; project?: string }>;
+}) {
+  const sp = await searchParams;
   await ensureVisible("vault");
   const current = await getCurrentTeam();
   if (!current) {
@@ -67,6 +74,51 @@ export default async function VaultPage() {
       .eq("archived", false)
       .order("name");
     projects = (projRaw ?? []) as VaultProject[];
+  }
+
+  // «Запросы клиентам» — менеджерам и выше (RLS отдаёт строки только им).
+  let intakeRequests: IntakeRequestRow[] = [];
+  let teamKeys: TeamKeyRow[] = [];
+  let clients: { id: string; name: string }[] = [];
+  if (canManage) {
+    const [{ data: reqRaw }, { data: keysRaw }, { data: cpRaw }] = await Promise.all([
+      supabase
+        .from("vault_intake_requests")
+        .select("id, service_kind, service_label, client_name, requester_name, status, expires_at, open_count, opened_at, submitted_at, user_added, fallback_used, key_id, payload_cipher, entry_id, created_at, projects(name), counterparties(name)")
+        .eq("team_id", team.id)
+        .order("created_at", { ascending: false })
+        .limit(100),
+      canGrant
+        ? supabase
+            .from("vault_team_keys")
+            .select("id, active, wrapped_private_key, created_at")
+            .eq("team_id", team.id)
+            .order("created_at", { ascending: false })
+        : supabase.rpc("vault_team_has_key", { _team_id: team.id }),
+      supabase
+        .from("counterparties")
+        .select("id, name, kind, kinds")
+        .eq("team_id", team.id)
+        .eq("archived", false)
+        .order("name"),
+    ]);
+    const one = (v: unknown): { name: string } | null => (Array.isArray(v) ? (v[0] ?? null) : (v as { name: string } | null));
+    intakeRequests = ((reqRaw ?? []) as Record<string, unknown>[]).map((r) => ({
+      ...(r as unknown as IntakeRequestRow),
+      project_name: one(r.projects)?.name ?? null,
+      counterparty_name: one(r.counterparties)?.name ?? null,
+      // шифртекст нужен только тем, кто может принять
+      payload_cipher: canGrant ? ((r.payload_cipher as string | null) ?? null) : null,
+    }));
+    // Менеджеру — только признак наличия ключа (обёрнутый ключ видят владелец/админ).
+    teamKeys = canGrant
+      ? ((keysRaw ?? []) as unknown as TeamKeyRow[])
+      : keysRaw === true
+        ? [{ id: "active", active: true, created_at: "", wrapped_private_key: null as unknown as TeamKeyRow["wrapped_private_key"] }]
+        : [];
+    clients = ((cpRaw ?? []) as { id: string; name: string; kind: string; kinds: string[] | null }[])
+      .filter((c) => c.kind === "client" || (c.kinds ?? []).includes("client"))
+      .map((c) => ({ id: c.id, name: c.name }));
   }
 
   // Данные управления доступом — только владельцу/админу (RLS их и не отдаст иначе).
@@ -159,6 +211,19 @@ export default async function VaultPage() {
           </div>
         </div>
       </details>
+
+      {canManage && (
+        <VaultIntakePanel
+          requests={intakeRequests}
+          keys={teamKeys}
+          projects={projects}
+          clients={clients}
+          canGrant={canGrant}
+          agencyEmail={intakeAgencyConfig().email}
+          defaultOpen={sp.new === "1"}
+          defaultProjectId={sp.project}
+        />
+      )}
 
       <VaultManager
         teamId={team.id}

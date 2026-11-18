@@ -1,7 +1,24 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
+// Страница клиента «Передача доступа»: только эти пути, без сессии Basa.
+// Авторизация — по неугадываемому токену внутри RPC vault_intake_*.
+function isIntakePath(path: string): boolean {
+  return path === "/a" || path.startsWith("/api/intake/");
+}
+
 export async function updateSession(request: NextRequest) {
+  const path0 = request.nextUrl.pathname;
+  // На отдельном хосте (access.koagency.me) доступна только страница клиента.
+  const intakeHost = (process.env.INTAKE_HOST ?? "").trim().toLowerCase();
+  const host = (request.headers.get("host") ?? "").toLowerCase().split(":")[0];
+  if (intakeHost && host === intakeHost) {
+    if (isIntakePath(path0)) return NextResponse.next({ request });
+    return new NextResponse("Not found", { status: 404, headers: { "X-Robots-Tag": "noindex, nofollow" } });
+  }
+  // Страница клиента не трогает сессию Basa (ни чтения cookie, ни обновления).
+  if (isIntakePath(path0)) return NextResponse.next({ request });
+
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(

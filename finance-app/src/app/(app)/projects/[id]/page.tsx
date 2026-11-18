@@ -269,6 +269,14 @@ export default async function ProjectPage({
           </p>
         </div>
         {manage && (
+          <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href={`/vault?tab=intake&new=1&project=${project.id}#intake`}
+            className="btn-ghost text-sm"
+            title="Одноразовая ссылка: клиент сам передаёт доступ, без паролей в чате"
+          >
+            Запросить доступ у клиента
+          </Link>
           <EditProjectForm
             projectId={project.id}
             name={project.name}
@@ -284,6 +292,7 @@ export default async function ProjectPage({
             bonusAmount={project.bonus_amount}
             bonusCurrency={project.bonus_currency}
           />
+          </div>
         )}
       </header>
 

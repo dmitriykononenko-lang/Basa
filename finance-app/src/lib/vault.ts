@@ -9,6 +9,8 @@ export type VaultEntry = {
   group_name: string;
   project_id: string | null;
   project_name: string | null;
+  counterparty_id?: string | null;
+  counterparty_name?: string | null;
   has_secret: boolean;
   can_reveal: boolean;
   can_manage: boolean;
@@ -28,7 +30,9 @@ export type VaultGrant = {
   unit_id: string | null;
 };
 
-export type VaultAction = "reveal" | "create" | "update" | "delete" | "grant" | "revoke";
+export type VaultAction =
+  | "reveal" | "create" | "update" | "delete" | "grant" | "revoke"
+  | "intake_key" | "intake_create" | "intake_open" | "intake_submit" | "intake_revoke" | "intake_expire" | "intake_accept";
 
 export type VaultLogRow = {
   id: string;
@@ -46,4 +50,11 @@ export const VAULT_ACTION_LABELS: Record<VaultAction, string> = {
   delete: "Удалена",
   grant: "Выдан доступ",
   revoke: "Снят доступ",
+  intake_key: "Ключ команды создан",
+  intake_create: "Запрос клиенту создан",
+  intake_open: "Клиент открыл ссылку",
+  intake_submit: "Клиент передал доступ",
+  intake_revoke: "Запрос отозван",
+  intake_expire: "Запрос истёк",
+  intake_accept: "Принято от клиента",
 };

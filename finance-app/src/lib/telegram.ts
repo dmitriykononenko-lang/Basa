@@ -100,3 +100,21 @@ export function generateLinkCode(): string {
   for (let i = 0; i < 6; i++) out += alphabet[bytes[i] % alphabet.length];
   return out;
 }
+
+// Отправка сообщения ботом Basa (уведомления). Мягкая деградация: без токена — пропуск.
+// Текст — без секретов: только «кто/что/где посмотреть».
+export async function sendTelegramMessage(chatId: number, text: string): Promise<{ ok: boolean; skipped?: string; error?: string }> {
+  const token = botToken();
+  if (!token) return { ok: false, skipped: "bot_not_configured" };
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true }),
+    });
+    if (!res.ok) return { ok: false, error: `telegram ${res.status}` };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "telegram error" };
+  }
+}
