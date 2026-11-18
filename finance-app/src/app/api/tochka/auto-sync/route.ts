@@ -1,0 +1,79 @@
+import { NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
+import { getCurrentTeam, canEditFinance } from "@/lib/team";
+import { decryptSecret } from "@/lib/crypto";
+import { getAccounts } from "@/lib/tochka";
+import { importTochkaStatement, loadOwnAccountMap } from "@/lib/tochka-import";
+import { financialImportsLocked, financialImportsLockedResponse } from "@/lib/maintenance";
+
+// Фоновая авто-синхронизация Точки «при открытии приложения» — чтобы не нажимать
+// кнопки. Работает под сессией пользователя (не требует CRON_SECRET/крона Vercel).
+// Тротлинг: не чаще раза в FRESH_MINUTES; окно — последние WINDOW_DAYS дней (дедуп).
+export const maxDuration = 300;
+const FRESH_MINUTES = 120;
+const WINDOW_DAYS = 10;
+
+export async function POST() {
+  // Техническая заморозка импорта — до любых обращений к БД и к API Точки.
+  if (financialImportsLocked()) return financialImportsLockedResponse();
+  const current = await getCurrentTeam();
+  if (!current) return NextResponse.json({ ok: true, skipped: "no_team" });
+  if (!canEditFinance(current.role)) return NextResponse.json({ ok: true, skipped: "no_access" });
+
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ ok: true, skipped: "no_auth" });
+  const teamId = current.team.id;
+
+  const { data: conn } = await supabase
+    .from("bank_connections")
+    .select("token_cipher, api_version, default_account_id, default_income_category_id, default_expense_category_id, last_synced_at")
+    .eq("team_id", teamId).eq("provider", "tochka").maybeSingle();
+  if (!conn) return NextResponse.json({ ok: true, skipped: "not_connected" });
+
+  // Захват права на синк — один атомарный UPDATE с условием по давности
+  // (compare-and-swap). Раньше здесь было «прочитали last_synced_at → сравнили
+  // в JS → записали»: две параллельные вкладки проходили тротлинг одновременно
+  // (аудит, тест T7). Теперь метку двигает ровно одна сессия, остальные выходят.
+  const { data: claimed, error: claimErr } = await supabase.rpc("bank_sync_claim", {
+    _team: teamId,
+    _provider: "tochka",
+    _max_age: `${FRESH_MINUTES} minutes`,
+  });
+  if (claimErr) return NextResponse.json({ ok: false, error: claimErr.message }, { status: 500 });
+  if (!claimed) return NextResponse.json({ ok: true, skipped: "fresh" });
+
+  let token: string;
+  try { token = decryptSecret(conn.token_cipher); }
+  catch { return NextResponse.json({ ok: true, skipped: "token_error" }); }
+
+  const now = new Date();
+  const to = now.toISOString().slice(0, 10);
+  const from = new Date(now.getTime() - WINDOW_DAYS * 86400000).toISOString().slice(0, 10);
+
+  let imported = 0, failed = 0;
+  try {
+    const accounts = await getAccounts({ token, apiVersion: conn.api_version });
+    const ownNumbers = new Set(accounts.map((a) => a.accountNumber).filter(Boolean) as string[]);
+    const acctMap = await loadOwnAccountMap(supabase, teamId);
+
+    for (const a of accounts) {
+      const targetAccountId = (a.accountNumber && acctMap.get(a.accountNumber)) || conn.default_account_id;
+      try {
+        const r = await importTochkaStatement(supabase, {
+          teamId, token, apiVersion: conn.api_version, ownNumbers, acctMap,
+          targetAccountId, accountId: a.accountId,
+          defaultIncomeCat: conn.default_income_category_id, defaultExpenseCat: conn.default_expense_category_id,
+          from, to, createdBy: user.id,
+        });
+        imported += r.imported;
+      } catch { failed++; }
+    }
+  } catch (e) {
+    return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : "Ошибка автосинка" }, { status: 502 });
+  }
+
+  await supabase.from("bank_connections").update({ last_synced_at: new Date().toISOString() })
+    .eq("team_id", teamId).eq("provider", "tochka");
+  return NextResponse.json({ ok: true, imported, failed });
+}

@@ -1,0 +1,38 @@
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
+
+export default function ArchiveAccountButton({
+  accountId,
+  archived,
+}: {
+  accountId: string;
+  archived: boolean;
+}) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+
+  async function toggle() {
+    if (!archived && !confirm("Архивировать счёт? Он скроется из списков.")) return;
+    setBusy(true);
+    const supabase = createClient();
+    await supabase
+      .from("accounts")
+      .update({ archived: !archived })
+      .eq("id", accountId);
+    setBusy(false);
+    router.refresh();
+  }
+
+  return (
+    <button
+      onClick={toggle}
+      disabled={busy}
+      className="rounded-full px-2.5 py-1 text-xs font-medium text-slate-500 transition hover:bg-slate-100 dark:text-neutral-400 dark:hover:bg-neutral-800"
+    >
+      {archived ? "Вернуть" : "В архив"}
+    </button>
+  );
+}
