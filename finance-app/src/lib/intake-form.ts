@@ -55,14 +55,34 @@ export type IntakePayload = {
   comment: string;
   user_added: boolean;
   fallback: boolean;  // клиент выбрал «передать пароль» вместо добавления пользователя
+  extras: IntakeExtra[]; // другие доступы, которые клиент добавил сам (любые сервисы)
 };
+
+// Дополнительный доступ, который клиент добавляет сам, помимо запрошенного.
+export type IntakeExtra = {
+  service_name: string;
+  url: string;
+  login: string;
+  password: string;
+  twofa_method: TwoFaMethod;
+  twofa_where: string;
+  comment: string;
+};
+
+export const MAX_EXTRAS = 10;
+
+export function emptyExtra(): IntakeExtra {
+  return { service_name: "", url: "", login: "", password: "", twofa_method: "unknown", twofa_where: "", comment: "" };
+}
+
+const needsWhere = (m: TwoFaMethod) => m === "sms" || m === "email" || m === "telegram" || m === "other";
 
 export const LIMITS = { short: 200, long: 2000, password: 500 } as const;
 
 export function emptyPayload(kind: IntakeServiceKind, serviceName = ""): IntakePayload {
   return {
     service: kind, service_name: serviceName, account: "", url: "", login: "", password: "",
-    twofa_method: "unknown", twofa_where: "", comment: "", user_added: false, fallback: false,
+    twofa_method: "unknown", twofa_where: "", comment: "", user_added: false, fallback: false, extras: [],
   };
 }
 
@@ -96,10 +116,23 @@ export function validatePayload(p: IntakePayload): Record<string, string> {
     if (!p.login.trim()) e.login = "Укажите логин";
     if (!p.password) e.password = "Укажите пароль";
   }
-  if ((p.twofa_method === "sms" || p.twofa_method === "email" || p.twofa_method === "telegram" || p.twofa_method === "other")
-      && !p.twofa_where.trim()) {
+  if (needsWhere(p.twofa_method) && !p.twofa_where.trim()) {
     e.twofa_where = "Укажите, куда приходит код и кто может его продиктовать";
   }
+  if ((p.extras ?? []).length > MAX_EXTRAS) e.extras = `Не больше ${MAX_EXTRAS} дополнительных доступов`;
+  (p.extras ?? []).forEach((x, i) => {
+    const k = (f: string) => `extras.${i}.${f}`;
+    if (!x.service_name.trim()) e[k("service_name")] = "Укажите сервис";
+    else if (x.service_name.length > LIMITS.short) e[k("service_name")] = "Слишком длинно";
+    if (!x.login.trim()) e[k("login")] = "Укажите логин";
+    else if (x.login.length > LIMITS.short) e[k("login")] = "Слишком длинно";
+    if (!x.password) e[k("password")] = "Укажите пароль";
+    else if (x.password.length > LIMITS.password) e[k("password")] = "Слишком длинно";
+    if (x.url.length > LIMITS.short) e[k("url")] = "Слишком длинно";
+    if (x.comment.length > LIMITS.long) e[k("comment")] = "Слишком длинно";
+    if (needsWhere(x.twofa_method) && !x.twofa_where.trim()) e[k("twofa_where")] = "Укажите, куда приходит код";
+    else if (x.twofa_where.length > LIMITS.short) e[k("twofa_where")] = "Слишком длинно";
+  });
   return e;
 }
 
@@ -118,6 +151,15 @@ export function cleanPayload(p: IntakePayload): IntakePayload {
     comment: t(p.comment),
     user_added: isUserAddService(p.service) && !p.fallback ? p.user_added : false,
     fallback: isUserAddService(p.service) ? p.fallback : false,
+    extras: (p.extras ?? []).slice(0, MAX_EXTRAS).map((x) => ({
+      service_name: t(x.service_name),
+      url: t(x.url),
+      login: t(x.login),
+      password: x.password.replace(/\u0000/g, ""),
+      twofa_method: x.twofa_method,
+      twofa_where: t(x.twofa_where),
+      comment: t(x.comment),
+    })),
   };
 }
 
@@ -164,4 +206,35 @@ export function draftEntry(
     secret: userMode ? "" : p.password,
     group: "Доступы клиентов",
   };
+}
+
+// Черновики записей для дополнительных доступов клиента.
+export function draftExtras(
+  p: IntakePayload,
+  ctx: { clientName?: string; submittedAt?: string },
+): { title: string; login: string; url: string; note: string; secret: string; group: string }[] {
+  const client = (ctx.clientName ?? "").trim();
+  return (p.extras ?? []).map((x) => {
+    const lines = [`2FA: ${twofaLabel(x.twofa_method)}${x.twofa_where ? ` — ${x.twofa_where}` : ""}`];
+    if (x.comment) lines.push(`Комментарий клиента: ${x.comment}`);
+    lines.push(`Клиент добавил этот доступ сам при передаче по защищённой ссылке${ctx.submittedAt ? ` ${ctx.submittedAt}` : ""}.`);
+    return {
+      title: client ? `${x.service_name} · ${client}` : x.service_name,
+      login: x.login,
+      url: x.url,
+      note: lines.join("\n"),
+      secret: x.password,
+      group: "Доступы клиентов",
+    };
+  });
+}
+
+// Что передано — для квитанции клиенту (без значений логинов и паролей).
+export function receiptLines(p: IntakePayload, serviceLabel?: string): { title: string; detail: string }[] {
+  const main = p.service === "other" ? (p.service_name || serviceTitle("other", serviceLabel)) : serviceTitle(p.service, serviceLabel);
+  const userMode = isUserAddService(p.service) && !p.fallback;
+  const tf = (m: TwoFaMethod) => (m === "unknown" ? "" : ` · 2FA: ${twofaLabel(m).toLowerCase()}`);
+  const out = [{ title: main, detail: (userMode ? "добавили нас пользователем, пароль не передавался" : "логин и пароль") + tf(p.twofa_method) }];
+  for (const x of p.extras ?? []) out.push({ title: x.service_name, detail: "логин и пароль" + tf(x.twofa_method) });
+  return out;
 }

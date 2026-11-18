@@ -5,7 +5,8 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { sealForTeam } from "@/lib/intake-crypto";
 import {
   accountFieldLabel, cleanPayload, emptyPayload, isUserAddService, serviceTitle, validatePayload,
-  TWOFA_METHODS, type IntakePayload, type IntakeServiceKind, type TwoFaMethod,
+  TWOFA_METHODS, MAX_EXTRAS, emptyExtra, receiptLines,
+  type IntakeExtra, type IntakePayload, type IntakeServiceKind, type TwoFaMethod,
 } from "@/lib/intake-form";
 
 // Страница клиента «Передача доступа» (бренд KO Agency).
@@ -30,7 +31,7 @@ type Phase =
   | { k: "loading" }
   | { k: "closed"; reason: ClosedReason }
   | { k: "form"; data: Loaded }
-  | { k: "done"; userMode: boolean; data: Loaded };
+  | { k: "done"; receipt: Receipt; data: Loaded };
 
 const TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
 const STORE_KEY = "ko-intake-token";
@@ -100,7 +101,8 @@ export default function IntakeClient() {
     if (TOKEN_RE.test(h)) {
       t = h;
       try { sessionStorage.setItem(STORE_KEY, t); } catch {}
-      window.history.replaceState(null, "", window.location.pathname);
+      // сохраняем state роутера Next, иначе он вернёт старый адрес с токеном при следующем обновлении
+      window.history.replaceState(window.history.state, "", window.location.pathname);
     } else {
       try { t = sessionStorage.getItem(STORE_KEY) ?? ""; } catch {}
     }
@@ -138,14 +140,15 @@ export default function IntakeClient() {
                 key="form"
                 data={phase.data}
                 token={token}
-                onDone={(userMode) => {
+                onDone={(receipt) => {
                   try { sessionStorage.removeItem(STORE_KEY); } catch {}
-                  setPhase({ k: "done", userMode, data: phase.data });
+                  setPhase({ k: "done", receipt, data: phase.data });
+                  window.scrollTo({ top: 0, behavior: "smooth" });
                 }}
                 onClosed={(reason) => setPhase({ k: "closed", reason })}
               />
             )}
-            {phase.k === "done" && <Done key="done" userMode={phase.userMode} />}
+            {phase.k === "done" && <Done key="done" receipt={phase.receipt} data={phase.data} />}
           </AnimatePresence>
         </div>
       </main>
@@ -261,26 +264,117 @@ function Closed({ reason }: { reason: ClosedReason }) {
   );
 }
 
-function Done({ userMode }: { userMode: boolean }) {
+type Receipt = { userMode: boolean; lines: { title: string; detail: string }[]; at: string };
+
+function receiptCode(id: string) {
+  const h = id.replace(/-/g, "").slice(0, 8).toUpperCase();
+  return `KO-${h.slice(0, 4)}-${h.slice(4)}`;
+}
+
+function Done({ receipt, data }: { receipt: Receipt; data: Loaded }) {
   const reduce = useReducedMotion();
+  const steps = [
+    "Зашифровано в вашем браузере",
+    "Передано в парольницу KO Agency",
+    "Ссылка закрыта — открыть её повторно нельзя",
+  ];
+  const item = (i: number) => ({
+    initial: reduce ? false : { opacity: 0, x: -8 },
+    animate: { opacity: 1, x: 0, transition: { delay: 0.25 + i * 0.35, duration: 0.45, ease: EASE } },
+  });
   return (
-    <motion.section {...fade} className="border-t border-black/10 pt-6 md:mt-[18vh]">
-      <motion.span
-        initial={reduce ? false : { scale: 0.6, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        transition={{ type: "spring", stiffness: 260, damping: 18 }}
-        className="flex h-12 w-12 items-center justify-center rounded-full text-white"
-        style={{ background: RED }}
+    <motion.section {...fade} className="space-y-10 md:mt-[6vh]">
+      <div className="border-t border-black/10 pt-6">
+        <motion.span
+          initial={reduce ? false : { scale: 0.6, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ type: "spring", stiffness: 260, damping: 18 }}
+          className="flex h-12 w-12 items-center justify-center rounded-full text-white"
+          style={{ background: RED }}
+        >
+          <CheckIco className="h-6 w-6" />
+        </motion.span>
+        <h2 className="mt-6 text-3xl font-semibold tracking-tight md:text-4xl">Доступ передан</h2>
+        <p className="mt-3 max-w-[52ch] text-[15px] leading-relaxed text-black/60">
+          {receipt.userMode && receipt.lines.length === 1
+            ? "Мы получили отметку, что вы добавили нас. Пароль никуда не передавался."
+            : "Данные ушли в зашифрованном виде — в чате и на почте их нет."}
+        </p>
+        <ul className="mt-6 space-y-2.5">
+          {steps.map((t, i) => (
+            <motion.li key={t} {...item(i)} className="flex items-center gap-3 text-[15px]">
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#141414] text-white">
+                <CheckIco className="h-3.5 w-3.5" />
+              </span>
+              {t}
+            </motion.li>
+          ))}
+        </ul>
+      </div>
+
+      {/* квитанция — без логинов и паролей */}
+      <motion.div
+        initial={reduce ? false : { opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0, transition: { delay: 0.25 + steps.length * 0.35, duration: 0.6, ease: EASE } }}
+        className="relative overflow-hidden rounded-3xl bg-white shadow-[0_24px_60px_-30px_rgba(20,20,20,0.35)] print:shadow-none"
       >
-        <CheckIco className="h-6 w-6" />
-      </motion.span>
-      <h2 className="mt-6 text-2xl font-semibold tracking-tight md:text-3xl">Готово, спасибо</h2>
-      <p className="mt-3 max-w-[52ch] text-[15px] leading-relaxed text-black/60">
-        {userMode
-          ? "Мы получили отметку, что вы добавили нас. Менеджер KO Agency проверит доступ и напишет вам."
-          : "Данные зашифрованы и переданы в парольницу KO Agency. Ссылка больше не действует."}
-      </p>
-      <p className="mt-6 text-sm text-black/40">Страницу можно закрыть.</p>
+        <div className="flex items-start justify-between gap-4 px-6 pb-5 pt-6">
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.18em] text-black/40">Квитанция о передаче</p>
+            <p className="mt-1 font-mono text-lg tracking-wide">{receiptCode(data.request_id)}</p>
+          </div>
+          <div className="text-right text-xs leading-relaxed text-black/50">
+            <div>{receipt.at}</div>
+            {data.client_name && <div>{data.client_name}</div>}
+          </div>
+        </div>
+        <div aria-hidden className="relative h-px">
+          <span className="absolute -left-3 -top-3 h-6 w-6 rounded-full bg-[#f3f3f1]" />
+          <span className="absolute -right-3 -top-3 h-6 w-6 rounded-full bg-[#f3f3f1]" />
+          <div className="mx-6 border-t border-dashed border-black/15" />
+        </div>
+        <ul className="divide-y divide-black/[0.06] px-6 py-2">
+          {receipt.lines.map((l, i) => (
+            <li key={i} className="grid grid-cols-[20px_1fr] gap-3 py-3.5">
+              <LockIco className="mt-0.5 h-4 w-4 text-black/35" />
+              <div>
+                <div className="text-[15px] font-medium">{l.title}</div>
+                <div className="text-sm text-black/50">{l.detail}</div>
+              </div>
+            </li>
+          ))}
+        </ul>
+        <div className="flex flex-wrap items-center justify-between gap-3 bg-[#141414] px-6 py-4 text-xs text-white/60">
+          <span>Получатель: KO Agency · {data.requester_name}</span>
+          <span>Логины и пароли в квитанции не показываются</span>
+        </div>
+      </motion.div>
+
+      <div className="border-t border-black/10 pt-6">
+        <h3 className="text-lg font-semibold tracking-tight">Что дальше</h3>
+        <ol className="mt-4 space-y-3">
+          {[
+            `${data.requester_name} проверит доступ и напишет вам в рабочий чат.`,
+            "Если для входа понадобится код подтверждения, мы предупредим заранее. Коды в чат не присылайте.",
+            "Отозвать доступ можно в любой момент: удалите пользователя KO Agency или смените пароль — и сообщите нам.",
+          ].map((t, i) => (
+            <li key={i} className="grid grid-cols-[24px_1fr] gap-3 text-[15px] leading-relaxed text-black/70">
+              <span className="mt-[3px] flex h-6 w-6 items-center justify-center rounded-full border border-black/15 font-mono text-[11px] text-black/50">{i + 1}</span>
+              <span>{t}</span>
+            </li>
+          ))}
+        </ol>
+        <div className="mt-8 flex flex-wrap items-center gap-4 print:hidden">
+          <button
+            type="button"
+            onClick={() => window.print()}
+            className="inline-flex items-center gap-2 rounded-xl border border-black/15 bg-white px-4 py-2.5 text-sm font-medium transition hover:border-black/40 active:scale-[0.98]"
+          >
+            Сохранить квитанцию
+          </button>
+          <span className="text-sm text-black/40">Страницу можно закрыть.</span>
+        </div>
+      </div>
     </motion.section>
   );
 }
@@ -314,6 +408,7 @@ function Field({ label, hint, error, children }: { label: string; hint?: string;
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
             exit={{ opacity: 0, height: 0 }}
+            data-field-error
             className="text-xs font-medium"
             style={{ color: RED }}
           >
@@ -386,13 +481,93 @@ function Instructions({ kind, agency }: { kind: IntakeServiceKind; agency: Loade
   );
 }
 
+function ExtraCard({
+  index, value, errors, onChange, onRemove,
+}: {
+  index: number;
+  value: IntakeExtra;
+  errors: Record<string, string>;
+  onChange: (patch: Partial<IntakeExtra>) => void;
+  onRemove: () => void;
+}) {
+  const [show, setShow] = useState(false);
+  const e = (f: string) => errors[`extras.${index}.${f}`];
+  const where = ["sms", "email", "telegram", "other", "app"].includes(value.twofa_method);
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, y: 10, scale: 0.98 }}
+      animate={{ opacity: 1, y: 0, scale: 1, transition: { type: "spring", stiffness: 260, damping: 26 } }}
+      exit={{ opacity: 0, scale: 0.97, transition: { duration: 0.18 } }}
+      className="rounded-2xl border border-black/[0.08] bg-white p-4 shadow-[0_1px_0_rgba(20,20,20,0.03)] sm:p-5"
+    >
+      <div className="mb-4 flex items-center justify-between">
+        <span className="font-mono text-xs text-black/40">Доступ {index + 1}</span>
+        <button type="button" onClick={onRemove} className="rounded-lg px-2 py-1 text-xs text-black/45 transition hover:bg-black/5 hover:text-black">
+          Убрать
+        </button>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Сервис" error={e("service_name")}>
+          <input className={inputCls(!!e("service_name"))} value={value.service_name} onChange={(ev) => onChange({ service_name: ev.target.value })} maxLength={200} placeholder="Например, Tilda" />
+        </Field>
+        <Field label="Адрес входа" error={e("url")}>
+          <input className={inputCls(!!e("url"))} value={value.url} onChange={(ev) => onChange({ url: ev.target.value })} maxLength={200} spellCheck={false} placeholder="https://" />
+        </Field>
+        <Field label="Логин" error={e("login")}>
+          <input className={inputCls(!!e("login"))} value={value.login} onChange={(ev) => onChange({ login: ev.target.value })} maxLength={200} autoComplete="off" autoCapitalize="none" spellCheck={false} />
+        </Field>
+        <Field label="Пароль" error={e("password")}>
+          <div className="relative">
+            <input
+              className={`${inputCls(!!e("password"))} pr-12`}
+              type={show ? "text" : "password"}
+              value={value.password}
+              onChange={(ev) => onChange({ password: ev.target.value })}
+              maxLength={500}
+              autoComplete="new-password"
+              spellCheck={false}
+            />
+            <button
+              type="button"
+              onClick={() => setShow((v) => !v)}
+              aria-label={show ? "Скрыть пароль" : "Показать пароль"}
+              className="absolute right-1.5 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-lg text-black/40 transition hover:bg-black/5 hover:text-black"
+            >
+              {show ? <EyeOffIco /> : <EyeIco />}
+            </button>
+          </div>
+        </Field>
+        <div className="sm:col-span-2">
+          <Field label="Код подтверждения (2FA)">
+            <select
+              className={inputCls()}
+              value={value.twofa_method}
+              onChange={(ev) => onChange({ twofa_method: ev.target.value as TwoFaMethod })}
+            >
+              {TWOFA_METHODS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+            </select>
+          </Field>
+        </div>
+        {where && (
+          <div className="sm:col-span-2">
+            <Field label="Куда приходит и кто может продиктовать код" error={e("twofa_where")}>
+              <input className={inputCls(!!e("twofa_where"))} value={value.twofa_where} onChange={(ev) => onChange({ twofa_where: ev.target.value })} maxLength={200} />
+            </Field>
+          </div>
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
 // ---------- форма ----------
 function IntakeForm({
   data, token, onDone, onClosed,
 }: {
   data: Loaded;
   token: string;
-  onDone: (userMode: boolean) => void;
+  onDone: (receipt: Receipt) => void;
   onClosed: (reason: ClosedReason) => void;
 }) {
   const kind = data.service_kind;
@@ -414,6 +589,17 @@ function IntakeForm({
   };
   const passwordMode = !userAdd || p.fallback;
   const needWhere = useMemo(() => ["sms", "email", "telegram", "other", "app"].includes(p.twofa_method), [p.twofa_method]);
+  const dropErrors = (prefix: string) =>
+    setErrors((e) => Object.fromEntries(Object.entries(e).filter(([k]) => !k.startsWith(prefix))));
+  const addExtra = () => setP((x) => (x.extras.length >= MAX_EXTRAS ? x : { ...x, extras: [...x.extras, emptyExtra()] }));
+  const updExtra = (i: number, patch: Partial<IntakeExtra>) => {
+    setP((x) => ({ ...x, extras: x.extras.map((y, j) => (j === i ? { ...y, ...patch } : y)) }));
+    for (const k of Object.keys(patch)) dropErrors(`extras.${i}.${k}`);
+  };
+  const removeExtra = (i: number) => {
+    setP((x) => ({ ...x, extras: x.extras.filter((_, j) => j !== i) }));
+    dropErrors("extras.");
+  };
   let step = 0;
   const num = () => String(++step).padStart(2, "0");
 
@@ -423,18 +609,30 @@ function IntakeForm({
     const clean = cleanPayload(p);
     const v = validatePayload(clean);
     setErrors(v);
-    if (Object.keys(v).length) return;
+    if (Object.keys(v).length) {
+      // показать первую ошибку: она может быть далеко выше кнопки (например, в доп. доступе)
+      setTimeout(() => {
+        document.querySelector("[data-field-error]")?.closest("label, section")?.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "center" });
+      }, 60);
+      return;
+    }
     setBusy(true);
     try {
       const sealed = await sealForTeam(data.public_key, data.key_id, data.request_id, clean);
       const res = await fetch("/api/intake/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, payload: sealed, user_added: clean.user_added, fallback: clean.fallback }),
+        body: JSON.stringify({ token, payload: sealed, user_added: clean.user_added, fallback: clean.fallback, extras_count: clean.extras.length }),
         cache: "no-store",
       });
       const d = await res.json().catch(() => ({}));
-      if (d?.status === "ok") onDone(userAdd && !clean.fallback);
+      if (d?.status === "ok") {
+        onDone({
+          userMode: userAdd && !clean.fallback,
+          lines: receiptLines(clean, data.service_label),
+          at: new Date().toLocaleString("ru-RU", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" }),
+        });
+      }
       else if (["invalid", "expired", "used", "revoked"].includes(d?.status)) onClosed(d.status);
       else setErr("Не удалось отправить. Попробуйте ещё раз через минуту.");
     } catch (ex) {
@@ -588,6 +786,41 @@ function IntakeForm({
             </motion.div>
           )}
         </AnimatePresence>
+      </Step>
+
+      <Step
+        n={num()}
+        title="Другие доступы"
+        hint="Есть ещё сервисы, к которым нам нужен доступ? Добавьте их сюда — сайт, хостинг, мессенджеры, телефония, любые другие. Всё зашифруется вместе."
+      >
+        <div className="space-y-4">
+          <AnimatePresence initial={false}>
+            {p.extras.map((x, i) => (
+              <ExtraCard
+                key={i}
+                index={i}
+                value={x}
+                errors={errors}
+                onChange={(patch) => updExtra(i, patch)}
+                onRemove={() => removeExtra(i)}
+              />
+            ))}
+          </AnimatePresence>
+          {p.extras.length < MAX_EXTRAS ? (
+            <button
+              type="button"
+              onClick={addExtra}
+              className="group flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-black/20 bg-transparent px-4 py-4 text-[15px] text-black/60 transition hover:border-black/50 hover:text-black active:scale-[0.99]"
+            >
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#141414] text-white transition-transform duration-300 group-hover:rotate-90">
+                <Ico className="h-3.5 w-3.5" d={<path d="M12 5v14M5 12h14" />} />
+              </span>
+              {p.extras.length ? "Добавить ещё доступ" : "Добавить доступ"}
+            </button>
+          ) : (
+            <p className="text-sm text-black/45">Можно добавить до {MAX_EXTRAS} доступов. Остальные передайте по новой ссылке — попросите менеджера.</p>
+          )}
+        </div>
       </Step>
 
       <Step n={num()} title="Комментарий" hint="Необязательно. Например, кто у вас отвечает за этот сервис.">

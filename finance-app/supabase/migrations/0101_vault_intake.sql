@@ -69,6 +69,7 @@ create table if not exists public.vault_intake_requests (
   payload_cipher  text,
   user_added      boolean not null default false,
   fallback_used   boolean not null default false,
+  extras_count    integer not null default 0 check (extras_count between 0 and 10),
   accepted_at     timestamptz,
   accepted_by     uuid references auth.users (id) on delete set null,
   entry_id        uuid references public.vault_entries (id) on delete set null,
@@ -387,7 +388,8 @@ $$;
 -- Публично: отправить шифртекст. Только один раз, только до срока.
 -- ============================================================
 create or replace function public.vault_intake_submit(
-  _token text, _payload text, _user_added boolean, _fallback boolean, _client jsonb default '{}'::jsonb)
+  _token text, _payload text, _user_added boolean, _fallback boolean, _client jsonb default '{}'::jsonb,
+  _extras_count integer default 0)
 returns jsonb
 language plpgsql security definer set search_path = public
 as $$
@@ -415,7 +417,8 @@ begin
   end if;
 
   -- Формат шифртекста: {"v":1,"kid":"<key_id>","epk":…,"iv":…,"ct":…}
-  if _payload is null or length(_payload) < 100 or length(_payload) > 24000 then
+  if _payload is null or length(_payload) < 100 or length(_payload) > 80000
+     or coalesce(_extras_count, 0) not between 0 and 10 then
     return jsonb_build_object('status', 'bad_payload');
   end if;
   begin
@@ -430,15 +433,17 @@ begin
 
   update public.vault_intake_requests
      set status = 'submitted', submitted_at = now(), payload_cipher = _payload,
-         user_added = coalesce(_user_added, false), fallback_used = coalesce(_fallback, false)
+         user_added = coalesce(_user_added, false), fallback_used = coalesce(_fallback, false),
+         extras_count = coalesce(_extras_count, 0)
    where id = _req.id returning * into _req;
   perform public.vault_intake_log(_req, 'intake_submit',
-    jsonb_build_object('user_added', _req.user_added, 'fallback', _req.fallback_used,
+    jsonb_build_object('user_added', _req.user_added, 'fallback', _req.fallback_used, 'extras', _req.extras_count,
                        'ip_hash', left(coalesce(_client ->> 'ip_hash', ''), 64)));
   perform public.vault_intake_notify(_req, 'submit',
     coalesce(nullif(_req.client_name, ''), 'Клиент') || ' передал доступ: ' ||
     public.vault_intake_service_title(_req.service_kind, _req.service_label) ||
     case when _req.user_added and not _req.fallback_used then ' (добавил нас пользователем)' else '' end ||
+    case when _req.extras_count > 0 then ' и ещё ' || _req.extras_count || ' доступ(а) сам' else '' end ||
     '. Примите запись в разделе «Пароли».');
 
   return jsonb_build_object('status', 'ok', 'request_id', _req.id);
@@ -451,13 +456,16 @@ $$;
 -- Создаёт запись парольницы, привязанную к проекту и контрагенту.
 -- ============================================================
 create or replace function public.vault_intake_accept(
-  _id uuid, _title text, _login text, _url text, _note text, _secret_cipher text, _group_name text)
+  _id uuid, _title text, _login text, _url text, _note text, _secret_cipher text, _group_name text,
+  _extra jsonb default '[]'::jsonb)
 returns uuid
 language plpgsql security definer set search_path = public
 as $$
 declare
   _req   public.vault_intake_requests;
   _entry uuid;
+  _x     jsonb;
+  _n     integer := 0;
 begin
   select * into _req from public.vault_intake_requests r where r.id = _id for update;
   if _req.id is null or not public.can_manage_team(_req.team_id) then
@@ -469,6 +477,9 @@ begin
   if nullif(trim(coalesce(_title, '')), '') is null then
     raise exception 'Укажите название';
   end if;
+  if jsonb_typeof(coalesce(_extra, '[]'::jsonb)) <> 'array' or jsonb_array_length(coalesce(_extra, '[]'::jsonb)) > 10 then
+    raise exception 'Дополнительных доступов — не больше 10';
+  end if;
 
   insert into public.vault_entries (team_id, title, login, url, note, secret_cipher, group_name,
                                     project_id, counterparty_id, created_by)
@@ -477,11 +488,26 @@ begin
           _req.project_id, _req.counterparty_id, auth.uid())
   returning id into _entry;
 
+  -- дополнительные доступы, которые клиент добавил сам: отдельные записи с той же привязкой
+  for _x in select value from jsonb_array_elements(coalesce(_extra, '[]'::jsonb))
+  loop
+    if nullif(trim(coalesce(_x ->> 'title', '')), '') is null then
+      raise exception 'Укажите название для каждого дополнительного доступа';
+    end if;
+    insert into public.vault_entries (team_id, title, login, url, note, secret_cipher, group_name,
+                                      project_id, counterparty_id, created_by)
+    values (_req.team_id, left(trim(_x ->> 'title'), 200), left(trim(coalesce(_x ->> 'login', '')), 300),
+            left(trim(coalesce(_x ->> 'url', '')), 300), left(trim(coalesce(_x ->> 'note', '')), 4000),
+            nullif(_x ->> 'secret_cipher', ''), trim(coalesce(_group_name, '')),
+            _req.project_id, _req.counterparty_id, auth.uid());
+    _n := _n + 1;
+  end loop;
+
   update public.vault_intake_requests
      set status = 'accepted', accepted_at = now(), accepted_by = auth.uid(),
          entry_id = _entry, payload_cipher = null, closed_at = now()
    where id = _id returning * into _req;
-  perform public.vault_intake_log(_req, 'intake_accept');
+  perform public.vault_intake_log(_req, 'intake_accept', jsonb_build_object('extra_entries', _n));
 
   -- уведомления «клиент передал доступ» по этому запросу больше не актуальны
   update public.notifications set read_at = coalesce(read_at, now())
@@ -558,16 +584,16 @@ revoke execute on function public.vault_team_has_key(uuid) from public, anon;
 grant  execute on function public.vault_team_has_key(uuid) to authenticated;
 revoke execute on function public.vault_intake_create(uuid, text, text, uuid, uuid, text, integer) from public, anon;
 revoke execute on function public.vault_intake_revoke(uuid) from public, anon;
-revoke execute on function public.vault_intake_accept(uuid, text, text, text, text, text, text) from public, anon;
+revoke execute on function public.vault_intake_accept(uuid, text, text, text, text, text, text, jsonb) from public, anon;
 revoke execute on function public.vault_directory(uuid) from public, anon;
 grant  execute on function public.vault_team_key_set(uuid, text, jsonb) to authenticated;
 grant  execute on function public.vault_intake_create(uuid, text, text, uuid, uuid, text, integer) to authenticated;
 grant  execute on function public.vault_intake_revoke(uuid) to authenticated;
-grant  execute on function public.vault_intake_accept(uuid, text, text, text, text, text, text) to authenticated;
+grant  execute on function public.vault_intake_accept(uuid, text, text, text, text, text, text, jsonb) to authenticated;
 grant  execute on function public.vault_directory(uuid) to authenticated;
 
 -- Публичные — только эти две, работают исключительно по токену.
 revoke execute on function public.vault_intake_load(text, jsonb) from public;
-revoke execute on function public.vault_intake_submit(text, text, boolean, boolean, jsonb) from public;
+revoke execute on function public.vault_intake_submit(text, text, boolean, boolean, jsonb, integer) from public;
 grant  execute on function public.vault_intake_load(text, jsonb) to anon, authenticated;
-grant  execute on function public.vault_intake_submit(text, text, boolean, boolean, jsonb) to anon, authenticated;
+grant  execute on function public.vault_intake_submit(text, text, boolean, boolean, jsonb, integer) to anon, authenticated;

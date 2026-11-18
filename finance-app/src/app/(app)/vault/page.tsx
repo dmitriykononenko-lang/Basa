@@ -84,7 +84,7 @@ export default async function VaultPage({
     const [{ data: reqRaw }, { data: keysRaw }, { data: cpRaw }] = await Promise.all([
       supabase
         .from("vault_intake_requests")
-        .select("id, service_kind, service_label, client_name, requester_name, status, expires_at, open_count, opened_at, submitted_at, user_added, fallback_used, key_id, payload_cipher, entry_id, created_at, projects(name), counterparties(name)")
+        .select("id, service_kind, service_label, client_name, requester_name, status, expires_at, open_count, opened_at, submitted_at, user_added, fallback_used, extras_count, key_id, payload_cipher, entry_id, created_at, projects(name), counterparties(name)")
         .eq("team_id", team.id)
         .order("created_at", { ascending: false })
         .limit(100),

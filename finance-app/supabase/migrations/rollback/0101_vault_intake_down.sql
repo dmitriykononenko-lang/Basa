@@ -6,8 +6,8 @@
 begin;
 
 drop function if exists public.vault_intake_load(text, jsonb);
-drop function if exists public.vault_intake_submit(text, text, boolean, boolean, jsonb);
-drop function if exists public.vault_intake_accept(uuid, text, text, text, text, text, text);
+drop function if exists public.vault_intake_submit(text, text, boolean, boolean, jsonb, integer);
+drop function if exists public.vault_intake_accept(uuid, text, text, text, text, text, text, jsonb);
 drop function if exists public.vault_intake_revoke(uuid);
 drop function if exists public.vault_intake_create(uuid, text, text, uuid, uuid, text, integer);
 drop function if exists public.vault_intake_expire();

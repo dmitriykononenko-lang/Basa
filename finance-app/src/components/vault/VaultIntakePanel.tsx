@@ -7,7 +7,7 @@ import Modal from "@/components/Modal";
 import {
   generateTeamKey, unlockTeamKey, openSealed, MIN_PASSPHRASE_LENGTH, type WrappedPrivateKey,
 } from "@/lib/intake-crypto";
-import { INTAKE_SERVICES, serviceTitle, draftEntry, type IntakePayload, type IntakeServiceKind } from "@/lib/intake-form";
+import { INTAKE_SERVICES, serviceTitle, draftEntry, draftExtras, type IntakePayload, type IntakeServiceKind } from "@/lib/intake-form";
 
 export type IntakeRequestRow = {
   id: string;
@@ -24,6 +24,7 @@ export type IntakeRequestRow = {
   submitted_at: string | null;
   user_added: boolean;
   fallback_used: boolean;
+  extras_count?: number;
   key_id: string;
   payload_cipher: string | null;
   entry_id: string | null;
@@ -79,7 +80,8 @@ export default function VaultIntakePanel({
   // Разблокированные закрытые ключи — только в памяти вкладки, по key_id.
   const [unlocked, setUnlocked] = useState<Record<string, CryptoKey>>({});
   const [pendingAccept, setPendingAccept] = useState<IntakeRequestRow | null>(null);
-  const [accept, setAccept] = useState<{ req: IntakeRequestRow; title: string; login: string; url: string; note: string; secret: string; group: string } | null>(null);
+  type Draft = { title: string; login: string; url: string; note: string; secret: string; include: boolean };
+  const [accept, setAccept] = useState<{ req: IntakeRequestRow; title: string; login: string; url: string; note: string; secret: string; group: string; extras: Draft[] } | null>(null);
   const [showSecret, setShowSecret] = useState(false);
   const [showClosed, setShowClosed] = useState(false);
 
@@ -166,8 +168,10 @@ export default function VaultIntakePanel({
         agencyEmail,
         submittedAt: fmt(r.submitted_at),
       });
+      const extras = draftExtras(payload, { clientName: r.client_name, submittedAt: fmt(r.submitted_at) })
+        .map((x) => ({ title: x.title, login: x.login, url: x.url, note: x.note, secret: x.secret, include: true }));
       setShowSecret(false);
-      setAccept({ req: r, title: d.title, login: d.login, url: d.url, note: d.note, secret: d.secret, group: d.group });
+      setAccept({ req: r, title: d.title, login: d.login, url: d.url, note: d.note, secret: d.secret, group: d.group, extras });
     } catch (e) {
       toast(e instanceof Error ? e.message : "Не удалось расшифровать", "error");
     }
@@ -202,11 +206,15 @@ export default function VaultIntakePanel({
         body: JSON.stringify({
           title: accept.title, login: accept.login, url: accept.url, note: accept.note,
           secret: accept.secret || undefined, group_name: accept.group,
+          extras: accept.extras.filter((x) => x.include).map((x) => ({
+            title: x.title, login: x.login, url: x.url, note: x.note, secret: x.secret || undefined,
+          })),
         }),
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || "Не удалось сохранить");
-      toast("Запись добавлена в парольницу");
+      const n = 1 + accept.extras.filter((x) => x.include).length;
+      toast(n > 1 ? `В парольницу добавлено записей: ${n}` : "Запись добавлена в парольницу");
       setAccept(null);
       router.refresh();
     } catch (e) {
@@ -409,6 +417,33 @@ export default function VaultIntakePanel({
               <input className="input mt-1" value={accept.group} onChange={(e) => setAccept({ ...accept, group: e.target.value })} /></label>
             <label className="block"><span className="text-slate-600 dark:text-neutral-400">Заметка</span>
               <textarea className="input mt-1 min-h-[120px]" value={accept.note} onChange={(e) => setAccept({ ...accept, note: e.target.value })} /></label>
+            {accept.extras.length > 0 && (
+              <div className="space-y-3 border-t border-slate-200 pt-3 dark:border-white/10">
+                <div className="text-sm font-semibold text-slate-900 dark:text-white">
+                  Клиент добавил сам: {accept.extras.length}
+                  <span className="ml-1 font-normal text-slate-500">— каждая станет отдельной записью</span>
+                </div>
+                {accept.extras.map((x, i) => {
+                  const upd = (patch: Partial<Draft>) =>
+                    setAccept({ ...accept, extras: accept.extras.map((y, j) => (j === i ? { ...y, ...patch } : y)) });
+                  return (
+                    <div key={i} className={`rounded-2xl border p-3 ${x.include ? "border-slate-200 dark:border-white/10" : "border-dashed border-slate-200 opacity-50 dark:border-white/10"}`}>
+                      <label className="flex items-center gap-2 text-xs text-slate-500">
+                        <input type="checkbox" checked={x.include} onChange={(e) => upd({ include: e.target.checked })} />
+                        Сохранить в парольницу
+                      </label>
+                      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                        <input className="input sm:col-span-2" value={x.title} onChange={(e) => upd({ title: e.target.value })} placeholder="Название" />
+                        <input className="input" value={x.login} onChange={(e) => upd({ login: e.target.value })} placeholder="Логин" />
+                        <input className="input" value={x.url} onChange={(e) => upd({ url: e.target.value })} placeholder="Ссылка" />
+                        <input className="input sm:col-span-2" type={showSecret ? "text" : "password"} value={x.secret} onChange={(e) => upd({ secret: e.target.value })} placeholder="Пароль" />
+                        <textarea className="input min-h-[70px] sm:col-span-2" value={x.note} onChange={(e) => upd({ note: e.target.value })} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
             <div className="flex justify-end gap-2 pt-1">
               <button type="button" onClick={() => setAccept(null)} className="btn-ghost">Отмена</button>
               <button type="button" disabled={busy} onClick={saveAccept} className="btn-primary">{busy ? "…" : "Сохранить в парольницу"}</button>
@@ -430,6 +465,9 @@ function Row({ r, canGrant, onRevoke, onAccept }: { r: IntakeRequestRow; canGran
           <span className="font-medium text-slate-900 dark:text-white">{serviceTitle(r.service_kind, r.service_label)}</span>
           <span className="text-slate-500 dark:text-neutral-400">· {r.client_name || "клиент"}</span>
           <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${st.cls}`}>{st.label}</span>
+          {r.status === "submitted" && (r.extras_count ?? 0) > 0 && (
+            <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] text-sky-700 dark:bg-sky-500/15 dark:text-sky-300">+{r.extras_count} от клиента</span>
+          )}
           {r.status === "submitted" && r.user_added && !r.fallback_used && (
             <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">добавил нас пользователем</span>
           )}

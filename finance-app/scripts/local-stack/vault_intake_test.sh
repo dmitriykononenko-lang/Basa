@@ -46,7 +46,7 @@ SQL
 
 echo "== права на функции"
 expect "anon не вызывает create"  "$(q "select has_function_privilege('anon','public.vault_intake_create(uuid,text,text,uuid,uuid,text,integer)','execute')")" "f"
-expect "anon не вызывает accept"  "$(q "select has_function_privilege('anon','public.vault_intake_accept(uuid,text,text,text,text,text,text)','execute')")" "f"
+expect "anon не вызывает accept"  "$(q "select has_function_privilege('anon','public.vault_intake_accept(uuid,text,text,text,text,text,text,jsonb)','execute')")" "f"
 expect "anon не вызывает revoke"  "$(q "select has_function_privilege('anon','public.vault_intake_revoke(uuid)','execute')")" "f"
 expect "anon не вызывает key_set" "$(q "select has_function_privilege('anon','public.vault_team_key_set(uuid,text,jsonb)','execute')")" "f"
 expect "anon не вызывает expire"  "$(q "select has_function_privilege('anon','public.vault_intake_expire()','execute')")" "f"
@@ -121,6 +121,22 @@ expect "уведомления по запросу прочитаны" "$(q "sel
 expect_re "повторный приём запрещён" "$(as $OWNER "select public.vault_intake_accept('$REQ','T','','','','','')")" "не ожидает"
 expect "справочник показывает клиента" "$(as $OWNER "select counterparty_name from public.vault_directory('$TEAM') where id='$ENTRY'")" "Maison LLC"
 expect "журнал: create + accept" "$(q "select count(*) from public.vault_access_log where (action='intake_accept' and details->>'request_id'='$REQ') or (action='create' and entry_id='$ENTRY')")" "2"
+
+echo "== доп. доступы клиента"
+RX=$(as $MANAGER "select id||'|'||token from public.vault_intake_create('$TEAM','amocrm','','$PROJ','$CP','',48)")
+REQX=${RX%%|*}; TOKX=${RX##*|}
+KIDX=$(q "select key_id from public.vault_intake_requests where id='$REQX'")
+PX="{\"v\":1,\"kid\":\"$KIDX\",\"epk\":\"$PUB\",\"iv\":\"aXZpdml2aXZpdml2\",\"ct\":\"$CT\"}"
+expect "больше 10 доп. доступов отклоняется" "$(as anon "select public.vault_intake_submit('$TOKX','$PX',true,false,'{}',11)->>'status'")" "bad_payload"
+expect "отправка с 2 доп. доступами" "$(as anon "select public.vault_intake_submit('$TOKX','$PX',true,false,'{}',2)->>'status'")" "ok"
+expect "число доп. доступов сохранено" "$(q "select extras_count from public.vault_intake_requests where id='$REQX'")" "2"
+expect_re "уведомление упоминает доп. доступы" "$(q "select body from public.notifications where dedupe_key='vault_intake:$REQX:submit' limit 1")" "ещё 2"
+expect_re "доп. доступ без названия отклоняется" "$(as $OWNER "select public.vault_intake_accept('$REQX','amoCRM · Maison','','','','','G','[{\"title\":\"\"}]'::jsonb)")" "название"
+expect_re "больше 10 записей отклоняется" "$(as $OWNER "select public.vault_intake_accept('$REQX','amoCRM','','','','','G',(select jsonb_agg(jsonb_build_object('title','x')) from generate_series(1,11)))")" "не больше 10"
+EX=$(as $OWNER "select public.vault_intake_accept('$REQX','amoCRM · Maison','koagency.me@gmail.com','','note','','Доступы клиентов','[{\"title\":\"Tilda · Maison\",\"login\":\"site\",\"secret_cipher\":\"a.b.c\"},{\"title\":\"Хостинг · Maison\",\"login\":\"root\",\"secret_cipher\":\"d.e.f\"}]'::jsonb)")
+expect_re "приём с доп. доступами" "$EX" "^[0-9a-f-]{36}$"
+expect "создано 3 записи с привязкой к проекту и клиенту" "$(q "select count(*) from public.vault_entries where (id='$EX' or title in ('Tilda · Maison','Хостинг · Maison')) and project_id='$PROJ' and counterparty_id='$CP' and group_name='Доступы клиентов'")" "3"
+expect "журнал: extra_entries=2" "$(q "select details->>'extra_entries' from public.vault_access_log where action='intake_accept' and details->>'request_id'='$REQX'")" "2"
 
 echo "== отзыв"
 R2=$(as $MANAGER "select id||'|'||token from public.vault_intake_create('$TEAM','other','Radist',null,null,'Garant',48)")

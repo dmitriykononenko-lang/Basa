@@ -13,9 +13,10 @@ export async function POST(request: Request) {
     request,
     z.object({
       token: z.string().max(64),
-      payload: z.string().min(100).max(24000),
+      payload: z.string().min(100).max(80000),
       user_added: z.boolean(),
       fallback: z.boolean(),
+      extras_count: z.number().int().min(0).max(10).optional(),
     }),
   );
   if (!p.ok) return p.res;
@@ -27,6 +28,7 @@ export async function POST(request: Request) {
     _user_added: p.data.user_added,
     _fallback: p.data.fallback,
     _client: clientInfo(request),
+    _extras_count: p.data.extras_count ?? 0,
   });
   if (error) return noStore({ status: "error" }, 500);
   const res = (data ?? { status: "invalid" }) as Record<string, unknown>;

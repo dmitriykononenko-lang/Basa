@@ -11,7 +11,7 @@ import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { generateTeamKey, unlockTeamKey, openSealed } from "../../src/lib/intake-crypto.ts";
-import { draftEntry, cleanPayload } from "../../src/lib/intake-form.ts";
+import { draftEntry, draftExtras, cleanPayload } from "../../src/lib/intake-form.ts";
 
 const PGPORT = process.env.PGPORT ?? "54329";
 const DB = process.env.DB ?? "basa_local";
@@ -97,9 +97,18 @@ async function accept() {
   const payload = cleanPayload(await openSealed(priv, id, cipher));
   const d = draftEntry(payload, { clientName, agencyEmail: "koagency.me@gmail.com", submittedAt });
   const secretCipher = d.secret ? encryptSecret(d.secret) : "";
-  const entry = sql(`select public.vault_intake_accept(:'i', :'t', :'l', :'u', :'n', :'s', :'g');`, {
-    as: OWNER, vars: { i: id, t: d.title, l: d.login, u: d.url, n: d.note, s: secretCipher, g: d.group },
+  const extras = draftExtras(payload, { clientName, submittedAt });
+  const extraJson = JSON.stringify(extras.map((x) => ({ title: x.title, login: x.login, url: x.url, note: x.note, secret_cipher: x.secret ? encryptSecret(x.secret) : "" })));
+  const entry = sql(`select public.vault_intake_accept(:'i', :'t', :'l', :'u', :'n', :'s', :'g', :'x'::jsonb);`, {
+    as: OWNER, vars: { i: id, t: d.title, l: d.login, u: d.url, n: d.note, s: secretCipher, g: d.group, x: extraJson },
   });
+  if (extras.length) {
+    console.log(`доп. доступы клиента → ${extras.length} отдельных записей:`);
+    for (const x of extras) {
+      const ok = sql(`select decrypt_check from (select secret_cipher as decrypt_check from public.vault_entries where title=:'t' order by created_at desc limit 1) q;`, { vars: { t: x.title } });
+      console.log(`  ${x.title} | ${x.login} | ${x.url} | пароль совпадает: ${decryptSecret(ok) === x.secret}`);
+    }
+  }
   console.log(`владелец расшифровал запрос паролем ключа и принял → запись ${entry}`);
   const e = sql(`select title || ' | ' || login || ' | ' || url || ' | проект: ' || coalesce(p.name,'') || ' | клиент: ' || coalesce(c.name,'')
       from public.vault_entries v left join public.projects p on p.id=v.project_id left join public.counterparties c on c.id=v.counterparty_id where v.id=:'e';`, { vars: { e: entry } });

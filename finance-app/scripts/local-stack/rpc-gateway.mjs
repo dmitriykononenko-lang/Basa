@@ -13,9 +13,9 @@ const DB = process.env.DB ?? "basa_local";
 // Разрешены только публичные функции и их аргументы — ровно как у anon в production.
 const ALLOWED = {
   vault_intake_load: ["_token", "_client"],
-  vault_intake_submit: ["_token", "_payload", "_user_added", "_fallback", "_client"],
+  vault_intake_submit: ["_token", "_payload", "_user_added", "_fallback", "_client", "_extras_count"],
 };
-const CASTS = { _token: "text", _payload: "text", _client: "jsonb", _user_added: "boolean", _fallback: "boolean" };
+const CASTS = { _token: "text", _payload: "text", _client: "jsonb", _user_added: "boolean", _fallback: "boolean", _extras_count: "integer" };
 
 function callAsAnon(fn, args) {
   const names = ALLOWED[fn];
