@@ -159,6 +159,9 @@ export default function IntakeClient() {
 // ---------- левая колонка: контекст и доверие ----------
 function Aside({ data, phase }: { data: Loaded | null; phase: Phase["k"] }) {
   const remaining = useRemaining(phase === "form" ? data?.expires_at : undefined);
+  // показываем реальный адрес страницы — клиент сверяет его с адресом в сообщении
+  const [host, setHost] = useState("");
+  useEffect(() => setHost(window.location.host), []);
   const reduce = useReducedMotion();
   return (
     <aside className="relative overflow-hidden bg-[#0e0e0e] text-white md:sticky md:top-0 md:h-[100dvh]">
@@ -174,7 +177,7 @@ function Aside({ data, phase }: { data: Loaded | null; phase: Phase["k"] }) {
           <img src="/ko-agency-wordmark.svg" alt="KO Agency" className="h-[18px] w-auto md:h-5" />
           <span className="flex items-center gap-1.5 rounded-full border border-white/10 px-2.5 py-1 text-[11px] text-white/60 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
             <LockIco className="h-3 w-3" />
-            access.koagency.me
+            {host}
           </span>
         </div>
 

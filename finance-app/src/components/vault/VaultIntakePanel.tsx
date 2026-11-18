@@ -46,11 +46,19 @@ const STATUS: Record<IntakeRequestRow["status"], { label: string; cls: string }>
 const fmt = (iso: string | null) =>
   iso ? new Date(iso).toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "—";
 
+const hostOf = (url: string) => {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+};
+
 // Шаблон сообщения клиенту (без пароля, только ссылка и срок).
 function clientMessage(service: string, url: string, expires: string) {
   return (
     `Здравствуйте! Чтобы не пересылать пароли в чате, передайте, пожалуйста, доступ к ${service} по защищённой ссылке:\n${url}\n\n` +
-    `Ссылка одноразовая и действует до ${fmt(expires)}. Адрес страницы всегда access.koagency.me. ` +
+    `Ссылка одноразовая и действует до ${fmt(expires)}. Страница открывается на адресе ${hostOf(url)}. ` +
     `Коды из SMS в чат присылать не нужно.`
   );
 }
