@@ -40,6 +40,11 @@ Meta, Google Ads сначала «добавьте нас», пароль — з
 - CSP страницы клиента: без сторонних источников, но `script-src 'unsafe-inline'` (App Router без nonce).
 - Ограничения частоты запросов нет: токен 256 бит, перебор бессмыслен; размер и одна отправка ограничены в БД.
 - План выкладки: `tasks/vault_intake_rollout.md`.
+- 18.11 production: бэкап `~/basa-backup-pre0101-20261118T101710Z` (age, restore = production 34/34; первая сверка
+  разошлась из-за партии 60 ko-ledger в 10:17:31 — объяснено по basa_sync_log); репетиция финального текста
+  REHEARSAL OK, откат чистый; «да, миграцию» → apply_migration 0101_vault_intake, version 20261118104649,
+  md5 = cba7973cce2bde67792dc66d15405f24 = файл; права проверены; tx/RUB/USDT/обязательства/счета без изменений;
+  integrity audit 35 проверок, 0 FAIL. Дальше: переменные Vercel → merge/деплой → домен → пробный запрос.
 
 ---
 
