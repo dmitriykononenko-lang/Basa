@@ -90,7 +90,7 @@ async function accept() {
       from public.vault_intake_requests r where r.team_id='${TEAM}' and r.status='submitted' order by r.submitted_at desc limit 1;`, { as: OWNER });
   if (!row) return console.log("нет отправленных запросов");
   const [id, keyId, , clientName, submittedAt] = row.split("|");
-  const cipher = sql(`select payload_cipher from public.vault_intake_requests where id=:'i';`, { as: OWNER, vars: { i: id } });
+  const cipher = sql(`select public.vault_intake_payload(:'i');`, { as: OWNER, vars: { i: id } });
   const wrapped = JSON.parse(sql(`select wrapped_private_key::text from public.vault_team_keys where id=:'k';`, { as: OWNER, vars: { k: keyId } }));
 
   const priv = await unlockTeamKey(wrapped, readFileSync(SECRET_FILE, "utf8"));

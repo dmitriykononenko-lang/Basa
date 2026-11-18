@@ -97,9 +97,15 @@ drop policy if exists vault_intake_select on public.vault_intake_requests;
 create policy vault_intake_select on public.vault_intake_requests for select
   using (public.can_edit_finance(team_id));
 
-revoke insert, update, delete on public.vault_team_keys from anon, authenticated;
-revoke insert, update, delete on public.vault_intake_requests from anon, authenticated;
-revoke select on public.vault_team_keys, public.vault_intake_requests from anon;
+-- Только чтение и только нужных колонок: шифртекст и хеш токена напрямую не отдаются никому
+-- (шифртекст владельцу/админу — через vault_intake_payload). TRUNCATE/REFERENCES/TRIGGER — нет.
+revoke all on public.vault_team_keys, public.vault_intake_requests from public, anon, authenticated;
+grant select on public.vault_team_keys to authenticated;
+grant select (id, team_id, project_id, counterparty_id, service_kind, service_label, client_name,
+              requested_by, requester_name, key_id, status, expires_at, open_count, opened_at,
+              submitted_at, user_added, fallback_used, extras_count, accepted_at, accepted_by,
+              entry_id, closed_at, created_at)
+  on public.vault_intake_requests to authenticated;
 
 -- ============================================================
 -- Внутренние помощники (не вызываются клиентом).
@@ -169,7 +175,7 @@ as $$
 declare
   _id uuid;
 begin
-  if not public.can_manage_team(_team_id) then
+  if not coalesce(public.can_manage_team(_team_id), false) then
     raise exception 'Нет доступа';
   end if;
   if _public_key !~ '^[A-Za-z0-9_-]{80,100}$' then
@@ -197,7 +203,7 @@ create or replace function public.vault_team_has_key(_team_id uuid)
 returns boolean
 language sql stable security definer set search_path = public
 as $$
-  select public.can_edit_finance(_team_id)
+  select coalesce(public.can_edit_finance(_team_id), false)
      and exists (select 1 from public.vault_team_keys k where k.team_id = _team_id and k.active)
 $$;
 
@@ -217,7 +223,7 @@ declare
   _req   public.vault_intake_requests;
   _cname text := left(trim(coalesce(_client_name, '')), 120);
 begin
-  if not public.can_edit_finance(_team_id) then
+  if not coalesce(public.can_edit_finance(_team_id), false) then
     raise exception 'Нет доступа';
   end if;
   if _ttl_hours is null or _ttl_hours < 1 or _ttl_hours > 168 then
@@ -277,7 +283,7 @@ declare
   _req public.vault_intake_requests;
 begin
   select * into _req from public.vault_intake_requests r where r.id = _id for update;
-  if _req.id is null or not public.can_edit_finance(_req.team_id) then
+  if _req.id is null or not coalesce(public.can_edit_finance(_req.team_id), false) then
     raise exception 'Запрос не найден';
   end if;
   if _req.status not in ('pending','opened','submitted') then
@@ -356,10 +362,13 @@ begin
   update public.vault_intake_requests
      set status = 'opened', open_count = open_count + 1, opened_at = coalesce(opened_at, now())
    where id = _req.id returning * into _req;
+  -- журнал: первые 20 открытий (счётчик растёт дальше) — чтобы ссылку нельзя было накрутить
+  if _req.open_count <= 20 then
   perform public.vault_intake_log(_req, 'intake_open',
     jsonb_build_object('n', _req.open_count,
                        'ip_hash', left(coalesce(_client ->> 'ip_hash', ''), 64),
                        'ua', left(coalesce(_client ->> 'ua', ''), 160)));
+  end if;
   if _first then
     perform public.vault_intake_notify(_req, 'open',
       coalesce(nullif(_req.client_name, ''), 'Клиент') || ' открыл ссылку: ' ||
@@ -468,7 +477,7 @@ declare
   _n     integer := 0;
 begin
   select * into _req from public.vault_intake_requests r where r.id = _id for update;
-  if _req.id is null or not public.can_manage_team(_req.team_id) then
+  if _req.id is null or not coalesce(public.can_manage_team(_req.team_id), false) then
     raise exception 'Запрос не найден';
   end if;
   if _req.status <> 'submitted' then
@@ -514,6 +523,16 @@ begin
    where dedupe_key in ('vault_intake:' || _id::text || ':submit', 'vault_intake:' || _id::text || ':open');
   return _entry;
 end;
+$$;
+
+-- Шифртекст запроса — только владельцу/админу (тем, кто может принять).
+create or replace function public.vault_intake_payload(_id uuid)
+returns text
+language sql stable security definer set search_path = public
+as $$
+  select r.payload_cipher from public.vault_intake_requests r
+   where r.id = _id and r.status = 'submitted'
+     and coalesce(public.can_manage_team(r.team_id), false)
 $$;
 
 -- ============================================================
@@ -581,6 +600,8 @@ grant  execute on function public.vault_intake_expire() to service_role;
 
 revoke execute on function public.vault_team_key_set(uuid, text, jsonb) from public, anon;
 revoke execute on function public.vault_team_has_key(uuid) from public, anon;
+revoke execute on function public.vault_intake_payload(uuid) from public, anon;
+grant  execute on function public.vault_intake_payload(uuid) to authenticated;
 grant  execute on function public.vault_team_has_key(uuid) to authenticated;
 revoke execute on function public.vault_intake_create(uuid, text, text, uuid, uuid, text, integer) from public, anon;
 revoke execute on function public.vault_intake_revoke(uuid) from public, anon;

@@ -84,7 +84,7 @@ export default async function VaultPage({
     const [{ data: reqRaw }, { data: keysRaw }, { data: cpRaw }] = await Promise.all([
       supabase
         .from("vault_intake_requests")
-        .select("id, service_kind, service_label, client_name, requester_name, status, expires_at, open_count, opened_at, submitted_at, user_added, fallback_used, extras_count, key_id, payload_cipher, entry_id, created_at, projects(name), counterparties(name)")
+        .select("id, service_kind, service_label, client_name, requester_name, status, expires_at, open_count, opened_at, submitted_at, user_added, fallback_used, extras_count, key_id, entry_id, created_at, projects(name), counterparties(name)")
         .eq("team_id", team.id)
         .order("created_at", { ascending: false })
         .limit(100),
@@ -107,9 +107,19 @@ export default async function VaultPage({
       ...(r as unknown as IntakeRequestRow),
       project_name: one(r.projects)?.name ?? null,
       counterparty_name: one(r.counterparties)?.name ?? null,
-      // шифртекст нужен только тем, кто может принять
-      payload_cipher: canGrant ? ((r.payload_cipher as string | null) ?? null) : null,
+      payload_cipher: null as string | null,
     }));
+    // шифртекст — только владельцу/админу и только отправленных запросов (RPC vault_intake_payload)
+    if (canGrant) {
+      await Promise.all(
+        intakeRequests
+          .filter((r) => r.status === "submitted")
+          .map(async (r) => {
+            const { data } = await supabase.rpc("vault_intake_payload", { _id: r.id });
+            r.payload_cipher = (data as string | null) ?? null;
+          }),
+      );
+    }
     // Менеджеру — только признак наличия ключа (обёрнутый ключ видят владелец/админ).
     teamKeys = canGrant
       ? ((keysRaw ?? []) as unknown as TeamKeyRow[])

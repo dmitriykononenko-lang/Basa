@@ -4,7 +4,7 @@ import { NextResponse, type NextRequest } from "next/server";
 // Страница клиента «Передача доступа»: только эти пути, без сессии Basa.
 // Авторизация — по неугадываемому токену внутри RPC vault_intake_*.
 function isIntakePath(path: string): boolean {
-  return path === "/a" || path.startsWith("/api/intake/");
+  return path === "/a" || path === "/api/intake/load" || path === "/api/intake/submit";
 }
 
 export async function updateSession(request: NextRequest) {

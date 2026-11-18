@@ -81,6 +81,9 @@ expect "срок 48 часов" "$(q "select round(extract(epoch from expires_at
 expect_re "anon не читает запросы" "$(as anon "select count(*) from public.vault_intake_requests")" "^0$|permission denied"
 expect "сотрудник не читает запросы" "$(as $EMPL "select count(*) from public.vault_intake_requests")" "0"
 expect "менеджер читает запросы" "$(as $MANAGER "select count(*) from public.vault_intake_requests")" "1"
+expect_re "менеджер не читает шифртекст напрямую" "$(as $MANAGER "select payload_cipher from public.vault_intake_requests limit 1")" "permission denied"
+expect_re "менеджер не читает хеш токена" "$(as $MANAGER "select token_hash from public.vault_intake_requests limit 1")" "permission denied"
+expect "у anon нет TRUNCATE" "$(q "select has_table_privilege('anon','public.vault_intake_requests','TRUNCATE') or has_table_privilege('authenticated','public.vault_intake_requests','TRUNCATE')")" "f"
 expect_re "прямой update запрещён" "$(as $MANAGER "update public.vault_intake_requests set status='accepted' where id='$REQ'")" "permission denied|denied"
 
 echo "== клиент открывает ссылку"
@@ -111,6 +114,8 @@ expect "статус submitted, отметка user_added" "$(q "select status||
 expect "уведомление о передаче" "$(q "select count(*) from public.notifications where dedupe_key='vault_intake:$REQ:submit' and read_at is null")" "2"
 
 echo "== приём"
+expect "менеджер не получает шифртекст через RPC" "$(as $MANAGER "select coalesce(public.vault_intake_payload('$REQ'),'none')")" "none"
+expect "владелец получает шифртекст через RPC" "$(as $OWNER "select (public.vault_intake_payload('$REQ') like '{\"v\":1%')::text")" "true"
 expect_re "менеджер не принимает" "$(as $MANAGER "select public.vault_intake_accept('$REQ','T','','','','','')")" "не найден"
 expect_re "чужой владелец не принимает" "$(as $OUT "select public.vault_intake_accept('$REQ','T','','','','','')")" "не найден"
 ENTRY=$(as $OWNER "select public.vault_intake_accept('$REQ','amoCRM · Maison','koagency.me@gmail.com','https://maison.amocrm.ru','note','iv.tag.data','Доступы клиентов')")
@@ -137,6 +142,13 @@ EX=$(as $OWNER "select public.vault_intake_accept('$REQX','amoCRM · Maison','ko
 expect_re "приём с доп. доступами" "$EX" "^[0-9a-f-]{36}$"
 expect "создано 3 записи с привязкой к проекту и клиенту" "$(q "select count(*) from public.vault_entries where (id='$EX' or title in ('Tilda · Maison','Хостинг · Maison')) and project_id='$PROJ' and counterparty_id='$CP' and group_name='Доступы клиентов'")" "3"
 expect "журнал: extra_entries=2" "$(q "select details->>'extra_entries' from public.vault_access_log where action='intake_accept' and details->>'request_id'='$REQX'")" "2"
+
+echo "== накрутка открытий"
+RL=$(as $MANAGER "select id||'|'||token from public.vault_intake_create('$TEAM','kommo','',null,null,'X',48)")
+REQL=${RL%%|*}; TOKL=${RL##*|}
+for i in $(seq 1 25); do as anon "select public.vault_intake_load('$TOKL','{}')" >/dev/null; done
+expect "счётчик открытий 25" "$(q "select open_count from public.vault_intake_requests where id='$REQL'")" "25"
+expect "в журнале не больше 20 открытий" "$(q "select count(*) from public.vault_access_log where action='intake_open' and details->>'request_id'='$REQL'")" "20"
 
 echo "== отзыв"
 R2=$(as $MANAGER "select id||'|'||token from public.vault_intake_create('$TEAM','other','Radist',null,null,'Garant',48)")

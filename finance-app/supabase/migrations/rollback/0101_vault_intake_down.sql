@@ -1,6 +1,7 @@
 -- ============================================================
 -- Откат 0101_vault_intake. ВНИМАНИЕ: удаляет запросы клиентам, ключ команды
--- и привязку записей к контрагенту. Принятые записи парольницы остаются.
+-- и привязку записей к контрагенту (журнал intake_* переносится в vault_access_log_intake_archive).
+-- Принятые записи парольницы остаются.
 -- Перед применением сверить с текущим production (уроки: откат пишется против прода).
 -- ============================================================
 begin;
@@ -12,6 +13,7 @@ drop function if exists public.vault_intake_revoke(uuid);
 drop function if exists public.vault_intake_create(uuid, text, text, uuid, uuid, text, integer);
 drop function if exists public.vault_intake_expire();
 drop function if exists public.vault_team_has_key(uuid);
+drop function if exists public.vault_intake_payload(uuid);
 drop function if exists public.vault_team_key_set(uuid, text, jsonb);
 drop function if exists public.vault_intake_notify(public.vault_intake_requests, text, text);
 drop function if exists public.vault_intake_log(public.vault_intake_requests, text, jsonb);
@@ -32,6 +34,11 @@ alter table public.notifications add constraint notifications_type_check
 
 -- журнал неизменяемый по смыслу, но старое ограничение не допускает intake_* —
 -- такие строки удаляются (их суть сохранена в принятых записях)
+create table if not exists public.vault_access_log_intake_archive as
+  select * from public.vault_access_log where false;
+insert into public.vault_access_log_intake_archive select * from public.vault_access_log where action like 'intake_%';
+alter table public.vault_access_log_intake_archive enable row level security;
+revoke all on public.vault_access_log_intake_archive from public, anon, authenticated;
 delete from public.vault_access_log where action like 'intake_%';
 alter table public.vault_access_log drop constraint if exists vault_access_log_action_check;
 alter table public.vault_access_log add constraint vault_access_log_action_check
