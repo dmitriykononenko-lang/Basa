@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Учёт проектов и бонусов аналитиков</title>
+    <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+    <header class="topbar">
+        <h1>Учёт проектов и бонусов аналитиков</h1>
+        <nav class="tabs">
+            <button class="tab active" data-tab="projects">Проекты</button>
+            <button class="tab" data-tab="analysts">Аналитики</button>
+            <button class="tab" data-tab="stats">Статистика</button>
+        </nav>
+    </header>
+
+    <main>
+        <section id="tab-projects" class="tab-panel active">
+            <div class="panel-header">
+                <h2>Проекты</h2>
+                <div class="panel-actions">
+                    <input type="search" id="project-search" placeholder="Поиск по названию…">
+                    <select id="project-status-filter">
+                        <option value="">Все статусы</option>
+                        <option value="launched">Запущен</option>
+                        <option value="in_progress">В работе</option>
+                        <option value="completed">Завершён</option>
+                        <option value="cancelled">Отменён</option>
+                    </select>
+                    <button class="btn btn-primary" id="btn-add-project">+ Новый проект</button>
+                </div>
+            </div>
+            <div class="table-wrapper">
+                <table id="projects-table">
+                    <thead>
+                        <tr>
+                            <th>Название</th>
+                            <th>Дата запуска</th>
+                            <th>Аналитик</th>
+                            <th>Статус</th>
+                            <th class="text-right">Бюджет</th>
+                            <th class="text-right">Бонус</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+                <p class="empty-state" id="projects-empty" hidden>Пока нет ни одного проекта. Добавьте первый.</p>
+            </div>
+        </section>
+
+        <section id="tab-analysts" class="tab-panel">
+            <div class="panel-header">
+                <h2>Аналитики</h2>
+                <div class="panel-actions">
+                    <button class="btn btn-primary" id="btn-add-analyst">+ Новый аналитик</button>
+                </div>
+            </div>
+            <div class="table-wrapper">
+                <table id="analysts-table">
+                    <thead>
+                        <tr>
+                            <th>Имя</th>
+                            <th>Тип ставки</th>
+                            <th class="text-right">Значение</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+                <p class="empty-state" id="analysts-empty" hidden>Сначала добавьте хотя бы одного аналитика.</p>
+            </div>
+        </section>
+
+        <section id="tab-stats" class="tab-panel">
+            <div class="panel-header">
+                <h2>Статистика по аналитикам</h2>
+            </div>
+            <div class="cards" id="stats-cards"></div>
+        </section>
+    </main>
+
+    <!-- Modal: project -->
+    <div class="modal" id="project-modal" hidden>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="project-modal-title">Новый проект</h3>
+                <button class="modal-close" data-close="project-modal">&times;</button>
+            </div>
+            <form id="project-form">
+                <input type="hidden" name="id">
+                <label>
+                    Название
+                    <input type="text" name="name" required maxlength="200">
+                </label>
+                <label>
+                    Дата запуска
+                    <input type="date" name="started_at" required>
+                </label>
+                <label>
+                    Аналитик
+                    <select name="analyst_id" required></select>
+                </label>
+                <label>
+                    Статус
+                    <select name="status">
+                        <option value="launched">Запущен</option>
+                        <option value="in_progress">В работе</option>
+                        <option value="completed">Завершён</option>
+                        <option value="cancelled">Отменён</option>
+                    </select>
+                </label>
+                <label>
+                    Бюджет проекта, ₽
+                    <input type="number" name="budget" min="0" step="0.01" value="0">
+                </label>
+                <label>
+                    Бонус вручную (необязательно), ₽
+                    <input type="number" name="custom_bonus" min="0" step="0.01" placeholder="Оставьте пустым — рассчитается по ставке аналитика">
+                </label>
+                <label>
+                    Комментарий
+                    <textarea name="notes" rows="3"></textarea>
+                </label>
+                <div class="form-actions">
+                    <button type="button" class="btn" data-close="project-modal">Отмена</button>
+                    <button type="submit" class="btn btn-primary">Сохранить</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: analyst -->
+    <div class="modal" id="analyst-modal" hidden>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="analyst-modal-title">Новый аналитик</h3>
+                <button class="modal-close" data-close="analyst-modal">&times;</button>
+            </div>
+            <form id="analyst-form">
+                <input type="hidden" name="id">
+                <label>
+                    Имя
+                    <input type="text" name="name" required maxlength="200">
+                </label>
+                <label>
+                    Тип ставки
+                    <select name="rate_type">
+                        <option value="percent">% от бюджета проекта</option>
+                        <option value="fixed">Фиксированная сумма за проект</option>
+                    </select>
+                </label>
+                <label>
+                    Значение
+                    <input type="number" name="rate_value" min="0" step="0.01" required>
+                </label>
+                <div class="form-actions">
+                    <button type="button" class="btn" data-close="analyst-modal">Отмена</button>
+                    <button type="submit" class="btn btn-primary">Сохранить</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="toast" class="toast" hidden></div>
+
+    <script src="assets/app.js"></script>
+</body>
+</html>

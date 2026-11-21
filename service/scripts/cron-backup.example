@@ -1,0 +1,6 @@
+# Пример crontab для бэкапов БД (ТЗ §2.2 / §9.2).
+# Положите содержимое в /etc/cron.d/basa-backup или в `crontab -e` пользователя.
+# Не забудьте дать +x на scripts/backup-db.sh.
+
+# m  h  dom mon dow  user  command
+  15 3   *   *   *   root  cd /opt/basa/service && BACKUP_DIR=/var/backups/basa RETENTION_DAYS=14 ./scripts/backup-db.sh >> /var/log/basa-backup.log 2>&1
